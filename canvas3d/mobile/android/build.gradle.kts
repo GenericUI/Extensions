@@ -21,7 +21,6 @@ kotlin {
             api(project(":mobile:android"))
             api(project(":extensions:canvas3d:mobile:shared"))
             api(project(":extensions:gpu:mobile:android"))
-            api(project(":extensions:canvas2d:mobile:android"))
         }
         androidMain.dependencies {
             implementation(libs.androidx.core.ktx)

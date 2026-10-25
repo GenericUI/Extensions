@@ -1,12 +1,12 @@
 package com.nexustools.genericui.ext.box2d
 
 import com.nexustools.genericui.component.media.Canvas2D
-import com.nexustools.genericui.component.media.Canvas2DContext
 import com.nexustools.genericui.component.media.GLCanvas
 import com.nexustools.genericui.component.media.VBlankSubscription
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtSurface
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtension
 import com.nexustools.genericui.ext.canvas3d.GLCanvasExt
+import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.PI
 
@@ -89,7 +89,7 @@ class Box2DDebugDrawer(
     /**
      * Renders all enabled debug layers of [world] onto [ctx].
      */
-    fun drawWorld(world: World2D, ctx: Canvas2DContext) {
+    fun drawWorld(world: World2D, ctx: ImageBuffer2DContext) {
         if (drawShapes) {
             for (body in world.bodies) {
                 val color = when {
@@ -166,7 +166,7 @@ class Box2DDebugDrawer(
     }
 
     private fun drawFixtureShape(
-        ctx: Canvas2DContext,
+        ctx: ImageBuffer2DContext,
         xf: Transform2D,
         shape: Shape2D,
         color: RgbaColor

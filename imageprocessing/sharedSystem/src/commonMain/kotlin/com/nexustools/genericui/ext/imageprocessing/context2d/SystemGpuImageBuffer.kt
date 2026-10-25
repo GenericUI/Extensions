@@ -7,6 +7,7 @@ import com.nexustools.genericui.ext.gpu.GpuShaderProgram
 import com.nexustools.genericui.ext.gpu.GpuTexture
 import com.nexustools.genericui.ext.gpu.system.SystemGpuDirtyRegion
 import com.nexustools.genericui.ext.gpu.system.SystemGpuShaderCache
+import com.nexustools.genericui.ext.gpu.system.SystemVBlankSurfaceSynchronizer
 import com.nexustools.genericui.image.ImageColorSpace
 import com.nexustools.genericui.image.PixelFormat
 import com.nexustools.genericui.style.RgbaColor
@@ -18,15 +19,16 @@ import kotlin.math.min
  * extending [ImageBuffer] (`:extensions:imageprocessing:common`) for all non-web System targets
  * (Desktop, Swing, Mobile).
  *
- * - Supports a [doubleBuffer] flag (`false` by default):
+ * - Supports a [doubleBuffer] flag (`false` by default; `true` when used by `Canvas2D`):
  *   - When `doubleBuffer == false`: unbuffered direct GL/Vulkan surface (`[activeDrawBytes] === [bytes]`)
  *     that [context2D] ([GpuAcceleratedContext2DBackend]) mutates directly in-place with zero
  *     back-to-front copy overhead.
  *   - When `doubleBuffer == true`: maintains an offscreen back buffer ([backBytes]) that [context2D]
  *     renders into, and [flush] / [swapBuffers] atomically commits the dirty region into the
  *     presented front buffer ([bytes], [gpuTexture], and [bgraBufferBytes]).
- * - Provides [getContext] (`imageBuffer.getContext()`) returning [context2D] so [SystemGpuImageBuffer]
- *   can be used both as the backend of `Canvas2D` and directly for offscreen 2D rendering.
+ * - Provides [getContext] (`imageBuffer.getContext()`) returning [context2D] ([ImageBuffer2DContext])
+ *   so [SystemGpuImageBuffer] can be used both as the backend of `Canvas2D` and directly for offscreen
+ *   2D rendering.
  */
 class SystemGpuImageBuffer(
     width: Int = 800,
@@ -39,6 +41,7 @@ class SystemGpuImageBuffer(
     width = max(1, width),
     height = max(1, height),
     doubleBuffer = doubleBuffer,
+    enableDirtyTracking = true,
     pixelFormat = PixelFormat.RGBA_8888,
     colorSpace = colorSpace
 ) {
@@ -104,10 +107,12 @@ class SystemGpuImageBuffer(
 
     fun markDirtyRect(x0: Int, y0: Int, x1: Int, y1: Int) {
         dirtyRegion.markRectDirty(x0, y0, x1, y1)
+        markDirty(x0, y0, max(0, x1 - x0), max(0, y1 - y0))
     }
 
     fun markAllDirty() {
         dirtyRegion.markAllDirty()
+        markDirty(0, 0, width, height)
     }
 
     override fun setPixel(x: Int, y: Int, color: RgbaColor) {
@@ -119,8 +124,21 @@ class SystemGpuImageBuffer(
             target[idx + 1] = color.g.toByte()
             target[idx + 2] = color.b.toByte()
             target[idx + 3] = color.a.toByte()
-            dirtyRegion.markRectDirty(x, y, x + 1, y + 1)
+            markDirtyRect(x, y, x + 1, y + 1)
         }
+    }
+
+    override fun getPixel(x: Int, y: Int): RgbaColor {
+        if (x !in 0 until width || y !in 0 until height) return RgbaColor.TRANSPARENT
+        val target = activeDrawBytes
+        val idx = (y * width + x) shl 2
+        if (idx + 3 >= target.size) return RgbaColor.TRANSPARENT
+        return RgbaColor(
+            r = target[idx].toInt() and 0xFF,
+            g = target[idx + 1].toInt() and 0xFF,
+            b = target[idx + 2].toInt() and 0xFF,
+            a = target[idx + 3].toInt() and 0xFF
+        )
     }
 
     override fun fill(color: RgbaColor): com.nexustools.genericui.image.ImageBuffer {
@@ -145,6 +163,7 @@ class SystemGpuImageBuffer(
         gpuTexture = gpuContext.createEmptyTexture(safeW, safeH, PixelFormat.RGBA_8888)
         bgraBufferBytes = ByteArray(safeW * safeH * 4)
         dirtyRegion.resize(safeW, safeH)
+        clearDirtyState()
     }
 
     override fun flush() {
@@ -202,10 +221,10 @@ class SystemGpuImageBuffer(
             }
         }
 
-        // Synchronize GPU texture with presented front buffer
         gpuContext.updateTexture(gpuTexture, this)
 
         dirtyRegion.clearDirty()
+        clearDirtyState()
         flushCount++
     }
 
@@ -225,7 +244,7 @@ class SystemGpuImageBuffer(
             r == 0.toByte() && g == 0.toByte() && b == 0.toByte() && a == 0.toByte()
         ) {
             raw.fill(0)
-            dirtyRegion.markAllDirty()
+            markAllDirty()
             return
         }
         for (py in sy until ey) {
@@ -240,7 +259,7 @@ class SystemGpuImageBuffer(
                 }
             }
         }
-        dirtyRegion.markRectDirty(sx, sy, ex, ey)
+        markDirtyRect(sx, sy, ex, ey)
     }
 
     override fun readPixelsRgba(x: Int, y: Int, width: Int, height: Int): ByteArray {
@@ -251,7 +270,7 @@ class SystemGpuImageBuffer(
         }
         val safeW = max(1, width)
         val safeH = max(1, height)
-        val srcBytes = bytes
+        val srcBytes = activeDrawBytes
         val surfW = this.width
         val surfH = this.height
 
@@ -292,7 +311,7 @@ class SystemGpuImageBuffer(
                 rgbaBytes.copyInto(dstBytes, dstOffset, srcOffset, srcOffset + rowBytes)
             }
         }
-        dirtyRegion.markRectDirty(dx + startX, dy + startY, dx + endX, dy + endY)
+        markDirtyRect(dx + startX, dy + startY, dx + endX, dy + endY)
     }
 
     override fun directRgbaBytes(): ByteArray {
@@ -319,6 +338,7 @@ class SystemGpuImageBuffer(
 
     companion object {
         fun installFactory(preferVulkan: Boolean = true) {
+            SystemVBlankSurfaceSynchronizer.install()
             GpuDevice.ensureDefaultSystemProvidersInstalled(
                 enableVulkan = preferVulkan,
                 enableOpenGlEs = true

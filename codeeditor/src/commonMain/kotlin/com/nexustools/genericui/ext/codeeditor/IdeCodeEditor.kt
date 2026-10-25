@@ -2,9 +2,9 @@ package com.nexustools.genericui.ext.codeeditor
 
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.HStack
-import com.nexustools.genericui.component.media.Canvas2DContext
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtSurface
+import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.style.color.RgbaColor
 
@@ -315,7 +315,7 @@ class IdeCodeEditor(
         minimap.requestRender()
     }
 
-    fun renderEditorSurface(ctx: Canvas2DContext) {
+    fun renderEditorSurface(ctx: ImageBuffer2DContext) {
         val w = ctx.width.toFloat().coerceAtLeast(320f)
         val h = ctx.height.toFloat().coerceAtLeast(200f)
 
@@ -467,7 +467,7 @@ class IdeCodeEditor(
     }
 
     private fun drawSquiggleUnderline(
-        ctx: Canvas2DContext,
+        ctx: ImageBuffer2DContext,
         startX: Float,
         y: Float,
         width: Float,

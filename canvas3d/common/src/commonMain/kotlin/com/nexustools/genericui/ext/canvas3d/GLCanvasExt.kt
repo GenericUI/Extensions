@@ -45,7 +45,7 @@ open class GLCanvasExt(
     fun uploadGpuTexture(imageBuffer: ImageBuffer): GpuTexture =
         gpuContext.uploadTexture(imageBuffer)
 
-    override fun resolveRenderingContext(): GLContext? {
+    public override fun resolveRenderingContext(): GLContext? {
         super.resolveRenderingContext()?.let { return it }
         if (fallbackGlContext == null) {
             fallbackGlContext = Canvas3DExtension.createGLContext(

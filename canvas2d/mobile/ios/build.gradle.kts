@@ -9,6 +9,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":mobile:ios"))
+            api(project(":extensions:gpu:mobile:ios"))
             api(project(":extensions:canvas2d:mobile:shared"))
         }
         commonTest.dependencies {

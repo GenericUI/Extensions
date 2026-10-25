@@ -1,8 +1,8 @@
 package com.nexustools.genericui.ext.canvas2d
 
 import com.nexustools.genericui.component.layout.VStack
-import com.nexustools.genericui.component.media.Canvas2DContext
 import com.nexustools.genericui.enums.bootstrap.TextAlignment
+import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.style.RgbaColor
@@ -42,11 +42,11 @@ open class PrintableCanvasDocument(
 
     /**
      * Appends a new [Canvas2DExtSurface] page (`pageWidthPx x pageHeightPx`), optionally drawing
-     * [backgroundImage] and invoking [renderBlock] on its [Canvas2DContext].
+     * [backgroundImage] and invoking [renderBlock] on its [ImageBuffer2DContext].
      */
     fun createPage(
         backgroundImage: ImageBuffer? = null,
-        renderBlock: ((Canvas2DContext) -> Unit)? = null
+        renderBlock: ((ImageBuffer2DContext) -> Unit)? = null
     ): Canvas2DExtSurface {
         val surface = Canvas2DExtSurface(pageWidthPx, pageHeightPx).apply {
             addClass("d-block w-100 printable-page")
@@ -74,7 +74,7 @@ open class PrintableCanvasDocument(
         fontFamily: String = "serif",
         fontSizePx: Float = 36f,
         maxContinuationPages: Int = 16,
-        perPageHeaderRender: ((Canvas2DContext, Int) -> Unit)? = null
+        perPageHeaderRender: ((ImageBuffer2DContext, Int) -> Unit)? = null
     ): List<Canvas2DExtSurface> {
         var remaining = initialOverflowText
         val created = mutableListOf<Canvas2DExtSurface>()
@@ -136,7 +136,6 @@ open class PrintableCanvasDocument(
                         Canvas2DExtension.drawImage(ctx, it, (originX + cellW - it.width - 40).toFloat(), (originY + 40).toFloat())
                     }
 
-                    // Title
                     CanvasTextLayoutHelper.fillTextFitted(
                         ctx = ctx,
                         text = card.title,
@@ -146,7 +145,6 @@ open class PrintableCanvasDocument(
                         horizontalAlign = TextAlignment.CENTER
                     )
 
-                    // Category tag & subHeader
                     if (card.categoryTag.isNotEmpty()) {
                         CanvasTextLayoutHelper.fillTextFitted(
                             ctx = ctx,
@@ -169,7 +167,6 @@ open class PrintableCanvasDocument(
                         )
                     }
 
-                    // Description with overflow continuation card generation
                     val descBounds = Rect(originX + 60, originY + 230, cellW - 120, cellH - 320)
                     val overflow = CanvasTextLayoutHelper.fillTextAreaWithOverflow(
                         ctx = ctx,

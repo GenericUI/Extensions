@@ -13,7 +13,6 @@ kotlin {
         commonMain.dependencies {
             api(project(":desktop:gtk"))
             api(project(":extensions:canvas3d:desktop:shared"))
-            api(project(":extensions:canvas2d:desktop:gtk"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

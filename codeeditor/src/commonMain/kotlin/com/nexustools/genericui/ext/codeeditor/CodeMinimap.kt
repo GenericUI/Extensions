@@ -1,7 +1,7 @@
 package com.nexustools.genericui.ext.codeeditor
 
-import com.nexustools.genericui.component.media.Canvas2DContext
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtSurface
+import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 
 /**
  * IDE minimap overview component rendering scaled syntax-colored source lines, diagnostic markers,
@@ -44,7 +44,7 @@ class CodeMinimap(
         requestRender()
     }
 
-    fun renderMinimap(ctx: Canvas2DContext) {
+    fun renderMinimap(ctx: ImageBuffer2DContext) {
         val w = ctx.width.toFloat().coerceAtLeast(60f)
         val h = ctx.height.toFloat().coerceAtLeast(100f)
 

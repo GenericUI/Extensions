@@ -36,7 +36,6 @@ kotlin {
             api(project(":common"))
             implementation(libs.kotlinx.coroutines.core)
             api(project(":extensions:gpu:common"))
-            api(project(":extensions:canvas2d:common"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

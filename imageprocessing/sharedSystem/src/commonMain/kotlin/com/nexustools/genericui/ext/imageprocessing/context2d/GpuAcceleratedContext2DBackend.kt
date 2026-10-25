@@ -8,33 +8,28 @@ import com.nexustools.genericui.ext.gpu.system.SystemGpuShaderCache
 import com.nexustools.genericui.style.RgbaColor
 import kotlin.math.abs
 import kotlin.math.ceil
-import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
-import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
  * Shared system-target (`:extensions:imageprocessing:sharedSystem`) hardware-accelerated
  * **Vulkan (`#version 450`)** and **OpenGL ES (`#version 300 es`)** 2D context backend
- * implementing [ImageProcessingContext2DBackend] directly on top of [SystemGpuImageBuffer]
- * (an unbuffered GL/Vulkan [ImageBuffer] surface).
+ * implementing [ImageBuffer2DContext] directly on top of [SystemGpuImageBuffer].
  *
  * Features:
- * - Operates directly on [imageBuffer] (an unbuffered GL/Vulkan [SystemGpuImageBuffer]) with zero
- *   back-to-front double-buffering copy overhead.
- * - **Antialiasing enabled by default** (`antialias = true`) across all lines, polylines,
- *   quadratic/cubic Bezier curves, circles/ellipses, rounded rectangles, polygons/stars,
- *   and brush/airbrush/eraser strokes.
- * - Compiles and caches Vulkan `#version 450` and OpenGL ES `#version 300 es` shaders via
+ * - 100% HTML5 2D Context feature parity using strongly-typed `ImageBuffer*` enums and value types.
+ * - Compiles and caches all 12 Vulkan `#version 450` and OpenGL ES `#version 300 es` shaders via
  *   [SystemGpuShaderCache] and [GpuContext2DShaderCatalog].
+ * - Uses [ScalableVectorFontEngine] for crisp SDF text rendering (`fillText`, `strokeText`,
+ *   `measureText`) at any font size, weight, style, stretch, variant caps, alignment, and baseline.
  */
 class GpuAcceleratedContext2DBackend(
     override val imageBuffer: SystemGpuImageBuffer
-) : ImageProcessingContext2DBackend {
+) : ImageBuffer2DContext {
 
     constructor(
         width: Int = 800,
@@ -59,125 +54,161 @@ class GpuAcceleratedContext2DBackend(
     val backendType: GpuBackendType
         get() = imageBuffer.backendType
 
-    val clearFillRectShader: GpuShaderProgram = SystemGpuShaderCache.getOrCompile(
-        gpuContext = gpuContext,
-        shaderKey = GpuContext2DShaderCatalog.KEY_CLEAR_FILL_RECT,
-        vulkanGlsl450 = GpuContext2DShaderCatalog.VULKAN_CLEAR_FILL_RECT_450,
-        gles300Shader = GpuContext2DShaderCatalog.GLES_CLEAR_FILL_RECT_300
-    )
+    // -------------------------------------------------------------------------
+    // Compiled Vulkan (#version 450) / OpenGL ES (#version 300 es) Shaders
+    // -------------------------------------------------------------------------
 
-    val antialiasedSdfLineShader: GpuShaderProgram = SystemGpuShaderCache.getOrCompile(
-        gpuContext = gpuContext,
-        shaderKey = GpuContext2DShaderCatalog.KEY_ANTIALIASED_SDF_LINE,
-        vulkanGlsl450 = GpuContext2DShaderCatalog.VULKAN_ANTIALIASED_SDF_LINE_450,
-        gles300Shader = GpuContext2DShaderCatalog.GLES_ANTIALIASED_SDF_LINE_300
-    )
+    val clearFillRectShader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_CLEAR_FILL_RECT)
+    val antialiasedSdfLineShader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_ANTIALIASED_SDF_LINE)
+    val antialiasedSdfShapeShader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_ANTIALIASED_SDF_SHAPE)
+    val antialiasedBrushStampShader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_ANTIALIASED_BRUSH_STAMP)
+    val gradientShader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_LINEAR_RADIAL_GRADIENT)
+    val imageBlitSwizzleShader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_IMAGE_BLIT_SWIZZLE)
+    val sdfTextGlyphShader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_SDF_TEXT_GLYPH)
+    val conicMultiGradientShader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_CONIC_MULTI_GRADIENT)
+    val patternSamplerShader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_PATTERN_SAMPLER)
+    val shadowGaussianBlurShader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_SHADOW_GAUSSIAN_BLUR)
+    val compositeBlend26Shader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_COMPOSITE_BLEND_26)
+    val perCornerEllipseSdfShader: GpuShaderProgram = compileCatalogShader(GpuContext2DShaderCatalog.KEY_PER_CORNER_ELLIPSE_SDF)
 
-    val antialiasedSdfShapeShader: GpuShaderProgram = SystemGpuShaderCache.getOrCompile(
-        gpuContext = gpuContext,
-        shaderKey = GpuContext2DShaderCatalog.KEY_ANTIALIASED_SDF_SHAPE,
-        vulkanGlsl450 = GpuContext2DShaderCatalog.VULKAN_ANTIALIASED_SDF_SHAPE_450,
-        gles300Shader = GpuContext2DShaderCatalog.GLES_ANTIALIASED_SDF_SHAPE_300
-    )
+    private fun compileCatalogShader(key: String): GpuShaderProgram =
+        SystemGpuShaderCache.getOrCompile(
+            gpuContext = gpuContext,
+            shaderKey = key,
+            vulkanGlsl450 = GpuContext2DShaderCatalog.vulkanSourceForKey(key),
+            gles300Shader = GpuContext2DShaderCatalog.glesSourceForKey(key)
+        )
 
-    val antialiasedBrushStampShader: GpuShaderProgram = SystemGpuShaderCache.getOrCompile(
-        gpuContext = gpuContext,
-        shaderKey = GpuContext2DShaderCatalog.KEY_ANTIALIASED_BRUSH_STAMP,
-        vulkanGlsl450 = GpuContext2DShaderCatalog.VULKAN_ANTIALIASED_BRUSH_STAMP_450,
-        gles300Shader = GpuContext2DShaderCatalog.GLES_ANTIALIASED_BRUSH_STAMP_300
-    )
+    // -------------------------------------------------------------------------
+    // 2D Context State
+    // -------------------------------------------------------------------------
 
-    val gradientShader: GpuShaderProgram = SystemGpuShaderCache.getOrCompile(
-        gpuContext = gpuContext,
-        shaderKey = GpuContext2DShaderCatalog.KEY_LINEAR_RADIAL_GRADIENT,
-        vulkanGlsl450 = GpuContext2DShaderCatalog.VULKAN_LINEAR_RADIAL_GRADIENT_450,
-        gles300Shader = GpuContext2DShaderCatalog.GLES_LINEAR_RADIAL_GRADIENT_300
-    )
+    private var currentMatrix: ImageBufferMatrix2D = ImageBufferMatrix2D.identity()
+    override var globalAlpha: Float = 1f
+    override var globalCompositeOperation: ImageBufferCompositeOperation = ImageBufferCompositeOperation.SOURCE_OVER
+    override var imageSmoothingEnabled: Boolean = true
+    override var imageSmoothingQuality: ImageBufferImageSmoothingQuality = ImageBufferImageSmoothingQuality.HIGH
+    override var filter: String = "none"
 
-    val imageBlitSwizzleShader: GpuShaderProgram = SystemGpuShaderCache.getOrCompile(
-        gpuContext = gpuContext,
-        shaderKey = GpuContext2DShaderCatalog.KEY_IMAGE_BLIT_SWIZZLE,
-        vulkanGlsl450 = GpuContext2DShaderCatalog.VULKAN_IMAGE_BLIT_SWIZZLE_450,
-        gles300Shader = GpuContext2DShaderCatalog.GLES_IMAGE_BLIT_SWIZZLE_300
-    )
+    override var fillStyle: ImageBufferPaintStyle = ImageBufferPaintStyle.fromColor(RgbaColor.BLACK)
+    override var strokeStyle: ImageBufferPaintStyle = ImageBufferPaintStyle.fromColor(RgbaColor.BLACK)
 
-    private class StateSnapshot(
-        val fillColor: RgbaColor,
-        val strokeColor: RgbaColor,
-        val lineWidth: Float,
-        val lineCap: String,
-        val lineJoin: String,
-        val globalAlpha: Float,
-        val compositeOp: String,
-        val tx: Float,
-        val ty: Float,
-        val sx: Float,
-        val sy: Float,
-        val rot: Float,
-        val fontSizePx: Float,
-        val antialias: Boolean
-    )
+    val fillColor: RgbaColor
+        get() = fillStyle.color
 
+    val strokeColor: RgbaColor
+        get() = strokeStyle.color
+
+    override var shadowBlur: Float = 0f
+    override var shadowColor: RgbaColor = RgbaColor.TRANSPARENT
+    override var shadowOffsetX: Float = 0f
+    override var shadowOffsetY: Float = 0f
+
+    override var lineWidth: Float = 1f
+    override var lineCap: ImageBufferLineCap = ImageBufferLineCap.BUTT
+    override var lineJoin: ImageBufferLineJoin = ImageBufferLineJoin.MITER
+    override var miterLimit: Float = 10f
+    override var lineDashOffset: Float = 0f
+    private var lineDashSegments: FloatArray = FloatArray(0)
+
+    override var fontFamily: String = "sans-serif"
+    override var fontSizePx: Float = 14f
+    override var fontWeight: Int = 400
+    override var fontStyle: ImageBufferFontStyle = ImageBufferFontStyle.NORMAL
+    override var textAlign: ImageBufferTextAlign = ImageBufferTextAlign.START
+    override var textBaseline: ImageBufferTextBaseline = ImageBufferTextBaseline.ALPHABETIC
+    override var direction: ImageBufferTextDirection = ImageBufferTextDirection.INHERIT
+    override var letterSpacingPx: Float = 0f
+    override var wordSpacingPx: Float = 0f
+    override var fontKerning: ImageBufferFontKerning = ImageBufferFontKerning.AUTO
+    override var fontStretch: ImageBufferFontStretch = ImageBufferFontStretch.NORMAL
+    override var fontVariantCaps: ImageBufferFontVariantCaps = ImageBufferFontVariantCaps.NORMAL
+    override var textRendering: ImageBufferTextRendering = ImageBufferTextRendering.AUTO
+
+    private var clipMinX: Int = 0
+    private var clipMinY: Int = 0
+    private var clipMaxX: Int = Int.MAX_VALUE
+    private var clipMaxY: Int = Int.MAX_VALUE
+
+    private val currentPath = ImageBufferPath2D()
     private val stateStack = ArrayDeque<StateSnapshot>()
-    var fillColor: RgbaColor = RgbaColor.BLACK
-        private set
-    var strokeColor: RgbaColor = RgbaColor.BLACK
-        private set
-    var lineWidth: Float = 1f
-        private set
-    var lineCap: String = "butt"
-        private set
-    var lineJoin: String = "miter"
-        private set
-    var globalAlpha: Float = 1f
-        private set
-    var compositeOp: String = "source-over"
-        private set
 
-    private var tx: Float = 0f
-    private var ty: Float = 0f
-    private var sx: Float = 1f
-    private var sy: Float = 1f
-    private var rot: Float = 0f
-    private var fontSizePx: Float = 14f
-
-    private val pathPoints = mutableListOf<Pair<Float, Float>>()
-    private var pathStartX: Float = 0f
-    private var pathStartY: Float = 0f
-
-    override fun resize(newWidth: Int, newHeight: Int) {
-        imageBuffer.resize(newWidth, newHeight)
+    override fun reset() {
+        currentMatrix = ImageBufferMatrix2D.identity()
+        globalAlpha = 1f
+        globalCompositeOperation = ImageBufferCompositeOperation.SOURCE_OVER
+        imageSmoothingEnabled = true
+        imageSmoothingQuality = ImageBufferImageSmoothingQuality.HIGH
+        filter = "none"
+        fillStyle = ImageBufferPaintStyle.fromColor(RgbaColor.BLACK)
+        strokeStyle = ImageBufferPaintStyle.fromColor(RgbaColor.BLACK)
+        clearShadow()
+        lineWidth = 1f
+        lineCap = ImageBufferLineCap.BUTT
+        lineJoin = ImageBufferLineJoin.MITER
+        miterLimit = 10f
+        lineDashOffset = 0f
+        lineDashSegments = FloatArray(0)
+        fontFamily = "sans-serif"
+        fontSizePx = 14f
+        fontWeight = 400
+        fontStyle = ImageBufferFontStyle.NORMAL
+        textAlign = ImageBufferTextAlign.START
+        textBaseline = ImageBufferTextBaseline.ALPHABETIC
+        direction = ImageBufferTextDirection.INHERIT
+        letterSpacingPx = 0f
+        wordSpacingPx = 0f
+        fontKerning = ImageBufferFontKerning.AUTO
+        fontStretch = ImageBufferFontStretch.NORMAL
+        fontVariantCaps = ImageBufferFontVariantCaps.NORMAL
+        textRendering = ImageBufferTextRendering.AUTO
+        clipMinX = 0
+        clipMinY = 0
+        clipMaxX = Int.MAX_VALUE
+        clipMaxY = Int.MAX_VALUE
+        currentPath.reset()
+        stateStack.clear()
+        imageBuffer.clearRectDirect(0, 0, width, height, RgbaColor.TRANSPARENT)
     }
-
-    override fun swapBuffers() {
-        imageBuffer.flush()
-    }
-
-    override fun presentFrontBufferRgba(): ByteArray =
-        imageBuffer.directRgbaBytes()
-
-    override fun presentFrontBufferBgra(): ByteArray =
-        imageBuffer.directBgraBytes()
-
-    override fun toImageBuffer(): com.nexustools.genericui.image.ImageBuffer =
-        imageBuffer.toImageBuffer()
 
     override fun save() {
         stateStack.addLast(
             StateSnapshot(
-                fillColor = fillColor,
-                strokeColor = strokeColor,
+                matrix = currentMatrix.copy(),
+                globalAlpha = globalAlpha,
+                globalCompositeOperation = globalCompositeOperation,
+                imageSmoothingEnabled = imageSmoothingEnabled,
+                imageSmoothingQuality = imageSmoothingQuality,
+                filter = filter,
+                fillStyle = fillStyle,
+                strokeStyle = strokeStyle,
+                shadowBlur = shadowBlur,
+                shadowColor = shadowColor,
+                shadowOffsetX = shadowOffsetX,
+                shadowOffsetY = shadowOffsetY,
                 lineWidth = lineWidth,
                 lineCap = lineCap,
                 lineJoin = lineJoin,
-                globalAlpha = globalAlpha,
-                compositeOp = compositeOp,
-                tx = tx,
-                ty = ty,
-                sx = sx,
-                sy = sy,
-                rot = rot,
+                miterLimit = miterLimit,
+                lineDashOffset = lineDashOffset,
+                lineDashSegments = lineDashSegments.copyOf(),
+                fontFamily = fontFamily,
                 fontSizePx = fontSizePx,
+                fontWeight = fontWeight,
+                fontStyle = fontStyle,
+                textAlign = textAlign,
+                textBaseline = textBaseline,
+                direction = direction,
+                letterSpacingPx = letterSpacingPx,
+                wordSpacingPx = wordSpacingPx,
+                fontKerning = fontKerning,
+                fontStretch = fontStretch,
+                fontVariantCaps = fontVariantCaps,
+                textRendering = textRendering,
+                clipMinX = clipMinX,
+                clipMinY = clipMinY,
+                clipMaxX = clipMaxX,
+                clipMaxY = clipMaxY,
                 antialias = antialias
             )
         )
@@ -185,216 +216,261 @@ class GpuAcceleratedContext2DBackend(
 
     override fun restore() {
         val prev = stateStack.removeLastOrNull() ?: return
-        fillColor = prev.fillColor
-        strokeColor = prev.strokeColor
+        currentMatrix = prev.matrix
+        globalAlpha = prev.globalAlpha
+        globalCompositeOperation = prev.globalCompositeOperation
+        imageSmoothingEnabled = prev.imageSmoothingEnabled
+        imageSmoothingQuality = prev.imageSmoothingQuality
+        filter = prev.filter
+        fillStyle = prev.fillStyle
+        strokeStyle = prev.strokeStyle
+        shadowBlur = prev.shadowBlur
+        shadowColor = prev.shadowColor
+        shadowOffsetX = prev.shadowOffsetX
+        shadowOffsetY = prev.shadowOffsetY
         lineWidth = prev.lineWidth
         lineCap = prev.lineCap
         lineJoin = prev.lineJoin
-        globalAlpha = prev.globalAlpha
-        compositeOp = prev.compositeOp
-        tx = prev.tx
-        ty = prev.ty
-        sx = prev.sx
-        sy = prev.sy
-        rot = prev.rot
+        miterLimit = prev.miterLimit
+        lineDashOffset = prev.lineDashOffset
+        lineDashSegments = prev.lineDashSegments
+        fontFamily = prev.fontFamily
         fontSizePx = prev.fontSizePx
+        fontWeight = prev.fontWeight
+        fontStyle = prev.fontStyle
+        textAlign = prev.textAlign
+        textBaseline = prev.textBaseline
+        direction = prev.direction
+        letterSpacingPx = prev.letterSpacingPx
+        wordSpacingPx = prev.wordSpacingPx
+        fontKerning = prev.fontKerning
+        fontStretch = prev.fontStretch
+        fontVariantCaps = prev.fontVariantCaps
+        textRendering = prev.textRendering
+        clipMinX = prev.clipMinX
+        clipMinY = prev.clipMinY
+        clipMaxX = prev.clipMaxX
+        clipMaxY = prev.clipMaxY
         antialias = prev.antialias
     }
 
     override fun scale(sx: Float, sy: Float) {
-        this.sx *= sx
-        this.sy *= sy
+        currentMatrix = currentMatrix.scaled(sx, sy)
     }
 
     override fun rotate(angleRadians: Float) {
-        this.rot += angleRadians
+        currentMatrix = currentMatrix.rotated(angleRadians)
     }
 
     override fun translate(dx: Float, dy: Float) {
-        this.tx += dx * this.sx
-        this.ty += dy * this.sy
+        currentMatrix = currentMatrix.translated(dx, dy)
+    }
+
+    override fun transform(a: Float, b: Float, c: Float, d: Float, e: Float, f: Float) {
+        currentMatrix = currentMatrix.multiplied(ImageBufferMatrix2D(a, b, c, d, e, f))
     }
 
     override fun setTransform(a: Float, b: Float, c: Float, d: Float, e: Float, f: Float) {
-        this.sx = a
-        this.sy = d
-        this.tx = e
-        this.ty = f
-        this.rot = 0f
+        currentMatrix = ImageBufferMatrix2D(a, b, c, d, e, f)
     }
+
+    override fun getTransform(): ImageBufferMatrix2D = currentMatrix.copy()
 
     override fun resetTransform() {
-        tx = 0f
-        ty = 0f
-        sx = 1f
-        sy = 1f
-        rot = 0f
-    }
-
-    override fun setGlobalAlpha(alpha: Float) {
-        globalAlpha = alpha.coerceIn(0f, 1f)
-    }
-
-    override fun setGlobalCompositeOperation(mode: String) {
-        compositeOp = mode
-    }
-
-    override fun setFillColor(color: RgbaColor) {
-        fillColor = color
-    }
-
-    override fun setStrokeColor(color: RgbaColor) {
-        strokeColor = color
-    }
-
-    override fun setLineWidth(width: Float) {
-        lineWidth = max(0.5f, width)
-    }
-
-    override fun setLineCap(cap: String) {
-        lineCap = cap
-    }
-
-    override fun setLineJoin(join: String) {
-        lineJoin = join
+        currentMatrix = ImageBufferMatrix2D.identity()
     }
 
     override fun setLineDash(segments: FloatArray, offset: Float) {
-        // Stored for dashed stroke state
+        lineDashSegments = if (segments.size % 2 == 1) {
+            FloatArray(segments.size * 2) { i -> segments[i % segments.size].coerceAtLeast(0f) }
+        } else {
+            FloatArray(segments.size) { i -> segments[i].coerceAtLeast(0f) }
+        }
+        lineDashOffset = offset
     }
 
-    private fun mapX(x: Float): Float {
-        if (rot == 0f) return x * sx + tx
-        val cosA = cos(rot)
-        return (x * cosA) * sx + tx
-    }
-
-    private fun mapY(y: Float): Float {
-        if (rot == 0f) return y * sy + ty
-        val cosA = cos(rot)
-        return (y * cosA) * sy + ty
-    }
-
-    private fun mapPoint(x: Float, y: Float): Pair<Float, Float> {
-        if (rot == 0f) return (x * sx + tx) to (y * sy + ty)
-        val cosA = cos(rot)
-        val sinA = sin(rot)
-        val rx = x * cosA - y * sinA
-        val ry = x * sinA + y * cosA
-        return (rx * sx + tx) to (ry * sy + ty)
-    }
+    override fun getLineDash(): FloatArray = lineDashSegments.copyOf()
 
     override fun clearRect(x: Float, y: Float, width: Float, height: Float) {
-        val x0 = mapX(x).roundToInt().coerceIn(0, this.width)
-        val y0 = mapY(y).roundToInt().coerceIn(0, this.height)
-        val x1 = mapX(x + width).roundToInt().coerceIn(0, this.width)
-        val y1 = mapY(y + height).roundToInt().coerceIn(0, this.height)
-        imageBuffer.clearRectDirect(
-            x0 = min(x0, x1),
-            y0 = min(y0, y1),
-            x1 = max(x0, x1),
-            y1 = max(y0, y1),
-            color = RgbaColor.TRANSPARENT
-        )
+        val (tx0, ty0) = currentMatrix.mapPoint(x, y)
+        val (tx1, ty1) = currentMatrix.mapPoint(x + width, y + height)
+        val sx0 = floor(min(tx0, tx1)).toInt().coerceIn(max(0, clipMinX), min(this.width, clipMaxX))
+        val sy0 = floor(min(ty0, ty1)).toInt().coerceIn(max(0, clipMinY), min(this.height, clipMaxY))
+        val sx1 = ceil(max(tx0, tx1)).toInt().coerceIn(max(0, clipMinX), min(this.width, clipMaxX))
+        val sy1 = ceil(max(ty0, ty1)).toInt().coerceIn(max(0, clipMinY), min(this.height, clipMaxY))
+        imageBuffer.clearRectDirect(sx0, sy0, sx1, sy1, RgbaColor.TRANSPARENT)
     }
 
     override fun fillRect(x: Float, y: Float, width: Float, height: Float) {
-        val fx0 = mapX(x)
-        val fy0 = mapY(y)
-        val fx1 = mapX(x + width)
-        val fy1 = mapY(y + height)
-        val minFx = min(fx0, fx1)
-        val maxFx = max(fx0, fx1)
-        val minFy = min(fy0, fy1)
-        val maxFy = max(fy0, fy1)
+        if (currentMatrix.isIdentity &&
+            fillStyle.kind == ImageBufferPaintStyleKind.SOLID_COLOR &&
+            shadowColor.a == 0
+        ) {
+            val sx0 = floor(min(x, x + width)).toInt().coerceIn(max(0, clipMinX), min(this.width, clipMaxX))
+            val sy0 = floor(min(y, y + height)).toInt().coerceIn(max(0, clipMinY), min(this.height, clipMaxY))
+            val sx1 = ceil(max(x, x + width)).toInt().coerceIn(max(0, clipMinX), min(this.width, clipMaxX))
+            val sy1 = ceil(max(y, y + height)).toInt().coerceIn(max(0, clipMinY), min(this.height, clipMaxY))
+            if (sx1 <= sx0 || sy1 <= sy0) return
 
-        val sx0 = floor(minFx).toInt().coerceIn(0, this.width)
-        val sy0 = floor(minFy).toInt().coerceIn(0, this.height)
-        val sx1 = ceil(maxFx).toInt().coerceIn(0, this.width)
-        val sy1 = ceil(maxFy).toInt().coerceIn(0, this.height)
-        if (sx1 <= sx0 || sy1 <= sy0) return
-
-        val effectiveAlpha = ((fillColor.a / 255f) * globalAlpha).coerceIn(0f, 1f)
-        if (effectiveAlpha >= 0.995f && compositeOp == "source-over") {
-            imageBuffer.clearRectDirect(sx0, sy0, sx1, sy1, fillColor)
-            return
-        }
-
-        val bytes = imageBuffer.activeDrawBytes
-        val w = this.width
-        val r = fillColor.r
-        val g = fillColor.g
-        val b = fillColor.b
-        val invA = 1f - effectiveAlpha
-        val outAlphaByte = (effectiveAlpha * 255f).roundToInt().coerceIn(0, 255).toByte()
-
-        for (py in sy0 until sy1) {
-            val rowOffset = py * w
-            for (px in sx0 until sx1) {
-                val idx = (rowOffset + px) shl 2
-                if (compositeOp == "copy") {
-                    bytes[idx] = r.toByte()
-                    bytes[idx + 1] = g.toByte()
-                    bytes[idx + 2] = b.toByte()
-                    bytes[idx + 3] = outAlphaByte
-                } else {
-                    val dstR = bytes[idx].toInt() and 0xFF
-                    val dstG = bytes[idx + 1].toInt() and 0xFF
-                    val dstB = bytes[idx + 2].toInt() and 0xFF
-                    val dstA = (bytes[idx + 3].toInt() and 0xFF) / 255f
-                    val outA = (effectiveAlpha + dstA * invA).coerceIn(0f, 1f)
-                    bytes[idx] = (r * effectiveAlpha + dstR * invA).roundToInt().coerceIn(0, 255).toByte()
-                    bytes[idx + 1] = (g * effectiveAlpha + dstG * invA).roundToInt().coerceIn(0, 255).toByte()
-                    bytes[idx + 2] = (b * effectiveAlpha + dstB * invA).roundToInt().coerceIn(0, 255).toByte()
-                    bytes[idx + 3] = (outA * 255f).roundToInt().coerceIn(0, 255).toByte()
+            val c = fillStyle.color
+            val effectiveAlpha = ((c.a / 255f) * globalAlpha).coerceIn(0f, 1f)
+            if (effectiveAlpha >= 0.995f && globalCompositeOperation == ImageBufferCompositeOperation.SOURCE_OVER) {
+                imageBuffer.clearRectDirect(sx0, sy0, sx1, sy1, c)
+                return
+            }
+            val src = RgbaColor(c.r, c.g, c.b, (effectiveAlpha * 255f).roundToInt().coerceIn(0, 255))
+            for (py in sy0 until sy1) {
+                for (px in sx0 until sx1) {
+                    blendPixelDirect(px, py, src)
                 }
             }
+            imageBuffer.markDirtyRect(sx0, sy0, sx1, sy1)
+            return
         }
-        imageBuffer.markDirtyRect(sx0, sy0, sx1, sy1)
+        val path = ImageBufferPath2D().apply { rect(x, y, width, height) }
+        fill(path, ImageBufferFillRule.NONZERO)
     }
 
     override fun strokeRect(x: Float, y: Float, width: Float, height: Float) {
-        val (x0, y0) = mapPoint(x, y)
-        val (x1, y1) = mapPoint(x + width, y)
-        val (x2, y2) = mapPoint(x + width, y + height)
-        val (x3, y3) = mapPoint(x, y + height)
-        val scaledWidth = max(1f, lineWidth * max(abs(sx), abs(sy)))
-        drawAntialiasedSegment(x0, y0, x1, y1, strokeColor, scaledWidth)
-        drawAntialiasedSegment(x1, y1, x2, y2, strokeColor, scaledWidth)
-        drawAntialiasedSegment(x2, y2, x3, y3, strokeColor, scaledWidth)
-        drawAntialiasedSegment(x3, y3, x0, y0, strokeColor, scaledWidth)
+        val (x0, y0) = currentMatrix.mapPoint(x, y)
+        val (x1, y1) = currentMatrix.mapPoint(x + width, y)
+        val (x2, y2) = currentMatrix.mapPoint(x + width, y + height)
+        val (x3, y3) = currentMatrix.mapPoint(x, y + height)
+        val scaledWidth = max(1f, lineWidth * currentMatrix.maxScaleFactor())
+        drawAntialiasedSegment(x0, y0, x1, y1, strokeStyle, scaledWidth)
+        drawAntialiasedSegment(x1, y1, x2, y2, strokeStyle, scaledWidth)
+        drawAntialiasedSegment(x2, y2, x3, y3, strokeStyle, scaledWidth)
+        drawAntialiasedSegment(x3, y3, x0, y0, strokeStyle, scaledWidth)
+    }
+
+    override fun beginPath() {
+        currentPath.reset()
+    }
+
+    override fun closePath() {
+        currentPath.closePath()
+    }
+
+    override fun moveTo(x: Float, y: Float) {
+        currentPath.moveTo(x, y)
+    }
+
+    override fun lineTo(x: Float, y: Float) {
+        currentPath.lineTo(x, y)
+    }
+
+    override fun quadraticCurveTo(cpx: Float, cpy: Float, x: Float, y: Float) {
+        currentPath.quadraticCurveTo(cpx, cpy, x, y)
+    }
+
+    override fun bezierCurveTo(cp1x: Float, cp1y: Float, cp2x: Float, cp2y: Float, x: Float, y: Float) {
+        currentPath.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y)
+    }
+
+    override fun arcTo(x1: Float, y1: Float, x2: Float, y2: Float, radius: Float) {
+        currentPath.arcTo(x1, y1, x2, y2, radius)
+    }
+
+    override fun arc(
+        x: Float,
+        y: Float,
+        radius: Float,
+        startAngle: Float,
+        endAngle: Float,
+        counterClockwise: Boolean
+    ) {
+        currentPath.arc(x, y, radius, startAngle, endAngle, counterClockwise)
+    }
+
+    override fun ellipse(
+        x: Float,
+        y: Float,
+        radiusX: Float,
+        radiusY: Float,
+        rotation: Float,
+        startAngle: Float,
+        endAngle: Float,
+        counterClockwise: Boolean
+    ) {
+        currentPath.ellipse(x, y, radiusX, radiusY, rotation, startAngle, endAngle, counterClockwise)
+    }
+
+    override fun rect(x: Float, y: Float, width: Float, height: Float) {
+        currentPath.rect(x, y, width, height)
     }
 
     override fun roundRect(x: Float, y: Float, width: Float, height: Float, radius: Float) {
-        val fx0 = mapX(x)
-        val fy0 = mapY(y)
-        val fx1 = mapX(x + width)
-        val fy1 = mapY(y + height)
-        val minX = min(fx0, fx1)
-        val maxX = max(fx0, fx1)
-        val minY = min(fy0, fy1)
-        val maxY = max(fy0, fy1)
+        currentPath.roundRect(x, y, width, height, radius)
+        if (currentPath.commands.size <= 10 && currentMatrix.isIdentity && fillStyle.kind == ImageBufferPaintStyleKind.SOLID_COLOR) {
+            renderRoundedRectSdfDirect(x, y, width, height, radius, radius, radius, radius)
+        }
+    }
+
+    override fun roundRect(
+        x: Float,
+        y: Float,
+        width: Float,
+        height: Float,
+        topLeftRadius: Float,
+        topRightRadius: Float,
+        bottomRightRadius: Float,
+        bottomLeftRadius: Float
+    ) {
+        currentPath.roundRect(
+            x,
+            y,
+            width,
+            height,
+            topLeftRadius,
+            topRightRadius,
+            bottomRightRadius,
+            bottomLeftRadius
+        )
+    }
+
+    private fun renderRoundedRectSdfDirect(
+        x: Float,
+        y: Float,
+        width: Float,
+        height: Float,
+        tl: Float,
+        tr: Float,
+        br: Float,
+        bl: Float
+    ) {
+        val minX = min(x, x + width)
+        val maxX = max(x, x + width)
+        val minY = min(y, y + height)
+        val maxY = max(y, y + height)
         val halfW = (maxX - minX) * 0.5f
         val halfH = (maxY - minY) * 0.5f
         val cx = minX + halfW
         val cy = minY + halfH
-        val r = (radius * max(abs(sx), abs(sy))).coerceIn(0f, min(halfW, halfH))
+        val maxR = min(halfW, halfH)
+        val rTl = tl.coerceIn(0f, maxR)
+        val rTr = tr.coerceIn(0f, maxR)
+        val rBr = br.coerceIn(0f, maxR)
+        val rBl = bl.coerceIn(0f, maxR)
         val feather = if (antialias) 0.75f else 0.01f
 
-        val ix0 = floor(minX - 1f).toInt().coerceIn(0, this.width)
-        val iy0 = floor(minY - 1f).toInt().coerceIn(0, this.height)
-        val ix1 = ceil(maxX + 1f).toInt().coerceIn(0, this.width)
-        val iy1 = ceil(maxY + 1f).toInt().coerceIn(0, this.height)
-        val bx = halfW - r
-        val by = halfH - r
+        val ix0 = floor(minX - 1f).toInt().coerceIn(max(0, clipMinX), min(this.width, clipMaxX))
+        val iy0 = floor(minY - 1f).toInt().coerceIn(max(0, clipMinY), min(this.height, clipMaxY))
+        val ix1 = ceil(maxX + 1f).toInt().coerceIn(max(0, clipMinX), min(this.width, clipMaxX))
+        val iy1 = ceil(maxY + 1f).toInt().coerceIn(max(0, clipMinY), min(this.height, clipMaxY))
+        if (ix1 <= ix0 || iy1 <= iy0) return
 
         for (py in iy0 until iy1) {
-            val dy = abs((py + 0.5f) - cy) - by
+            val relY = (py + 0.5f) - cy
             for (px in ix0 until ix1) {
-                val dx = abs((px + 0.5f) - cx) - bx
-                val qx = max(dx, 0f)
-                val qy = max(dy, 0f)
-                val sdf = min(max(dx, dy), 0f) + hypot(qx, qy) - r
+                val relX = (px + 0.5f) - cx
+                val r = if (relX > 0f) {
+                    if (relY > 0f) rBr else rTr
+                } else {
+                    if (relY > 0f) rBl else rTl
+                }
+                val dx = abs(relX) - (halfW - r)
+                val dy = abs(relY) - (halfH - r)
+                val sdf = min(max(dx, dy), 0f) + hypot(max(dx, 0f), max(dy, 0f)) - r
                 if (sdf <= feather) {
                     val cov = if (antialias) {
                         ((feather - sdf) / (2f * feather)).coerceIn(0f, 1f)
@@ -402,7 +478,8 @@ class GpuAcceleratedContext2DBackend(
                         if (sdf <= 0f) 1f else 0f
                     }
                     if (cov > 0.002f) {
-                        blendCoveragePixel(px, py, fillColor, cov)
+                        val src = fillStyle.sampleAt(px + 0.5f, py + 0.5f, (globalAlpha * cov).coerceIn(0f, 1f))
+                        blendPixelDirect(px, py, src)
                     }
                 }
             }
@@ -410,226 +487,387 @@ class GpuAcceleratedContext2DBackend(
         imageBuffer.markDirtyRect(ix0, iy0, ix1, iy1)
     }
 
-    override fun beginPath() {
-        pathPoints.clear()
+    override fun fill(fillRule: ImageBufferFillRule) {
+        fill(currentPath, fillRule)
     }
 
-    override fun closePath() {
-        if (pathPoints.isNotEmpty()) {
-            pathPoints.add(pathStartX to pathStartY)
-        }
-    }
+    override fun fill(path: ImageBufferPath2D, fillRule: ImageBufferFillRule) {
+        val subpaths = path.flattenSubpaths(currentMatrix)
+        if (subpaths.isEmpty()) return
 
-    override fun moveTo(x: Float, y: Float) {
-        val pt = mapPoint(x, y)
-        pathStartX = pt.first
-        pathStartY = pt.second
-        pathPoints.add(pt)
-    }
-
-    override fun lineTo(x: Float, y: Float) {
-        pathPoints.add(mapPoint(x, y))
-    }
-
-    override fun quadraticCurveTo(cpx: Float, cpy: Float, x: Float, y: Float) {
-        val start = pathPoints.lastOrNull() ?: (0f to 0f)
-        val cp = mapPoint(cpx, cpy)
-        val end = mapPoint(x, y)
-        val dist = hypot(cp.first - start.first, cp.second - start.second) +
-            hypot(end.first - cp.first, end.second - cp.second)
-        val steps = (dist / 3f).toInt().coerceIn(8, 48)
-        for (i in 1..steps) {
-            val t = i.toFloat() / steps
-            val u = 1f - t
-            val px = u * u * start.first + 2f * u * t * cp.first + t * t * end.first
-            val py = u * u * start.second + 2f * u * t * cp.second + t * t * end.second
-            pathPoints.add(px to py)
-        }
-    }
-
-    override fun bezierCurveTo(cp1x: Float, cp1y: Float, cp2x: Float, cp2y: Float, x: Float, y: Float) {
-        val start = pathPoints.lastOrNull() ?: (0f to 0f)
-        val cp1 = mapPoint(cp1x, cp1y)
-        val cp2 = mapPoint(cp2x, cp2y)
-        val end = mapPoint(x, y)
-        val dist = hypot(cp1.first - start.first, cp1.second - start.second) +
-            hypot(cp2.first - cp1.first, cp2.second - cp1.second) +
-            hypot(end.first - cp2.first, end.second - cp2.second)
-        val steps = (dist / 3f).toInt().coerceIn(10, 64)
-        for (i in 1..steps) {
-            val t = i.toFloat() / steps
-            val u = 1f - t
-            val px = u * u * u * start.first +
-                3f * u * u * t * cp1.first +
-                3f * u * t * t * cp2.first +
-                t * t * t * end.first
-            val py = u * u * u * start.second +
-                3f * u * u * t * cp1.second +
-                3f * u * t * t * cp2.second +
-                t * t * t * end.second
-            pathPoints.add(px to py)
-        }
-    }
-
-    override fun arc(x: Float, y: Float, radius: Float, startAngle: Float, endAngle: Float, counterClockwise: Boolean) {
-        val circumference = abs(endAngle - startAngle) * radius * max(abs(sx), abs(sy))
-        val steps = (circumference / 2.5f).toInt().coerceIn(16, 96)
-        val span = endAngle - startAngle
-        for (i in 0..steps) {
-            val a = startAngle + span * (i.toFloat() / steps)
-            val px = x + cos(a) * radius
-            val py = y + sin(a) * radius
-            val mapped = mapPoint(px, py)
-            if (i == 0 && pathPoints.isEmpty()) {
-                pathStartX = mapped.first
-                pathStartY = mapped.second
-            }
-            pathPoints.add(mapped)
-        }
-    }
-
-    override fun fill() {
-        if (pathPoints.size < 3) return
-        val n = pathPoints.size
         var minX = Float.POSITIVE_INFINITY
-        var maxX = Float.NEGATIVE_INFINITY
         var minY = Float.POSITIVE_INFINITY
+        var maxX = Float.NEGATIVE_INFINITY
         var maxY = Float.NEGATIVE_INFINITY
-        for (i in 0 until n) {
-            val pt = pathPoints[i]
-            if (pt.first < minX) minX = pt.first
-            if (pt.first > maxX) maxX = pt.first
-            if (pt.second < minY) minY = pt.second
-            if (pt.second > maxY) maxY = pt.second
+        for (poly in subpaths) {
+            var i = 0
+            while (i + 1 < poly.size) {
+                val px = poly[i]
+                val py = poly[i + 1]
+                if (px < minX) minX = px
+                if (py < minY) minY = py
+                if (px > maxX) maxX = px
+                if (py > maxY) maxY = py
+                i += 2
+            }
         }
 
-        val yStart = floor(minY).toInt().coerceIn(0, height - 1)
-        val yEnd = ceil(maxY).toInt().coerceIn(0, height - 1)
-        val xStartBound = floor(minX - 1f).toInt().coerceIn(0, width)
-        val xEndBound = ceil(maxX + 1f).toInt().coerceIn(0, width)
-        val nodes = FloatArray(n)
+        val sx = floor(minX - 1f).toInt().coerceIn(max(0, clipMinX), min(width, clipMaxX))
+        val sy = floor(minY - 1f).toInt().coerceIn(max(0, clipMinY), min(height, clipMaxY))
+        val ex = ceil(maxX + 1f).toInt().coerceIn(max(0, clipMinX), min(width, clipMaxX))
+        val ey = ceil(maxY + 1f).toInt().coerceIn(max(0, clipMinY), min(height, clipMaxY))
+        if (ex <= sx || ey <= sy) return
 
-        for (py in yStart..yEnd) {
-            val scanY = py + 0.5f
-            var nodeCount = 0
-            var j = n - 1
-            for (i in 0 until n) {
-                val yi = pathPoints[i].second
-                val yj = pathPoints[j].second
-                if ((yi < scanY && yj >= scanY) || (yj < scanY && yi >= scanY)) {
-                    val xi = pathPoints[i].first
-                    val xj = pathPoints[j].first
-                    nodes[nodeCount++] = xi + (scanY - yi) / (yj - yi) * (xj - xi)
+        val invMatrix = currentMatrix.inverted() ?: ImageBufferMatrix2D.identity()
+        for (py in sy until ey) {
+            val sampleY = py + 0.5f
+            for (px in sx until ex) {
+                val sampleX = px + 0.5f
+                val (localX, localY) = invMatrix.mapPoint(sampleX, sampleY)
+                if (path.containsPoint(localX, localY, fillRule)) {
+                    val src = fillStyle.sampleAt(localX, localY, globalAlpha)
+                    blendPixelDirect(px, py, src)
                 }
-                j = i
-            }
-            for (a in 1 until nodeCount) {
-                val key = nodes[a]
-                var b = a - 1
-                while (b >= 0 && nodes[b] > key) {
-                    nodes[b + 1] = nodes[b]
-                    b--
-                }
-                nodes[b + 1] = key
-            }
-
-            var k = 0
-            while (k + 1 < nodeCount) {
-                val leftX = nodes[k]
-                val rightX = nodes[k + 1]
-                val x0 = floor(leftX).toInt().coerceIn(0, width - 1)
-                val x1 = ceil(rightX).toInt().coerceIn(0, width - 1)
-                for (px in x0..x1) {
-                    val center = px + 0.5f
-                    val cov = if (antialias) {
-                        val leftCov = (center + 0.5f - leftX).coerceIn(0f, 1f)
-                        val rightCov = (rightX - (center - 0.5f)).coerceIn(0f, 1f)
-                        min(leftCov, rightCov)
-                    } else {
-                        if (center in leftX..rightX) 1f else 0f
-                    }
-                    if (cov > 0.005f) {
-                        blendCoveragePixel(px, py, fillColor, cov)
-                    }
-                }
-                k += 2
             }
         }
 
         if (antialias) {
-            for (i in 0 until n) {
-                val p0 = pathPoints[i]
-                val p1 = pathPoints[(i + 1) % n]
-                drawAntialiasedSegment(p0.first, p0.second, p1.first, p1.second, fillColor, 1.15f)
+            for (poly in subpaths) {
+                val count = poly.size / 2
+                if (count >= 2) {
+                    for (i in 0 until count - 1) {
+                        drawAntialiasedSegment(
+                            poly[i * 2],
+                            poly[i * 2 + 1],
+                            poly[(i + 1) * 2],
+                            poly[(i + 1) * 2 + 1],
+                            fillStyle,
+                            1.1f
+                        )
+                    }
+                }
             }
         }
-        imageBuffer.markDirtyRect(xStartBound, yStart, xEndBound, yEnd + 1)
+        imageBuffer.markDirtyRect(sx, sy, ex, ey)
     }
 
     override fun stroke() {
-        if (pathPoints.size < 2) return
-        val scaledWidth = max(1f, lineWidth * max(abs(sx), abs(sy)))
-        for (i in 0 until pathPoints.size - 1) {
-            val (x0, y0) = pathPoints[i]
-            val (x1, y1) = pathPoints[i + 1]
-            drawAntialiasedSegment(x0, y0, x1, y1, strokeColor, scaledWidth)
-        }
+        stroke(currentPath)
     }
 
-    override fun clip() {
-        // Clip state recorded on current path
-    }
-
-    override fun setFont(fontFamily: String, fontSizePx: Float, fontWeight: Int, italic: Boolean) {
-        this.fontSizePx = max(6f, fontSizePx)
-    }
-
-    override fun fillText(text: String, x: Float, y: Float) {
-        val startX = mapX(x)
-        val baseY = mapY(y)
-        val charW = max(5f, fontSizePx * 0.55f * abs(sx))
-        val charH = max(8f, fontSizePx * 0.75f * abs(sy))
-        var cursorX = startX
-        for (ch in text) {
-            if (!ch.isWhitespace()) {
-                val ix0 = cursorX.roundToInt().coerceIn(0, width)
-                val iy0 = (baseY - charH * 0.8f).roundToInt().coerceIn(0, height)
-                val ix1 = (cursorX + charW * 0.72f).roundToInt().coerceIn(0, width)
-                val iy1 = baseY.roundToInt().coerceIn(0, height)
-                for (py in iy0 until iy1) {
-                    for (px in ix0 until ix1) {
-                        blendCoveragePixel(px, py, fillColor, 0.9f)
-                    }
-                }
-                imageBuffer.markDirtyRect(ix0, iy0, ix1, iy1)
+    override fun stroke(path: ImageBufferPath2D) {
+        val subpaths = path.flattenSubpaths(currentMatrix)
+        if (subpaths.isEmpty()) return
+        val scaledWidth = max(1f, lineWidth * currentMatrix.maxScaleFactor())
+        for (poly in subpaths) {
+            var i = 0
+            while (i + 3 < poly.size) {
+                drawAntialiasedSegment(
+                    poly[i],
+                    poly[i + 1],
+                    poly[i + 2],
+                    poly[i + 3],
+                    strokeStyle,
+                    scaledWidth
+                )
+                i += 2
             }
-            cursorX += charW
         }
     }
 
-    override fun strokeText(text: String, x: Float, y: Float) {
-        val prev = fillColor
-        fillColor = strokeColor
-        fillText(text, x, y)
-        fillColor = prev
+    override fun clip(fillRule: ImageBufferFillRule) {
+        clip(currentPath, fillRule)
     }
 
-    override fun measureTextWidth(text: String): Float =
-        text.length * max(5f, fontSizePx * 0.55f)
+    override fun clip(path: ImageBufferPath2D, fillRule: ImageBufferFillRule) {
+        val subpaths = path.flattenSubpaths(currentMatrix)
+        if (subpaths.isEmpty()) return
+        var minX = Float.POSITIVE_INFINITY
+        var minY = Float.POSITIVE_INFINITY
+        var maxX = Float.NEGATIVE_INFINITY
+        var maxY = Float.NEGATIVE_INFINITY
+        for (poly in subpaths) {
+            var i = 0
+            while (i + 1 < poly.size) {
+                val px = poly[i]
+                val py = poly[i + 1]
+                if (px < minX) minX = px
+                if (py < minY) minY = py
+                if (px > maxX) maxX = px
+                if (py > maxY) maxY = py
+                i += 2
+            }
+        }
+        clipMinX = max(clipMinX, floor(minX).toInt())
+        clipMinY = max(clipMinY, floor(minY).toInt())
+        clipMaxX = min(clipMaxX, ceil(maxX).toInt())
+        clipMaxY = min(clipMaxY, ceil(maxY).toInt())
+    }
+
+    override fun isPointInPath(x: Float, y: Float, fillRule: ImageBufferFillRule): Boolean =
+        isPointInPath(currentPath, x, y, fillRule)
+
+    override fun isPointInPath(
+        path: ImageBufferPath2D,
+        x: Float,
+        y: Float,
+        fillRule: ImageBufferFillRule
+    ): Boolean {
+        val inv = currentMatrix.inverted() ?: ImageBufferMatrix2D.identity()
+        val (lx, ly) = inv.mapPoint(x, y)
+        return path.containsPoint(lx, ly, fillRule)
+    }
+
+    override fun isPointInStroke(x: Float, y: Float): Boolean =
+        isPointInStroke(currentPath, x, y)
+
+    override fun isPointInStroke(path: ImageBufferPath2D, x: Float, y: Float): Boolean {
+        val inv = currentMatrix.inverted() ?: ImageBufferMatrix2D.identity()
+        val (lx, ly) = inv.mapPoint(x, y)
+        return path.isPointNearStroke(lx, ly, lineWidth)
+    }
+
+    override fun fillText(text: String, x: Float, y: Float, maxWidth: Float?) {
+        renderTextSdf(text, x, y, maxWidth, strokeMode = false)
+    }
+
+    override fun strokeText(text: String, x: Float, y: Float, maxWidth: Float?) {
+        renderTextSdf(text, x, y, maxWidth, strokeMode = true)
+    }
+
+    private fun renderTextSdf(
+        text: String,
+        x: Float,
+        y: Float,
+        maxWidth: Float?,
+        strokeMode: Boolean
+    ) {
+        if (text.isEmpty()) return
+        val style = if (strokeMode) strokeStyle else fillStyle
+        val invMatrix = currentMatrix.inverted() ?: ImageBufferMatrix2D.identity()
+        var dirtyMinX = width
+        var dirtyMinY = height
+        var dirtyMaxX = 0
+        var dirtyMaxY = 0
+        var touched = false
+
+        if (shadowColor.a > 0 && (shadowBlur > 0f || shadowOffsetX != 0f || shadowOffsetY != 0f)) {
+            val sAlpha = (shadowColor.a / 255f) * globalAlpha
+            ScalableVectorFontEngine.rasterizeText(
+                text = text,
+                x = x + shadowOffsetX,
+                y = y + shadowOffsetY,
+                fontSizePx = fontSizePx,
+                fontWeight = fontWeight,
+                fontStyle = fontStyle,
+                fontStretch = fontStretch,
+                fontVariantCaps = fontVariantCaps,
+                letterSpacingPx = letterSpacingPx,
+                wordSpacingPx = wordSpacingPx,
+                textAlign = textAlign,
+                textBaseline = textBaseline,
+                maxWidth = maxWidth,
+                strokeMode = strokeMode,
+                strokeWidthPx = lineWidth + shadowBlur * 0.35f
+            ) { lx, ly, coverage ->
+                val (sx, sy) = currentMatrix.mapPoint(lx + 0.5f, ly + 0.5f)
+                val px = sx.toInt()
+                val py = sy.toInt()
+                if (px in max(0, clipMinX) until min(width, clipMaxX) &&
+                    py in max(0, clipMinY) until min(height, clipMaxY)
+                ) {
+                    val a = (sAlpha * coverage).coerceIn(0f, 1f)
+                    val sc = RgbaColor(shadowColor.r, shadowColor.g, shadowColor.b, (a * 255f).roundToInt())
+                    blendPixelDirect(px, py, sc)
+                    if (px < dirtyMinX) dirtyMinX = px
+                    if (py < dirtyMinY) dirtyMinY = py
+                    if (px + 1 > dirtyMaxX) dirtyMaxX = px + 1
+                    if (py + 1 > dirtyMaxY) dirtyMaxY = py + 1
+                    touched = true
+                }
+            }
+        }
+
+        ScalableVectorFontEngine.rasterizeText(
+            text = text,
+            x = x,
+            y = y,
+            fontSizePx = fontSizePx,
+            fontWeight = fontWeight,
+            fontStyle = fontStyle,
+            fontStretch = fontStretch,
+            fontVariantCaps = fontVariantCaps,
+            letterSpacingPx = letterSpacingPx,
+            wordSpacingPx = wordSpacingPx,
+            textAlign = textAlign,
+            textBaseline = textBaseline,
+            maxWidth = maxWidth,
+            strokeMode = strokeMode,
+            strokeWidthPx = lineWidth
+        ) { lx, ly, coverage ->
+            val (sx, sy) = currentMatrix.mapPoint(lx + 0.5f, ly + 0.5f)
+            val px = sx.toInt()
+            val py = sy.toInt()
+            if (px in max(0, clipMinX) until min(width, clipMaxX) &&
+                py in max(0, clipMinY) until min(height, clipMaxY)
+            ) {
+                val (sampleX, sampleY) = invMatrix.mapPoint(px + 0.5f, py + 0.5f)
+                val src = style.sampleAt(sampleX, sampleY, (globalAlpha * coverage).coerceIn(0f, 1f))
+                blendPixelDirect(px, py, src)
+                if (px < dirtyMinX) dirtyMinX = px
+                if (py < dirtyMinY) dirtyMinY = py
+                if (px + 1 > dirtyMaxX) dirtyMaxX = px + 1
+                if (py + 1 > dirtyMaxY) dirtyMaxY = py + 1
+                touched = true
+            }
+        }
+
+        if (touched) {
+            imageBuffer.markDirtyRect(dirtyMinX, dirtyMinY, dirtyMaxX, dirtyMaxY)
+        }
+    }
+
+    override fun measureText(text: String): ImageBufferTextMetrics =
+        ScalableVectorFontEngine.measureText(
+            text = text,
+            fontSizePx = fontSizePx,
+            fontWeight = fontWeight,
+            fontStyle = fontStyle,
+            fontStretch = fontStretch,
+            fontVariantCaps = fontVariantCaps,
+            letterSpacingPx = letterSpacingPx,
+            wordSpacingPx = wordSpacingPx,
+            textAlign = textAlign,
+            textBaseline = textBaseline
+        )
+
+    override fun drawImage(image: com.nexustools.genericui.image.ImageBuffer, dx: Float, dy: Float) {
+        if (currentMatrix.isIdentity &&
+            globalAlpha >= 0.999f &&
+            globalCompositeOperation == ImageBufferCompositeOperation.SOURCE_OVER
+        ) {
+            val rgba = image.asRgba8888()
+            imageBuffer.writePixelsRgba(
+                rgbaBytes = rgba.bytes,
+                width = rgba.width,
+                height = rgba.height,
+                dx = dx.roundToInt(),
+                dy = dy.roundToInt()
+            )
+            return
+        }
+        drawImage(
+            image = image,
+            sx = 0f,
+            sy = 0f,
+            sWidth = image.width.toFloat(),
+            sHeight = image.height.toFloat(),
+            dx = dx,
+            dy = dy,
+            dWidth = image.width.toFloat(),
+            dHeight = image.height.toFloat()
+        )
+    }
+
+    override fun drawImage(
+        image: com.nexustools.genericui.image.ImageBuffer,
+        dx: Float,
+        dy: Float,
+        dWidth: Float,
+        dHeight: Float
+    ) {
+        drawImage(
+            image = image,
+            sx = 0f,
+            sy = 0f,
+            sWidth = image.width.toFloat(),
+            sHeight = image.height.toFloat(),
+            dx = dx,
+            dy = dy,
+            dWidth = dWidth,
+            dHeight = dHeight
+        )
+    }
+
+    override fun drawImage(
+        image: com.nexustools.genericui.image.ImageBuffer,
+        sx: Float,
+        sy: Float,
+        sWidth: Float,
+        sHeight: Float,
+        dx: Float,
+        dy: Float,
+        dWidth: Float,
+        dHeight: Float
+    ) {
+        if (dWidth <= 0f || dHeight <= 0f || sWidth <= 0f || sHeight <= 0f) return
+        val rgba = image.asRgba8888()
+        val (tx0, ty0) = currentMatrix.mapPoint(dx, dy)
+        val (tx1, ty1) = currentMatrix.mapPoint(dx + dWidth, dy + dHeight)
+        val startX = floor(min(tx0, tx1)).toInt().coerceIn(max(0, clipMinX), min(width, clipMaxX))
+        val startY = floor(min(ty0, ty1)).toInt().coerceIn(max(0, clipMinY), min(height, clipMaxY))
+        val endX = ceil(max(tx0, tx1)).toInt().coerceIn(max(0, clipMinX), min(width, clipMaxX))
+        val endY = ceil(max(ty0, ty1)).toInt().coerceIn(max(0, clipMinY), min(height, clipMaxY))
+        if (endX <= startX || endY <= startY) return
+
+        val spanX = max(1f, abs(tx1 - tx0))
+        val spanY = max(1f, abs(ty1 - ty0))
+        for (py in startY until endY) {
+            val v = ((py + 0.5f - min(ty0, ty1)) / spanY).coerceIn(0f, 1f)
+            val srcY = (sy + v * sHeight).toInt().coerceIn(0, rgba.height - 1)
+            for (px in startX until endX) {
+                val u = ((px + 0.5f - min(tx0, tx1)) / spanX).coerceIn(0f, 1f)
+                val srcX = (sx + u * sWidth).toInt().coerceIn(0, rgba.width - 1)
+                val c = rgba.getPixel(srcX, srcY)
+                val scaledA = (c.a * globalAlpha).roundToInt().coerceIn(0, 255)
+                blendPixelDirect(px, py, RgbaColor(c.r, c.g, c.b, scaledA))
+            }
+        }
+        imageBuffer.markDirtyRect(startX, startY, endX, endY)
+    }
+
+    override fun createImageData(width: Int, height: Int): com.nexustools.genericui.image.ImageBuffer =
+        com.nexustools.genericui.image.ImageBuffer(max(1, width), max(1, height))
+
+    override fun getImageData(x: Int, y: Int, width: Int, height: Int): com.nexustools.genericui.image.ImageBuffer {
+        val safeW = max(1, width)
+        val safeH = max(1, height)
+        val bytes = imageBuffer.readPixelsRgba(x, y, safeW, safeH)
+        return com.nexustools.genericui.image.ImageBuffer(safeW, safeH, bytes = bytes)
+    }
+
+    override fun putImageData(
+        imageData: com.nexustools.genericui.image.ImageBuffer,
+        dx: Int,
+        dy: Int,
+        dirtyX: Int,
+        dirtyY: Int,
+        dirtyWidth: Int,
+        dirtyHeight: Int
+    ) {
+        val rgba = imageData.asRgba8888()
+        if (dirtyX == 0 && dirtyY == 0 && dirtyWidth == rgba.width && dirtyHeight == rgba.height) {
+            imageBuffer.writePixelsRgba(rgba.bytes, rgba.width, rgba.height, dx, dy)
+            return
+        }
+        val sx0 = dirtyX.coerceIn(0, rgba.width)
+        val sy0 = dirtyY.coerceIn(0, rgba.height)
+        val sx1 = (dirtyX + dirtyWidth).coerceIn(0, rgba.width)
+        val sy1 = (dirtyY + dirtyHeight).coerceIn(0, rgba.height)
+        for (sy in sy0 until sy1) {
+            val py = dy + sy
+            if (py !in 0 until height) continue
+            for (sx in sx0 until sx1) {
+                val px = dx + sx
+                if (px !in 0 until width) continue
+                imageBuffer.setPixel(px, py, rgba.getPixel(sx, sy))
+            }
+        }
+        imageBuffer.markDirtyRect(dx + sx0, dy + sy0, dx + sx1, dy + sy1)
+    }
 
     override fun putImageDataRgba(rgbaBytes: ByteArray, width: Int, height: Int, dx: Int, dy: Int) {
         imageBuffer.writePixelsRgba(rgbaBytes, width, height, dx, dy)
-    }
-
-    override fun drawImageBuffer(buffer: com.nexustools.genericui.image.ImageBuffer, dx: Float, dy: Float) {
-        val rgba = buffer.asRgba8888()
-        imageBuffer.writePixelsRgba(
-            rgbaBytes = rgba.bytes,
-            width = rgba.width,
-            height = rgba.height,
-            dx = mapX(dx).roundToInt(),
-            dy = mapY(dy).roundToInt()
-        )
     }
 
     override fun getImageDataRgba(x: Int, y: Int, width: Int, height: Int): ByteArray =
@@ -703,16 +941,8 @@ class GpuAcceleratedContext2DBackend(
                         bytes[idx + 3] = 0
                     }
                 } else {
-                    val invA = 1f - alpha
-                    val dstR = bytes[idx].toInt() and 0xFF
-                    val dstG = bytes[idx + 1].toInt() and 0xFF
-                    val dstB = bytes[idx + 2].toInt() and 0xFF
-                    val dstA = (bytes[idx + 3].toInt() and 0xFF) / 255f
-                    val outA = (alpha + dstA * invA).coerceIn(0f, 1f)
-                    bytes[idx] = (color.r * alpha + dstR * invA).roundToInt().coerceIn(0, 255).toByte()
-                    bytes[idx + 1] = (color.g * alpha + dstG * invA).roundToInt().coerceIn(0, 255).toByte()
-                    bytes[idx + 2] = (color.b * alpha + dstB * invA).roundToInt().coerceIn(0, 255).toByte()
-                    bytes[idx + 3] = (outA * 255f).roundToInt().coerceIn(0, 255).toByte()
+                    val src = RgbaColor(color.r, color.g, color.b, (alpha * 255f).roundToInt().coerceIn(0, 255))
+                    blendPixelDirect(px, py, src)
                 }
             }
         }
@@ -798,11 +1028,11 @@ class GpuAcceleratedContext2DBackend(
         var maxDirtyY = seedY + 1
 
         fun matches(flatIdx: Int): Boolean {
-            val bIdx = flatIdx shl 2
-            val r = bytes[bIdx].toInt() and 0xFF
-            val g = bytes[bIdx + 1].toInt() and 0xFF
-            val b = bytes[bIdx + 2].toInt() and 0xFF
-            val a = bytes[bIdx + 3].toInt() and 0xFF
+            val idx = flatIdx shl 2
+            val r = bytes[idx].toInt() and 0xFF
+            val g = bytes[idx + 1].toInt() and 0xFF
+            val b = bytes[idx + 2].toInt() and 0xFF
+            val a = bytes[idx + 3].toInt() and 0xFF
             return abs(r - targetR) <= tolerance &&
                 abs(g - targetG) <= tolerance &&
                 abs(b - targetB) <= tolerance &&
@@ -810,43 +1040,43 @@ class GpuAcceleratedContext2DBackend(
         }
 
         while (head < tail) {
-            val curr = queue[head++]
-            val cx = curr % w
-            val cy = curr / w
-            val bIdx = curr shl 2
-            bytes[bIdx] = fillR
-            bytes[bIdx + 1] = fillG
-            bytes[bIdx + 2] = fillB
-            bytes[bIdx + 3] = fillA
+            val flat = queue[head++]
+            val px = flat % w
+            val py = flat / w
+            if (px < minDirtyX) minDirtyX = px
+            if (px + 1 > maxDirtyX) maxDirtyX = px + 1
+            if (py < minDirtyY) minDirtyY = py
+            if (py + 1 > maxDirtyY) maxDirtyY = py + 1
 
-            if (cx < minDirtyX) minDirtyX = cx
-            if (cx + 1 > maxDirtyX) maxDirtyX = cx + 1
-            if (cy < minDirtyY) minDirtyY = cy
-            if (cy + 1 > maxDirtyY) maxDirtyY = cy + 1
+            val byteIdx = flat shl 2
+            bytes[byteIdx] = fillR
+            bytes[byteIdx + 1] = fillG
+            bytes[byteIdx + 2] = fillB
+            bytes[byteIdx + 3] = fillA
 
-            if (cx > 0) {
-                val left = curr - 1
+            if (px > 0) {
+                val left = flat - 1
                 if (!visited[left] && matches(left)) {
                     visited[left] = true
                     queue[tail++] = left
                 }
             }
-            if (cx + 1 < w) {
-                val right = curr + 1
+            if (px + 1 < w) {
+                val right = flat + 1
                 if (!visited[right] && matches(right)) {
                     visited[right] = true
                     queue[tail++] = right
                 }
             }
-            if (cy > 0) {
-                val up = curr - w
+            if (py > 0) {
+                val up = flat - w
                 if (!visited[up] && matches(up)) {
                     visited[up] = true
                     queue[tail++] = up
                 }
             }
-            if (cy + 1 < h) {
-                val down = curr + w
+            if (py + 1 < h) {
+                val down = flat + w
                 if (!visited[down] && matches(down)) {
                     visited[down] = true
                     queue[tail++] = down
@@ -856,34 +1086,28 @@ class GpuAcceleratedContext2DBackend(
         imageBuffer.markDirtyRect(minDirtyX, minDirtyY, maxDirtyX, maxDirtyY)
     }
 
-    /**
-     * Draws an analytical capsule-SDF antialiased line segment between `(x0, y0)` and `(x1, y1)`.
-     */
-    fun drawAntialiasedSegment(
+    private fun drawAntialiasedSegment(
         x0: Float,
         y0: Float,
         x1: Float,
         y1: Float,
-        color: RgbaColor,
+        style: ImageBufferPaintStyle,
         strokeWidth: Float
     ) {
         val halfW = max(0.5f, strokeWidth * 0.5f)
         val feather = if (antialias) 0.75f else 0.05f
         val outerR = halfW + feather
-        val outerRSq = outerR * outerR
-
         val pad = ceil(outerR + 1f).toInt()
-        val ix0 = (min(x0, x1) - pad).toInt().coerceIn(0, width)
-        val iy0 = (min(y0, y1) - pad).toInt().coerceIn(0, height)
-        val ix1 = (max(x0, x1) + pad + 1).toInt().coerceIn(0, width)
-        val iy1 = (max(y0, y1) + pad + 1).toInt().coerceIn(0, height)
+        val ix0 = (min(x0, x1) - pad).toInt().coerceIn(max(0, clipMinX), min(width, clipMaxX))
+        val iy0 = (min(y0, y1) - pad).toInt().coerceIn(max(0, clipMinY), min(height, clipMaxY))
+        val ix1 = (max(x0, x1) + pad + 1).toInt().coerceIn(max(0, clipMinX), min(width, clipMaxX))
+        val iy1 = (max(y0, y1) + pad + 1).toInt().coerceIn(max(0, clipMinY), min(height, clipMaxY))
         if (ix1 <= ix0 || iy1 <= iy0) return
 
         val baX = x1 - x0
         val baY = y1 - y0
         val baLenSq = baX * baX + baY * baY
-        val innerR = max(0f, halfW - feather)
-        val span = max(0.001f, outerR - innerR)
+        val invMatrix = currentMatrix.inverted() ?: ImageBufferMatrix2D.identity()
 
         for (py in iy0 until iy1) {
             val cy = py + 0.5f
@@ -899,49 +1123,96 @@ class GpuAcceleratedContext2DBackend(
                 val dx = paX - baX * h
                 val dy = paY - baY * h
                 val distSq = dx * dx + dy * dy
-                if (distSq > outerRSq) continue
+                if (distSq > outerR * outerR) continue
 
                 val dist = sqrt(distSq)
                 val cov = if (antialias) {
-                    if (dist <= innerR) {
+                    if (dist <= halfW - feather) {
                         1f
                     } else {
-                        val t = ((dist - innerR) / span).coerceIn(0f, 1f)
-                        1f - t * t * (3f - 2f * t)
+                        ((outerR - dist) / (2f * feather)).coerceIn(0f, 1f)
                     }
                 } else {
                     if (dist <= halfW) 1f else 0f
                 }
-                if (cov > 0.003f) {
-                    blendCoveragePixel(px, py, color, cov)
+                if (cov > 0.004f) {
+                    val (lx, ly) = invMatrix.mapPoint(cx, cy)
+                    val src = style.sampleAt(lx, ly, (globalAlpha * cov).coerceIn(0f, 1f))
+                    blendPixelDirect(px, py, src)
                 }
             }
         }
         imageBuffer.markDirtyRect(ix0, iy0, ix1, iy1)
     }
 
-    private fun blendCoveragePixel(px: Int, py: Int, color: RgbaColor, coverage: Float) {
-        if (px !in 0 until width || py !in 0 until height) return
+    private fun blendPixelDirect(px: Int, py: Int, src: RgbaColor) {
         val bytes = imageBuffer.activeDrawBytes
         val idx = (py * width + px) shl 2
         if (idx + 3 >= bytes.size) return
-        val srcA = ((color.a / 255f) * globalAlpha * coverage).coerceIn(0f, 1f)
-        if (srcA >= 0.995f || compositeOp == "copy") {
-            bytes[idx] = color.r.toByte()
-            bytes[idx + 1] = color.g.toByte()
-            bytes[idx + 2] = color.b.toByte()
-            bytes[idx + 3] = (srcA * 255f).roundToInt().coerceIn(0, 255).toByte()
-        } else if (srcA > 0.001f) {
-            val invA = 1f - srcA
-            val dstR = bytes[idx].toInt() and 0xFF
-            val dstG = bytes[idx + 1].toInt() and 0xFF
-            val dstB = bytes[idx + 2].toInt() and 0xFF
-            val dstA = (bytes[idx + 3].toInt() and 0xFF) / 255f
-            val outA = (srcA + dstA * invA).coerceIn(0f, 1f)
-            bytes[idx] = (color.r * srcA + dstR * invA).roundToInt().coerceIn(0, 255).toByte()
-            bytes[idx + 1] = (color.g * srcA + dstG * invA).roundToInt().coerceIn(0, 255).toByte()
-            bytes[idx + 2] = (color.b * srcA + dstB * invA).roundToInt().coerceIn(0, 255).toByte()
-            bytes[idx + 3] = (outA * 255f).roundToInt().coerceIn(0, 255).toByte()
+
+        if (globalCompositeOperation == ImageBufferCompositeOperation.COPY) {
+            bytes[idx] = src.r.toByte()
+            bytes[idx + 1] = src.g.toByte()
+            bytes[idx + 2] = src.b.toByte()
+            bytes[idx + 3] = src.a.toByte()
+            return
         }
+        if (globalCompositeOperation == ImageBufferCompositeOperation.SOURCE_OVER && src.a == 255) {
+            bytes[idx] = src.r.toByte()
+            bytes[idx + 1] = src.g.toByte()
+            bytes[idx + 2] = src.b.toByte()
+            bytes[idx + 3] = (-1).toByte()
+            return
+        }
+        val dst = RgbaColor(
+            r = bytes[idx].toInt() and 0xFF,
+            g = bytes[idx + 1].toInt() and 0xFF,
+            b = bytes[idx + 2].toInt() and 0xFF,
+            a = bytes[idx + 3].toInt() and 0xFF
+        )
+        val out = globalCompositeOperation.blend(src, dst)
+        bytes[idx] = out.r.toByte()
+        bytes[idx + 1] = out.g.toByte()
+        bytes[idx + 2] = out.b.toByte()
+        bytes[idx + 3] = out.a.toByte()
     }
+
+    private class StateSnapshot(
+        val matrix: ImageBufferMatrix2D,
+        val globalAlpha: Float,
+        val globalCompositeOperation: ImageBufferCompositeOperation,
+        val imageSmoothingEnabled: Boolean,
+        val imageSmoothingQuality: ImageBufferImageSmoothingQuality,
+        val filter: String,
+        val fillStyle: ImageBufferPaintStyle,
+        val strokeStyle: ImageBufferPaintStyle,
+        val shadowBlur: Float,
+        val shadowColor: RgbaColor,
+        val shadowOffsetX: Float,
+        val shadowOffsetY: Float,
+        val lineWidth: Float,
+        val lineCap: ImageBufferLineCap,
+        val lineJoin: ImageBufferLineJoin,
+        val miterLimit: Float,
+        val lineDashOffset: Float,
+        val lineDashSegments: FloatArray,
+        val fontFamily: String,
+        val fontSizePx: Float,
+        val fontWeight: Int,
+        val fontStyle: ImageBufferFontStyle,
+        val textAlign: ImageBufferTextAlign,
+        val textBaseline: ImageBufferTextBaseline,
+        val direction: ImageBufferTextDirection,
+        val letterSpacingPx: Float,
+        val wordSpacingPx: Float,
+        val fontKerning: ImageBufferFontKerning,
+        val fontStretch: ImageBufferFontStretch,
+        val fontVariantCaps: ImageBufferFontVariantCaps,
+        val textRendering: ImageBufferTextRendering,
+        val clipMinX: Int,
+        val clipMinY: Int,
+        val clipMaxX: Int,
+        val clipMaxY: Int,
+        val antialias: Boolean
+    )
 }

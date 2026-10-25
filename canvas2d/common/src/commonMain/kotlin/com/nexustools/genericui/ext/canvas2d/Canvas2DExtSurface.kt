@@ -2,20 +2,20 @@ package com.nexustools.genericui.ext.canvas2d
 
 import com.nexustools.genericui.component.media.AbstractCanvas
 import com.nexustools.genericui.component.media.Canvas2D
-import com.nexustools.genericui.component.media.Canvas2DContext
+import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.image.ImageBuffer
 
 /**
  * Extended 2D vector and pixel surface in `:extensions:canvas2d` extending [Canvas2D] (and [AbstractCanvas]).
  *
  * Uses `:extensions:imageprocessing`'s universal [com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer]
- * surface (`SystemGpuImageBuffer` on System targets, `WebCanvasImageBuffer` on Web) as its backend
- * and enables antialiasing by default ([antialias] = `true`).
+ * surface (`SystemGpuImageBuffer` on System targets, `WebImageBuffer` on Web) as its backend
+ * and enables double buffering (`doubleBuffer = true`) and antialiasing (`antialias = true`) by default.
  */
 open class Canvas2DExtSurface(
     width: Int = 800,
     height: Int = 600,
-    doubleBuffer: Boolean = false,
+    doubleBuffer: Boolean = true,
     initialAntialias: Boolean = true
 ) : Canvas2D(
     width = width,
@@ -42,7 +42,7 @@ open class Canvas2DExtSurface(
     }
 
     /**
-     * Returns `true` when this surface is backed by an attached platform [Canvas2DNativeImpl].
+     * Returns `true` when this surface is backed by an attached platform `Canvas2DNativeImpl`.
      */
     fun hasNativeRenderingContext(): Boolean = typedCanvasNative()?.getRenderingContext() != null
 
@@ -62,6 +62,6 @@ open class Canvas2DExtSurface(
         }
     }
 
-    public override fun resolveRenderingContext(): Canvas2DContext? =
+    public override fun resolveRenderingContext(): ImageBuffer2DContext? =
         super.resolveRenderingContext()
 }

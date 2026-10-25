@@ -4,12 +4,13 @@ import com.nexustools.genericui.ext.canvas3d.Canvas3DExtension
 import com.nexustools.genericui.ext.gpu.web.WebGpuProvider
 import com.nexustools.genericui.web.WebGLCanvasImpl
 import com.nexustools.genericui.web.WebGLContextImpl
+import com.nexustools.genericui.web.WebScrollCanvas3DImpl
 import com.nexustools.genericui.web.WebVKCanvasImpl
 import com.nexustools.genericui.web.WebVKContextImpl
 
 /**
- * Registers WebGPU ([WebVKContextImpl]) and WebGL 2 ([WebGLContextImpl]) 3D contexts and canvas implementations into
- * [Canvas3DExtension] and [WebGpuProvider].
+ * Registers WebGPU ([WebVKContextImpl]), WebGL 2 ([WebGLContextImpl]), and [WebScrollCanvas3DImpl]
+ * 3D contexts and canvas implementations into [Canvas3DExtension] and [WebGpuProvider].
  */
 object WebCanvas3DProvider {
     fun install(
@@ -34,6 +35,15 @@ object WebCanvas3DProvider {
         }
         Canvas3DExtension.registerVKCanvasFactory { _, _, _ ->
             WebVKCanvasImpl()
+        }
+        Canvas3DExtension.registerScrollCanvas3DFactory { viewportWidth, viewportHeight, contentWidth, contentHeight, preferVulkan ->
+            WebScrollCanvas3DImpl(
+                initialViewportWidth = viewportWidth,
+                initialViewportHeight = viewportHeight,
+                initialContentWidth = contentWidth,
+                initialContentHeight = contentHeight,
+                preferVulkan = preferVulkan
+            )
         }
     }
 }

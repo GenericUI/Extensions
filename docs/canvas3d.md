@@ -2,7 +2,7 @@
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:canvas3d` is a **Project-of-Projects** extension providing interactive, VBlank-synchronized 3D and programmable shader canvases—**`VKCanvasExt`** (Vulkan 1.2+ / MoltenVK / WebGPU) and **`GLCanvasExt`** (OpenGL ES 3.0+ / Google ANGLE / LWJGL 3 / WebGL2)—plus headless **`OffscreenCanvas3D`** rendering. Built directly atop [`:extensions:gpu`](gpu.md) and `:common`'s `AbstractCanvas`, it serves as the rendering viewport foundation for [`:extensions:threejs`](threejs.md) and [`:extensions:box3d`](box3d.md).
+`:extensions:canvas3d` is a **Project-of-Projects** extension providing interactive, VBlank-synchronized 3D and programmable shader canvases—**`VKCanvasExt`** (Vulkan 1.2+ / MoltenVK / WebGPU), **`GLCanvasExt`** (OpenGL ES 3.0+ / Google ANGLE / LWJGL 3 / WebGL2), simulated viewport-only scrollable 3D canvases (**`ScrollCanvas3D`**, **`ScrollGLCanvas`**, **`ScrollVKCanvas`**), plus headless **`OffscreenCanvas3D`** rendering. Built directly atop [`:extensions:gpu`](gpu.md) and `:common`'s `AbstractCanvas`, it serves as the rendering viewport foundation for [`:extensions:threejs`](threejs.md) and [`:extensions:box3d`](box3d.md).
 
 ---
 
@@ -67,10 +67,26 @@ genericui {
 | `GLCanvasExt` | `ext.canvas3d` | Extended OpenGL ES 3.0+ / Google ANGLE 3D canvas widget extending `GLCanvas`. Key members: `config: GLCanvasConfig`, `gpuContext: GpuOffscreenContext`, `uploadImageBufferTexture(imageBuffer): GLTexture`, `uploadGpuTexture(imageBuffer): GpuTexture`, `registerVBlankRender { glCtx, deltaMs, elapsedMs, frameIdx -> ... }`, `resolveRenderingContext(): GLContext?`. |
 | `VKCanvasExt` | `ext.canvas3d` | Extended Vulkan 1.2+ / MoltenVK / WebGPU 3D canvas widget extending `VKCanvas`. Key members: `config: VKCanvasConfig`, `gpuContext: GpuOffscreenContext`, `uploadImageBufferTexture(imageBuffer): Long`, `uploadGpuTexture(imageBuffer): GpuTexture`, `registerVBlankRender { vkCtx, deltaMs, elapsedMs, frameIdx -> ... }`, `resolveRenderingContext(): VKContext?`. |
 | `OffscreenCanvas3D` | `ext.canvas3d` | Headless 3D rendering surface backed by `:extensions:gpu` (`width`, `height`, `preferVulkan`, `renderToImageBuffer { gpuCtx -> ... }: ImageBuffer`). |
+| `ScrollCanvas3D` / `ScrollGLCanvas` / `ScrollVKCanvas` | `ext.canvas3d` | Scrollable 3D canvases with virtual `contentWidth` x `contentHeight` where the physical 3D swapchain only fills `viewportWidth` x `viewportHeight` and scrolling is simulated via `onScroll`. On Web renders `<genericui:scrollcanvas3d>` with `position: relative`, inner `<div>` sized to `contentWidth` x `contentHeight`, and `<canvas>` with `position: absolute; left: 0; top: 0; width: 0; height: 0;`; on System targets composes the viewport 3D canvas with `rightScrollBar` and `bottomScrollBar`. |
+| `ScrollCanvas3DListener` | `ext.canvas3d` | `fun interface` (`onScrollChanged(scrollX, scrollY, viewportWidth, viewportHeight, contentWidth, contentHeight)`) invoked whenever simulated scroll position or dimensions change. |
 | `GLCanvasConfig` | `ext.gpu` | Configuration for `GLCanvasExt`: `versionMajor: Int = 3`, `versionMinor: Int = 0`, `depthBits: Int = 24`, `stencilBits: Int = 8`, `msaaSamples: Int = 4`, `vsync: Boolean = true`, `preferAngleOnWindows: Boolean = true`. |
 | `VKCanvasConfig` | `ext.gpu` | Configuration for `VKCanvasExt`: `enableValidationLayers: Boolean = false`, `preferDiscreteGpu: Boolean = true`, `srgbSwapchain: Boolean = true`, `depthFormatBits: Int = 32`, `msaaSamples: Int = 4`, `vsync: Boolean = true`. |
 | `glCanvasExt` / `glCanvas` | `ext.canvas3d.dsl` | Declarative DSL builders in `:extensions:canvas3d:dsl` for mounting `GLCanvasExt` and `GLCanvas`. |
 | `vkCanvasExt` / `vkCanvas` | `ext.canvas3d.dsl` | Declarative DSL builders in `:extensions:canvas3d:dsl` for mounting `VKCanvasExt` and `VKCanvas`. |
+| `scrollCanvas3D` / `scrollGlCanvas` / `scrollVkCanvas` | `ext.canvas3d.dsl` | Declarative DSL builders in `:extensions:canvas3d:dsl` for mounting `ScrollCanvas3D`, `ScrollGLCanvas`, and `ScrollVKCanvas` with `onScroll` listeners. |
+
+---
+
+## 3.1 `ScrollCanvas3D`, `ScrollGLCanvas`, & `ScrollVKCanvas` — Viewport-Only Swapchain with Simulated Scrolling
+
+`ScrollCanvas3D` (and type-safe `ScrollGLCanvas` / `ScrollVKCanvas`) implements a scrollable 3D canvas with a configurable virtual content size (`contentWidth` x `contentHeight`), while **the actual 3D `<canvas>` swapchain only fills the visible viewport (`viewportWidth` x `viewportHeight`) and scrolling is simulated** via `ScrollCanvas3DListener` (`onScroll { scrollX, scrollY, viewportWidth, viewportHeight, contentWidth, contentHeight -> ... }`):
+- **Web (`:extensions:canvas3d:web` — `WebScrollCanvas3DImpl`)**:
+  - Renders `<genericui:scrollcanvas3d>` (`WebDomElement("genericui:scrollcanvas3d")`) with `position: relative` and `overflow: auto`.
+  - Contains an inner `<div>` (`contentSizerDiv`) sized to `width: ${contentWidth}px; height: ${contentHeight}px;`.
+  - Places an HTML `<canvas>` (`canvasElement`) overtop the `<div>` with `position: absolute; left: 0; top: 0; width: 0; height: 0;` whose WebGPU/WebGL2 swapchain only allocates `viewportWidth` x `viewportHeight`.
+- **System Targets (`:desktop`, `:mobile`, `:swing`)**:
+  - Composes the viewport-sized 3D canvas (`GLCanvasExt` or `VKCanvasExt`) with a vertical scrollbar component at the right (`rightScrollBar: RangeSlider`) and a horizontal scrollbar component at the bottom (`bottomScrollBar: RangeSlider`).
+  - Moving the right or bottom scrollbar (or scrolling with the mouse wheel) updates `scrollX` / `scrollY` and invokes `onScroll` so the 3D camera/projection matrix re-renders the viewport immediately.
 
 ---
 

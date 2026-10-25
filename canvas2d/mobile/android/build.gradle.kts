@@ -19,6 +19,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":mobile:android"))
+            api(project(":extensions:gpu:mobile:android"))
             api(project(":extensions:canvas2d:mobile:shared"))
         }
         androidMain.dependencies {

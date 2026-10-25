@@ -1,7 +1,7 @@
 package com.nexustools.genericui.ext.canvas2d
 
-import com.nexustools.genericui.component.media.Canvas2DContext
 import com.nexustools.genericui.enums.bootstrap.TextAlignment
+import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.style.RgbaColor
 
@@ -20,7 +20,7 @@ import com.nexustools.genericui.style.RgbaColor
 object CanvasTextLayoutHelper {
 
     fun fillTextFitted(
-        ctx: Canvas2DContext,
+        ctx: ImageBuffer2DContext,
         text: String,
         bounds: Rect,
         fontFamily: String = "serif",
@@ -78,7 +78,7 @@ object CanvasTextLayoutHelper {
      * [bounds] (or `""` if all text fit).
      */
     fun fillTextAreaWithOverflow(
-        ctx: Canvas2DContext,
+        ctx: ImageBuffer2DContext,
         text: String,
         bounds: Rect,
         fontFamily: String = "serif",
@@ -158,7 +158,7 @@ object CanvasTextLayoutHelper {
         raw.replace("*", "")
 
     private fun drawLineWithInlineItalics(
-        ctx: Canvas2DContext,
+        ctx: ImageBuffer2DContext,
         line: String,
         x: Float,
         y: Float,

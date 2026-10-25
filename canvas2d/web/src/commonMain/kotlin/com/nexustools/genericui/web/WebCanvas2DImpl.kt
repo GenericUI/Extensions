@@ -1,34 +1,32 @@
 package com.nexustools.genericui.web
 
-import com.nexustools.genericui.component.media.Canvas2DContext
-import com.nexustools.genericui.ext.imageprocessing.web.WebCanvasImageBuffer
+import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
+import com.nexustools.genericui.ext.imageprocessing.context2d.WebImageBuffer
 import com.nexustools.genericui.nativeimpl.media.Canvas2DNativeImpl
 
 /**
- * Web `<canvas>` 2D implementation ([Canvas2DNativeImpl]) whose [Canvas2DContext] operates
- * **directly** on the underlying `CanvasRenderingContext2D` (`canvas.getContext("2d")`) taken from
- * this component's `<canvas>` HTML element ([nativeWidget]).
+ * Web `<canvas>` 2D implementation ([Canvas2DNativeImpl]) whose [ImageBuffer2DContext] operates
+ * **directly** on the browser's native 2D rendering context via [WebImageBuffer] without
+ * dirty-tracking or manual double-buffer swap overhead.
  */
-class WebCanvas2DImpl : WebAbstractCanvasImpl<Canvas2DContext>("canvas-2d"), Canvas2DNativeImpl<WebDomElement> {
-    private val context = WebCanvas2DContextImpl(
-        width = getSurfaceWidth(),
-        height = getSurfaceHeight(),
-        existingCanvasElement = nativeWidget,
-        initialAntialias = true
+class WebCanvas2DImpl : WebAbstractCanvasImpl<ImageBuffer2DContext>("canvas-2d"), Canvas2DNativeImpl<WebDomElement> {
+    val imageBuffer: WebImageBuffer = WebImageBuffer(
+        width = getSurfaceWidth().coerceAtLeast(1),
+        height = getSurfaceHeight().coerceAtLeast(1),
+        doubleBuffer = false,
+        initialAntialias = true,
+        existingSurfaceElement = nativeWidget
     )
 
-    val imageBuffer: WebCanvasImageBuffer
-        get() = context.imageBuffer
-
-    override fun getRenderingContext(): Canvas2DContext {
-        val w = getSurfaceWidth()
-        val h = getSurfaceHeight()
-        if (context.width != w || context.height != h) {
-            context.resizeSurface(w, h)
+    override fun getRenderingContext(): ImageBuffer2DContext {
+        val w = getSurfaceWidth().coerceAtLeast(1)
+        val h = getSurfaceHeight().coerceAtLeast(1)
+        if (imageBuffer.width != w || imageBuffer.height != h) {
+            imageBuffer.resize(w, h)
         }
-        return context
+        return imageBuffer.getContext()
     }
 
     override fun captureFrameToRgba(): ByteArray =
-        context.getImageDataRgba(0, 0, context.width, context.height)
+        imageBuffer.readPixelsRgba(0, 0, imageBuffer.width, imageBuffer.height)
 }

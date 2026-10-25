@@ -13,7 +13,6 @@ kotlin {
         commonMain.dependencies {
             api(project(":desktop:qt"))
             api(project(":extensions:canvas3d:desktop:shared"))
-            api(project(":extensions:canvas2d:desktop:qt"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

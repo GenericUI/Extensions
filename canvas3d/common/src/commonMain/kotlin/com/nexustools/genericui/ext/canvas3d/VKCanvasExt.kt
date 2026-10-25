@@ -41,7 +41,7 @@ open class VKCanvasExt(
     fun uploadGpuTexture(imageBuffer: ImageBuffer): GpuTexture =
         gpuContext.uploadTexture(imageBuffer)
 
-    override fun resolveRenderingContext(): VKContext? {
+    public override fun resolveRenderingContext(): VKContext? {
         super.resolveRenderingContext()?.let { return it }
         if (fallbackVkContext == null) {
             fallbackVkContext = Canvas3DExtension.createVKContext(

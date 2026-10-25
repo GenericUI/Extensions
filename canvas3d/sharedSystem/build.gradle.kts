@@ -35,8 +35,6 @@ kotlin {
             api(project(":common"))
             api(project(":extensions:gpu:common"))
             api(project(":extensions:gpu:sharedSystem"))
-            api(project(":extensions:canvas2d:common"))
-            api(project(":extensions:canvas2d:sharedSystem"))
             api(project(":extensions:canvas3d:common"))
             implementation(libs.kotlinx.coroutines.core)
         }

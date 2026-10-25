@@ -21,6 +21,5 @@ dependencies {
     api(project(":extensions:canvas3d:sharedSystem"))
     implementation(libs.kotlinx.coroutinesSwing)
     api(project(":extensions:gpu:desktop:swing"))
-    api(project(":extensions:canvas2d:desktop:swing"))
     testImplementation(libs.kotlin.test)
 }

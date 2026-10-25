@@ -6,9 +6,9 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Portable fallback [ImageBuffer] in `:extensions:imageprocessing:common` used only when
+ * Portable fallback [ImageBuffer] in `:extensions:imageprocessing:common` used when
  * [ImageBuffer.create] is invoked before a platform factory (`SystemGpuImageBuffer` on System
- * targets or `WebCanvasImageBuffer` on Web) has been installed.
+ * targets or `WebImageBuffer` on Web) has been installed, or directly in common unit tests.
  */
 class DefaultCpuImageBuffer(
     width: Int = 800,
@@ -19,6 +19,7 @@ class DefaultCpuImageBuffer(
     width = max(1, width),
     height = max(1, height),
     doubleBuffer = doubleBuffer,
+    enableDirtyTracking = true,
     pixelFormat = PixelFormat.RGBA_8888,
     colorSpace = ImageColorSpace.SRGB
 ) {
@@ -29,9 +30,10 @@ class DefaultCpuImageBuffer(
     override val flushCount: Long
         get() = _flushCount
 
+    private var frontBytes: ByteArray = ByteArray(this.width * this.height * 4)
     private var bgraBytes: ByteArray = ByteArray(this.width * this.height * 4)
 
-    override val context2D: ImageProcessingContext2DBackend = DefaultCpuContext2DBackend(
+    override val context2D: ImageBuffer2DContext = DefaultCpuContext2DBackend(
         imageBuffer = this,
         initialAntialias = initialAntialias
     )
@@ -41,22 +43,32 @@ class DefaultCpuImageBuffer(
         val h = max(1, newHeight)
         if (w == width && h == height) return
         updateDimensionsAndBytes(w, h, ByteArray(w * h * 4))
+        frontBytes = ByteArray(w * h * 4)
         bgraBytes = ByteArray(w * h * 4)
+        clearDirtyState()
     }
 
     override fun flush() {
         val src = bytes
-        if (bgraBytes.size != src.size) {
-            bgraBytes = ByteArray(src.size)
+        if (doubleBuffer) {
+            if (frontBytes.size != src.size) {
+                frontBytes = ByteArray(src.size)
+            }
+            src.copyInto(frontBytes)
+        }
+        val active = if (doubleBuffer) frontBytes else src
+        if (bgraBytes.size != active.size) {
+            bgraBytes = ByteArray(active.size)
         }
         var i = 0
-        while (i + 3 < src.size) {
-            bgraBytes[i] = src[i + 2]
-            bgraBytes[i + 1] = src[i + 1]
-            bgraBytes[i + 2] = src[i]
-            bgraBytes[i + 3] = src[i + 3]
+        while (i + 3 < active.size) {
+            bgraBytes[i] = active[i + 2]
+            bgraBytes[i + 1] = active[i + 1]
+            bgraBytes[i + 2] = active[i]
+            bgraBytes[i + 3] = active[i + 3]
             i += 4
         }
+        clearDirtyState()
         _flushCount++
     }
 
@@ -100,9 +112,11 @@ class DefaultCpuImageBuffer(
                 rgbaBytes.copyInto(bytes, dstOffset, srcOffset, srcOffset + rowBytes)
             }
         }
+        markDirty(dx + startX, dy + startY, endX - startX, endY - startY)
     }
 
-    override fun directRgbaBytes(): ByteArray = bytes
+    override fun directRgbaBytes(): ByteArray =
+        if (doubleBuffer && _flushCount > 0L) frontBytes else bytes
 
     override fun directBgraBytes(): ByteArray {
         flush()

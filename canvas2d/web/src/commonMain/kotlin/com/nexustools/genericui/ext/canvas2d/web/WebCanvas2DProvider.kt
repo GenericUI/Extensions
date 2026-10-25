@@ -1,22 +1,30 @@
 package com.nexustools.genericui.ext.canvas2d.web
 
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtension
-import com.nexustools.genericui.ext.imageprocessing.web.WebCanvasImageBuffer
-import com.nexustools.genericui.web.WebCanvas2DContextImpl
+import com.nexustools.genericui.ext.imageprocessing.context2d.WebImageBuffer
 import com.nexustools.genericui.web.WebCanvas2DImpl
+import com.nexustools.genericui.web.WebScrollCanvas2DImpl
 
 /**
- * Registers `:web`'s HTML5 `<canvas>` 2D context ([WebCanvas2DContextImpl] backed by
- * `:extensions:imageprocessing:web`'s [WebCanvasImageBuffer]) and [WebCanvas2DImpl] into [Canvas2DExtension].
+ * Registers `:web`'s 2D context ([WebImageBuffer] -> `ImageBuffer2DContext`),
+ * [WebCanvas2DImpl], and [WebScrollCanvas2DImpl] into [Canvas2DExtension].
  */
 object WebCanvas2DProvider {
     fun install() {
-        WebCanvasImageBuffer.installFactory()
+        WebImageBuffer.installFactory()
         Canvas2DExtension.registerContextFactory { width, height ->
-            WebCanvas2DContextImpl(width = width, height = height)
+            WebImageBuffer(width = width, height = height).getContext()
         }
         Canvas2DExtension.registerCanvas2DFactory { _, _ ->
             WebCanvas2DImpl()
+        }
+        Canvas2DExtension.registerScrollCanvas2DFactory { viewportWidth, viewportHeight, contentWidth, contentHeight ->
+            WebScrollCanvas2DImpl(
+                initialViewportWidth = viewportWidth,
+                initialViewportHeight = viewportHeight,
+                initialContentWidth = contentWidth,
+                initialContentHeight = contentHeight
+            )
         }
     }
 }

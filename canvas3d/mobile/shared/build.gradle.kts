@@ -24,7 +24,6 @@ kotlin {
             api(project(":extensions:canvas3d:sharedSystem"))
             implementation(libs.kotlinx.coroutines.core)
             api(project(":extensions:gpu:mobile:shared"))
-            api(project(":extensions:canvas2d:mobile:shared"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

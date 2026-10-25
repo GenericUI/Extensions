@@ -11,7 +11,6 @@ kotlin {
             api(project(":mobile:ios"))
             api(project(":extensions:canvas3d:mobile:shared"))
             api(project(":extensions:gpu:mobile:ios"))
-            api(project(":extensions:canvas2d:mobile:ios"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

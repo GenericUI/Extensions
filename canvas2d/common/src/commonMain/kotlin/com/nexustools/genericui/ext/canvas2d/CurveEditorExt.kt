@@ -1,6 +1,6 @@
 package com.nexustools.genericui.ext.canvas2d
 
-import com.nexustools.genericui.component.media.Canvas2DContext
+import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.geometry.Point
 import com.nexustools.genericui.style.color.RgbaColor
 
@@ -56,7 +56,7 @@ class CurveEditorExt(
         }
     }
 
-    fun renderCurveOverlay(ctx: Canvas2DContext) {
+    fun renderCurveOverlay(ctx: ImageBuffer2DContext) {
         val w = ctx.width.toFloat()
         val h = ctx.height.toFloat()
         ctx.clearRect(0f, 0f, w, h)

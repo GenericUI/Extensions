@@ -14,11 +14,13 @@ import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
 import com.nexustools.genericui.ext.gpu.VKCanvasConfig
 import com.nexustools.genericui.ext.gpu.VKContext
 import com.nexustools.genericui.nativeimpl.media.GLCanvasNativeImpl
+import com.nexustools.genericui.nativeimpl.media.ScrollCanvas3DNativeImpl
 import com.nexustools.genericui.nativeimpl.media.VKCanvasNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor
 
 /**
- * Extension coordinator for `:extensions:canvas3d` bridging [VKCanvasExt] and [GLCanvasExt]
+ * Extension coordinator for `:extensions:canvas3d` bridging [VKCanvasExt], [GLCanvasExt],
+ * [ScrollCanvas3D], [ScrollGLCanvas], and [ScrollVKCanvas]
  * with `:extensions:gpu` ([GpuDevice], [GpuOffscreenContext], [VKContext], and [GLContext]).
  */
 object Canvas3DExtension {
@@ -26,6 +28,7 @@ object Canvas3DExtension {
     private var glContextFactory: ((GLCanvasConfig, Int, Int) -> GLContext)? = null
     private var glCanvasNativeFactory: ((GLCanvasConfig, Int, Int) -> GLCanvasNativeImpl<*>)? = null
     private var vkCanvasNativeFactory: ((VKCanvasConfig, Int, Int) -> VKCanvasNativeImpl<*>)? = null
+    private var scrollCanvas3dNativeFactory: ((Int, Int, Int, Int, Boolean) -> ScrollCanvas3DNativeImpl<*, *>)? = null
 
     fun registerVKContextFactory(factory: (VKCanvasConfig, Int, Int) -> VKContext) {
         vkContextFactory = factory
@@ -43,6 +46,12 @@ object Canvas3DExtension {
         vkCanvasNativeFactory = factory
     }
 
+    fun registerScrollCanvas3DFactory(
+        factory: (viewportWidth: Int, viewportHeight: Int, contentWidth: Int, contentHeight: Int, preferVulkan: Boolean) -> ScrollCanvas3DNativeImpl<*, *>
+    ) {
+        scrollCanvas3dNativeFactory = factory
+    }
+
     fun createGLCanvasNative(
         config: GLCanvasConfig = GLCanvasConfig(),
         width: Int = 800,
@@ -58,6 +67,35 @@ object Canvas3DExtension {
     ): VKCanvasNativeImpl<*> =
         vkCanvasNativeFactory?.invoke(config, width, height)
             ?: throw IllegalStateException("No VKCanvasNativeImpl provider registered in Canvas3DExtension")
+
+    fun createScrollCanvas3DNativeOrNull(
+        viewportWidth: Int = 800,
+        viewportHeight: Int = 600,
+        contentWidth: Int = viewportWidth,
+        contentHeight: Int = viewportHeight,
+        preferVulkan: Boolean = true
+    ): ScrollCanvas3DNativeImpl<*, *>? =
+        scrollCanvas3dNativeFactory?.invoke(viewportWidth, viewportHeight, contentWidth, contentHeight, preferVulkan)
+
+    fun createScrollCanvas3DNative(
+        viewportWidth: Int = 800,
+        viewportHeight: Int = 600,
+        contentWidth: Int = viewportWidth,
+        contentHeight: Int = viewportHeight,
+        preferVulkan: Boolean = true,
+        glConfig: GLCanvasConfig = GLCanvasConfig(),
+        vkConfig: VKCanvasConfig = VKCanvasConfig()
+    ): ScrollCanvas3DNativeImpl<*, *> =
+        scrollCanvas3dNativeFactory?.invoke(viewportWidth, viewportHeight, contentWidth, contentHeight, preferVulkan)
+            ?: SystemScrollCanvas3DNativeImpl(
+                initialViewportWidth = viewportWidth,
+                initialViewportHeight = viewportHeight,
+                initialContentWidth = contentWidth,
+                initialContentHeight = contentHeight,
+                preferVulkan = preferVulkan,
+                glConfig = glConfig,
+                vkConfig = vkConfig
+            )
 
     fun acquireGpuOffscreenContext(preferVulkan: Boolean = true): GpuOffscreenContext =
         GpuDevice.acquireOffscreenContext(preferVulkan)
