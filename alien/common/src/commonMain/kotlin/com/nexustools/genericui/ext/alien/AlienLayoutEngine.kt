@@ -163,8 +163,6 @@ class AlienLayoutEngine {
 
         val oldBounds = node.bounds
         node.bounds = assignedBounds
-        node.layoutWidth = assignedBounds.width.toFloat()
-        node.layoutHeight = assignedBounds.height.toFloat()
         node.layoutDirty = false
 
         if (oldBounds != assignedBounds) {
@@ -670,7 +668,7 @@ class AlienLayoutEngine {
         if (style.display == "table") return true
         val prefix = node.componentClassPrefix.lowercase()
         val classes = node.styleSnapshot.customClasses
-        val rawFlexDir = node.computedStyle?.flexDirection?.lowercase()
+        val rawFlexDir = node.computedStyle?.rawDeclarations?.get("flex-direction")?.lowercase()
         if (rawFlexDir == "column" || rawFlexDir == "column-reverse" || "flex-column" in classes) {
             return false
         }

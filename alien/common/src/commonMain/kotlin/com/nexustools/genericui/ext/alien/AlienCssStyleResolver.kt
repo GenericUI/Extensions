@@ -174,7 +174,7 @@ object AlienCssStyleResolver {
         }
         val textOverflow = when (snapshot.textOverflow) {
             TextOverflow.ELLIPSIS -> "ellipsis"
-            else -> stateComputed?.textOverflow ?: "clip"
+            else -> stateComputed?.rawDeclarations?.get("text-overflow")?.lowercase() ?: "clip"
         }
         val whiteSpace = stateComputed?.whiteSpace ?: inherited.whiteSpace
 
@@ -210,14 +210,10 @@ object AlienCssStyleResolver {
             raw["padding"]?.let { padShorthand ->
                 resolvedPadding = parseBoxShorthandInsets(padShorthand, fontSizePx, resolvedPadding).first
             }
-            val padTop = stateComputed.paddingTopPx?.roundToInt()
-                ?: raw["padding-top"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val padRight = stateComputed.paddingRightPx?.roundToInt()
-                ?: raw["padding-right"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val padBottom = stateComputed.paddingBottomPx?.roundToInt()
-                ?: raw["padding-bottom"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val padLeft = stateComputed.paddingLeftPx?.roundToInt()
-                ?: raw["padding-left"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
+            val padTop = raw["padding-top"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
+            val padRight = raw["padding-right"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
+            val padBottom = raw["padding-bottom"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
+            val padLeft = raw["padding-left"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
             if (padTop != null || padRight != null || padBottom != null || padLeft != null) {
                 resolvedPadding = EdgeInsets(
                     top = padTop ?: resolvedPadding.top,
@@ -233,14 +229,10 @@ object AlienCssStyleResolver {
                 if (autoFlags.first) marginLeftAuto = true
                 if (autoFlags.second) marginRightAuto = true
             }
-            val marTop = stateComputed.marginTopPx?.roundToInt()
-                ?: raw["margin-top"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val marRight = stateComputed.marginRightPx?.roundToInt()
-                ?: raw["margin-right"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val marBottom = stateComputed.marginBottomPx?.roundToInt()
-                ?: raw["margin-bottom"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val marLeft = stateComputed.marginLeftPx?.roundToInt()
-                ?: raw["margin-left"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
+            val marTop = raw["margin-top"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
+            val marRight = raw["margin-right"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
+            val marBottom = raw["margin-bottom"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
+            val marLeft = raw["margin-left"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
             if (raw["margin-left"]?.trim().equals("auto", ignoreCase = true)) marginLeftAuto = true
             if (raw["margin-right"]?.trim().equals("auto", ignoreCase = true)) marginRightAuto = true
             if (marTop != null || marRight != null || marBottom != null || marLeft != null) {
@@ -355,21 +347,20 @@ object AlienCssStyleResolver {
         val rightCss = stateComputed?.right ?: raw["right"]
         val bottomCss = stateComputed?.bottom ?: raw["bottom"]
 
-        val widthCss = raw["width"] ?: stateComputed?.widthPx?.let { "${it}px" }
+        val widthCss = raw["width"] ?: stateComputed?.width
             ?: if ("w-100" in customClasses) "100%" else null
-        val heightCss = raw["height"] ?: stateComputed?.heightPx?.let { "${it}px" }
+        val heightCss = raw["height"] ?: stateComputed?.height
             ?: if ("h-100" in customClasses) "100%" else null
-        val minWidthCss = raw["min-width"] ?: stateComputed?.minWidthPx?.let { "${it}px" }
-        val minHeightCss = raw["min-height"] ?: stateComputed?.minHeightPx?.let { "${it}px" }
-        val maxWidthCss = raw["max-width"] ?: stateComputed?.maxWidthPx?.let { "${it}px" }
-        val maxHeightCss = raw["max-height"] ?: stateComputed?.maxHeightPx?.let { "${it}px" }
+        val minWidthCss = raw["min-width"] ?: stateComputed?.minWidth
+        val minHeightCss = raw["min-height"] ?: stateComputed?.minHeight
+        val maxWidthCss = raw["max-width"] ?: stateComputed?.maxWidth
+        val maxHeightCss = raw["max-height"] ?: stateComputed?.maxHeight
 
-        val aspectRatio = parseAspectRatio(raw["aspect-ratio"])
-        val flexGrow = stateComputed?.flexGrow
-            ?: raw["flex-grow"]?.trim()?.toFloatOrNull()
+        val aspectRatio = stateComputed?.aspectRatio ?: parseAspectRatio(raw["aspect-ratio"])
+        val flexGrow = raw["flex-grow"]?.trim()?.toFloatOrNull()
             ?: raw["flex"]?.trim()?.split(Regex("\\s+"))?.firstOrNull()?.toFloatOrNull()
             ?: if ("flex-grow-1" in customClasses || "flex-fill" in customClasses) 1f else 0f
-        val floatMode = (stateComputed?.floatMode ?: raw["float"] ?: when {
+        val floatMode = (stateComputed?.floatSide ?: raw["float"] ?: when {
             "float-start" in customClasses || "prev" in customClasses && raw["float"] == null && "controls" in (node.parent?.styleSnapshot?.customClasses ?: emptySet()) -> "left"
             "float-end" in customClasses -> "right"
             else -> "none"

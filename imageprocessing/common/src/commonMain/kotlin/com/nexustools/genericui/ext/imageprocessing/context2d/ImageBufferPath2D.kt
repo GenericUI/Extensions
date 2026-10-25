@@ -39,6 +39,9 @@ class ImageBufferPath2D() {
         parseSvgPathData(svgPathData)
     }
 
+    val commandCount: Int
+        get() = commands.size
+
     fun isEmpty(): Boolean = commands.isEmpty()
 
     fun reset() {
@@ -401,6 +404,29 @@ class ImageBufferPath2D() {
         }
         flushSubpath()
         return result
+    }
+
+    /**
+     * Flattens this path into a list of polyline subpaths transformed by [matrix].
+     */
+    fun flattenSubpaths(
+        matrix: ImageBufferMatrix2D = ImageBufferMatrix2D.IDENTITY,
+        flatness: Float = 0.5f
+    ): List<FloatArray> {
+        val raw = toPolylines(flatness)
+        if (matrix.isIdentity) return raw
+        return raw.map { poly ->
+            val out = FloatArray(poly.size)
+            var i = 0
+            while (i + 1 < poly.size) {
+                val x = poly[i]
+                val y = poly[i + 1]
+                out[i] = matrix.transformX(x, y)
+                out[i + 1] = matrix.transformY(x, y)
+                i += 2
+            }
+            out
+        }
     }
 
     /**

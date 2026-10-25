@@ -2,6 +2,8 @@ package com.nexustools.genericui.ext.imageprocessing.context2d
 
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.tan
 
@@ -80,6 +82,9 @@ data class ImageBufferMatrix2D(
 
     fun transformPoint(x: Float, y: Float): Pair<Float, Float> =
         transformX(x, y) to transformY(x, y)
+
+    fun maxScaleFactor(): Float =
+        max(hypot(a, b), hypot(c, d))
 
     companion object {
         val IDENTITY: ImageBufferMatrix2D = ImageBufferMatrix2D()

@@ -83,15 +83,15 @@ class GpuAcceleratedContext2DBackend(
     // 2D Context State
     // -------------------------------------------------------------------------
 
-    private var currentMatrix: ImageBufferMatrix2D = ImageBufferMatrix2D.identity()
+    private var currentMatrix: ImageBufferMatrix2D = ImageBufferMatrix2D.IDENTITY
     override var globalAlpha: Float = 1f
     override var globalCompositeOperation: ImageBufferCompositeOperation = ImageBufferCompositeOperation.SOURCE_OVER
     override var imageSmoothingEnabled: Boolean = true
     override var imageSmoothingQuality: ImageBufferImageSmoothingQuality = ImageBufferImageSmoothingQuality.HIGH
     override var filter: String = "none"
 
-    override var fillStyle: ImageBufferPaintStyle = ImageBufferPaintStyle.fromColor(RgbaColor.BLACK)
-    override var strokeStyle: ImageBufferPaintStyle = ImageBufferPaintStyle.fromColor(RgbaColor.BLACK)
+    override var fillStyle: ImageBufferPaintStyle = ImageBufferPaintStyle.solid(RgbaColor.BLACK)
+    override var strokeStyle: ImageBufferPaintStyle = ImageBufferPaintStyle.solid(RgbaColor.BLACK)
 
     val fillColor: RgbaColor
         get() = fillStyle.color
@@ -134,14 +134,14 @@ class GpuAcceleratedContext2DBackend(
     private val stateStack = ArrayDeque<StateSnapshot>()
 
     override fun reset() {
-        currentMatrix = ImageBufferMatrix2D.identity()
+        currentMatrix = ImageBufferMatrix2D.IDENTITY
         globalAlpha = 1f
         globalCompositeOperation = ImageBufferCompositeOperation.SOURCE_OVER
         imageSmoothingEnabled = true
         imageSmoothingQuality = ImageBufferImageSmoothingQuality.HIGH
         filter = "none"
-        fillStyle = ImageBufferPaintStyle.fromColor(RgbaColor.BLACK)
-        strokeStyle = ImageBufferPaintStyle.fromColor(RgbaColor.BLACK)
+        fillStyle = ImageBufferPaintStyle.solid(RgbaColor.BLACK)
+        strokeStyle = ImageBufferPaintStyle.solid(RgbaColor.BLACK)
         clearShadow()
         lineWidth = 1f
         lineCap = ImageBufferLineCap.BUTT
@@ -255,19 +255,19 @@ class GpuAcceleratedContext2DBackend(
     }
 
     override fun scale(sx: Float, sy: Float) {
-        currentMatrix = currentMatrix.scaled(sx, sy)
+        currentMatrix = currentMatrix.scale(sx, sy)
     }
 
     override fun rotate(angleRadians: Float) {
-        currentMatrix = currentMatrix.rotated(angleRadians)
+        currentMatrix = currentMatrix.rotate(angleRadians)
     }
 
     override fun translate(dx: Float, dy: Float) {
-        currentMatrix = currentMatrix.translated(dx, dy)
+        currentMatrix = currentMatrix.translate(dx, dy)
     }
 
     override fun transform(a: Float, b: Float, c: Float, d: Float, e: Float, f: Float) {
-        currentMatrix = currentMatrix.multiplied(ImageBufferMatrix2D(a, b, c, d, e, f))
+        currentMatrix = currentMatrix.multiply(ImageBufferMatrix2D(a, b, c, d, e, f))
     }
 
     override fun setTransform(a: Float, b: Float, c: Float, d: Float, e: Float, f: Float) {
@@ -277,7 +277,7 @@ class GpuAcceleratedContext2DBackend(
     override fun getTransform(): ImageBufferMatrix2D = currentMatrix.copy()
 
     override fun resetTransform() {
-        currentMatrix = ImageBufferMatrix2D.identity()
+        currentMatrix = ImageBufferMatrix2D.IDENTITY
     }
 
     override fun setLineDash(segments: FloatArray, offset: Float) {
@@ -292,8 +292,8 @@ class GpuAcceleratedContext2DBackend(
     override fun getLineDash(): FloatArray = lineDashSegments.copyOf()
 
     override fun clearRect(x: Float, y: Float, width: Float, height: Float) {
-        val (tx0, ty0) = currentMatrix.mapPoint(x, y)
-        val (tx1, ty1) = currentMatrix.mapPoint(x + width, y + height)
+        val (tx0, ty0) = currentMatrix.transformPoint(x, y)
+        val (tx1, ty1) = currentMatrix.transformPoint(x + width, y + height)
         val sx0 = floor(min(tx0, tx1)).toInt().coerceIn(max(0, clipMinX), min(this.width, clipMaxX))
         val sy0 = floor(min(ty0, ty1)).toInt().coerceIn(max(0, clipMinY), min(this.height, clipMaxY))
         val sx1 = ceil(max(tx0, tx1)).toInt().coerceIn(max(0, clipMinX), min(this.width, clipMaxX))
@@ -332,10 +332,10 @@ class GpuAcceleratedContext2DBackend(
     }
 
     override fun strokeRect(x: Float, y: Float, width: Float, height: Float) {
-        val (x0, y0) = currentMatrix.mapPoint(x, y)
-        val (x1, y1) = currentMatrix.mapPoint(x + width, y)
-        val (x2, y2) = currentMatrix.mapPoint(x + width, y + height)
-        val (x3, y3) = currentMatrix.mapPoint(x, y + height)
+        val (x0, y0) = currentMatrix.transformPoint(x, y)
+        val (x1, y1) = currentMatrix.transformPoint(x + width, y)
+        val (x2, y2) = currentMatrix.transformPoint(x + width, y + height)
+        val (x3, y3) = currentMatrix.transformPoint(x, y + height)
         val scaledWidth = max(1f, lineWidth * currentMatrix.maxScaleFactor())
         drawAntialiasedSegment(x0, y0, x1, y1, strokeStyle, scaledWidth)
         drawAntialiasedSegment(x1, y1, x2, y2, strokeStyle, scaledWidth)
@@ -401,7 +401,7 @@ class GpuAcceleratedContext2DBackend(
 
     override fun roundRect(x: Float, y: Float, width: Float, height: Float, radius: Float) {
         currentPath.roundRect(x, y, width, height, radius)
-        if (currentPath.commands.size <= 10 && currentMatrix.isIdentity && fillStyle.kind == ImageBufferPaintStyleKind.SOLID_COLOR) {
+        if (currentPath.commandCount <= 10 && currentMatrix.isIdentity && fillStyle.kind == ImageBufferPaintStyleKind.SOLID_COLOR) {
             renderRoundedRectSdfDirect(x, y, width, height, radius, radius, radius, radius)
         }
     }
@@ -478,7 +478,8 @@ class GpuAcceleratedContext2DBackend(
                         if (sdf <= 0f) 1f else 0f
                     }
                     if (cov > 0.002f) {
-                        val src = fillStyle.sampleAt(px + 0.5f, py + 0.5f, (globalAlpha * cov).coerceIn(0f, 1f))
+                        val rawColor = fillStyle.sampleAt(px + 0.5f, py + 0.5f, imageSmoothingEnabled)
+                        val src = modulatePaintAlpha(rawColor, (globalAlpha * cov).coerceIn(0f, 1f))
                         blendPixelDirect(px, py, src)
                     }
                 }
@@ -518,14 +519,15 @@ class GpuAcceleratedContext2DBackend(
         val ey = ceil(maxY + 1f).toInt().coerceIn(max(0, clipMinY), min(height, clipMaxY))
         if (ex <= sx || ey <= sy) return
 
-        val invMatrix = currentMatrix.inverted() ?: ImageBufferMatrix2D.identity()
+        val invMatrix = currentMatrix.invert() ?: ImageBufferMatrix2D.IDENTITY
         for (py in sy until ey) {
             val sampleY = py + 0.5f
             for (px in sx until ex) {
                 val sampleX = px + 0.5f
-                val (localX, localY) = invMatrix.mapPoint(sampleX, sampleY)
+                val (localX, localY) = invMatrix.transformPoint(sampleX, sampleY)
                 if (path.containsPoint(localX, localY, fillRule)) {
-                    val src = fillStyle.sampleAt(localX, localY, globalAlpha)
+                    val rawColor = fillStyle.sampleAt(localX, localY, imageSmoothingEnabled)
+                    val src = modulatePaintAlpha(rawColor, globalAlpha)
                     blendPixelDirect(px, py, src)
                 }
             }
@@ -613,8 +615,8 @@ class GpuAcceleratedContext2DBackend(
         y: Float,
         fillRule: ImageBufferFillRule
     ): Boolean {
-        val inv = currentMatrix.inverted() ?: ImageBufferMatrix2D.identity()
-        val (lx, ly) = inv.mapPoint(x, y)
+        val inv = currentMatrix.invert() ?: ImageBufferMatrix2D.IDENTITY
+        val (lx, ly) = inv.transformPoint(x, y)
         return path.containsPoint(lx, ly, fillRule)
     }
 
@@ -622,9 +624,9 @@ class GpuAcceleratedContext2DBackend(
         isPointInStroke(currentPath, x, y)
 
     override fun isPointInStroke(path: ImageBufferPath2D, x: Float, y: Float): Boolean {
-        val inv = currentMatrix.inverted() ?: ImageBufferMatrix2D.identity()
-        val (lx, ly) = inv.mapPoint(x, y)
-        return path.isPointNearStroke(lx, ly, lineWidth)
+        val inv = currentMatrix.invert() ?: ImageBufferMatrix2D.IDENTITY
+        val (lx, ly) = inv.transformPoint(x, y)
+        return path.containsStrokePoint(lx, ly, lineWidth, lineCap, lineJoin, miterLimit)
     }
 
     override fun fillText(text: String, x: Float, y: Float, maxWidth: Float?) {
@@ -644,54 +646,17 @@ class GpuAcceleratedContext2DBackend(
     ) {
         if (text.isEmpty()) return
         val style = if (strokeMode) strokeStyle else fillStyle
-        val invMatrix = currentMatrix.inverted() ?: ImageBufferMatrix2D.identity()
         var dirtyMinX = width
         var dirtyMinY = height
         var dirtyMaxX = 0
         var dirtyMaxY = 0
         var touched = false
 
-        if (shadowColor.a > 0 && (shadowBlur > 0f || shadowOffsetX != 0f || shadowOffsetY != 0f)) {
-            val sAlpha = (shadowColor.a / 255f) * globalAlpha
-            ScalableVectorFontEngine.rasterizeText(
-                text = text,
-                x = x + shadowOffsetX,
-                y = y + shadowOffsetY,
-                fontSizePx = fontSizePx,
-                fontWeight = fontWeight,
-                fontStyle = fontStyle,
-                fontStretch = fontStretch,
-                fontVariantCaps = fontVariantCaps,
-                letterSpacingPx = letterSpacingPx,
-                wordSpacingPx = wordSpacingPx,
-                textAlign = textAlign,
-                textBaseline = textBaseline,
-                maxWidth = maxWidth,
-                strokeMode = strokeMode,
-                strokeWidthPx = lineWidth + shadowBlur * 0.35f
-            ) { lx, ly, coverage ->
-                val (sx, sy) = currentMatrix.mapPoint(lx + 0.5f, ly + 0.5f)
-                val px = sx.toInt()
-                val py = sy.toInt()
-                if (px in max(0, clipMinX) until min(width, clipMaxX) &&
-                    py in max(0, clipMinY) until min(height, clipMaxY)
-                ) {
-                    val a = (sAlpha * coverage).coerceIn(0f, 1f)
-                    val sc = RgbaColor(shadowColor.r, shadowColor.g, shadowColor.b, (a * 255f).roundToInt())
-                    blendPixelDirect(px, py, sc)
-                    if (px < dirtyMinX) dirtyMinX = px
-                    if (py < dirtyMinY) dirtyMinY = py
-                    if (px + 1 > dirtyMaxX) dirtyMaxX = px + 1
-                    if (py + 1 > dirtyMaxY) dirtyMaxY = py + 1
-                    touched = true
-                }
-            }
-        }
-
-        ScalableVectorFontEngine.rasterizeText(
+        ScalableVectorFontEngine.renderText(
             text = text,
             x = x,
             y = y,
+            maxWidth = maxWidth,
             fontSizePx = fontSizePx,
             fontWeight = fontWeight,
             fontStyle = fontStyle,
@@ -701,18 +666,23 @@ class GpuAcceleratedContext2DBackend(
             wordSpacingPx = wordSpacingPx,
             textAlign = textAlign,
             textBaseline = textBaseline,
-            maxWidth = maxWidth,
+            direction = direction,
+            transform = currentMatrix,
             strokeMode = strokeMode,
-            strokeWidthPx = lineWidth
-        ) { lx, ly, coverage ->
-            val (sx, sy) = currentMatrix.mapPoint(lx + 0.5f, ly + 0.5f)
-            val px = sx.toInt()
-            val py = sy.toInt()
+            strokeLineWidth = lineWidth,
+            antialias = antialias,
+            shadowBlur = shadowBlur,
+            shadowColor = shadowColor,
+            shadowOffsetX = shadowOffsetX,
+            shadowOffsetY = shadowOffsetY,
+            surfaceWidth = width,
+            surfaceHeight = height
+        ) { px, py, coverage, isShadow, localX, localY ->
             if (px in max(0, clipMinX) until min(width, clipMaxX) &&
                 py in max(0, clipMinY) until min(height, clipMaxY)
             ) {
-                val (sampleX, sampleY) = invMatrix.mapPoint(px + 0.5f, py + 0.5f)
-                val src = style.sampleAt(sampleX, sampleY, (globalAlpha * coverage).coerceIn(0f, 1f))
+                val baseColor = if (isShadow) shadowColor else style.sampleAt(localX, localY, imageSmoothingEnabled)
+                val src = modulatePaintAlpha(baseColor, (globalAlpha * coverage).coerceIn(0f, 1f))
                 blendPixelDirect(px, py, src)
                 if (px < dirtyMinX) dirtyMinX = px
                 if (py < dirtyMinY) dirtyMinY = py
@@ -802,8 +772,8 @@ class GpuAcceleratedContext2DBackend(
     ) {
         if (dWidth <= 0f || dHeight <= 0f || sWidth <= 0f || sHeight <= 0f) return
         val rgba = image.asRgba8888()
-        val (tx0, ty0) = currentMatrix.mapPoint(dx, dy)
-        val (tx1, ty1) = currentMatrix.mapPoint(dx + dWidth, dy + dHeight)
+        val (tx0, ty0) = currentMatrix.transformPoint(dx, dy)
+        val (tx1, ty1) = currentMatrix.transformPoint(dx + dWidth, dy + dHeight)
         val startX = floor(min(tx0, tx1)).toInt().coerceIn(max(0, clipMinX), min(width, clipMaxX))
         val startY = floor(min(ty0, ty1)).toInt().coerceIn(max(0, clipMinY), min(height, clipMaxY))
         val endX = ceil(max(tx0, tx1)).toInt().coerceIn(max(0, clipMinX), min(width, clipMaxX))
@@ -1107,7 +1077,7 @@ class GpuAcceleratedContext2DBackend(
         val baX = x1 - x0
         val baY = y1 - y0
         val baLenSq = baX * baX + baY * baY
-        val invMatrix = currentMatrix.inverted() ?: ImageBufferMatrix2D.identity()
+        val invMatrix = currentMatrix.invert() ?: ImageBufferMatrix2D.IDENTITY
 
         for (py in iy0 until iy1) {
             val cy = py + 0.5f
@@ -1136,13 +1106,20 @@ class GpuAcceleratedContext2DBackend(
                     if (dist <= halfW) 1f else 0f
                 }
                 if (cov > 0.004f) {
-                    val (lx, ly) = invMatrix.mapPoint(cx, cy)
-                    val src = style.sampleAt(lx, ly, (globalAlpha * cov).coerceIn(0f, 1f))
+                    val (lx, ly) = invMatrix.transformPoint(cx, cy)
+                    val rawColor = style.sampleAt(lx, ly, imageSmoothingEnabled)
+                    val src = modulatePaintAlpha(rawColor, (globalAlpha * cov).coerceIn(0f, 1f))
                     blendPixelDirect(px, py, src)
                 }
             }
         }
         imageBuffer.markDirtyRect(ix0, iy0, ix1, iy1)
+    }
+
+    private fun modulatePaintAlpha(color: RgbaColor, factor: Float): RgbaColor {
+        val clamped = factor.coerceIn(0f, 1f)
+        if (clamped >= 0.999f) return color
+        return RgbaColor(color.r, color.g, color.b, (color.a * clamped).roundToInt().coerceIn(0, 255))
     }
 
     private fun blendPixelDirect(px: Int, py: Int, src: RgbaColor) {
