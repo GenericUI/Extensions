@@ -5,7 +5,7 @@ plugins {
 kotlin {
     // Web targets — uses native HTML5 <iframe>.
     // DO NOT USE NJS ON WEB.
-    js(IR) {
+    js {
         browser()
     }
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
