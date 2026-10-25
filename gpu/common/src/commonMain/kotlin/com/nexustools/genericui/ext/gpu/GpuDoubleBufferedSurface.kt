@@ -51,6 +51,10 @@ class GpuDoubleBufferedSurface(
 
     private var frontBgraBytes: ByteArray = ByteArray(this.width * this.height * 4)
     private var backBufferDirty: Boolean = true
+    private var dirtyMinX: Int = 0
+    private var dirtyMinY: Int = 0
+    private var dirtyMaxX: Int = this.width
+    private var dirtyMaxY: Int = this.height
 
     var swapCount: Long = 0L
         private set
@@ -60,8 +64,35 @@ class GpuDoubleBufferedSurface(
         gles300Shader = GLES_300_DOUBLE_BUFFER_BLIT_SHADER
     )
 
+    val isBackBufferDirty: Boolean
+        get() = backBufferDirty
+
     fun markBackBufferDirty() {
         backBufferDirty = true
+        dirtyMinX = 0
+        dirtyMinY = 0
+        dirtyMaxX = width
+        dirtyMaxY = height
+    }
+
+    fun markBackBufferDirtyRegion(x0: Int, y0: Int, x1: Int, y1: Int) {
+        val sx = x0.coerceIn(0, width)
+        val sy = y0.coerceIn(0, height)
+        val ex = x1.coerceIn(sx, width)
+        val ey = y1.coerceIn(sy, height)
+        if (ex <= sx || ey <= sy) return
+        if (!backBufferDirty) {
+            backBufferDirty = true
+            dirtyMinX = sx
+            dirtyMinY = sy
+            dirtyMaxX = ex
+            dirtyMaxY = ey
+        } else {
+            if (sx < dirtyMinX) dirtyMinX = sx
+            if (sy < dirtyMinY) dirtyMinY = sy
+            if (ex > dirtyMaxX) dirtyMaxX = ex
+            if (ey > dirtyMaxY) dirtyMaxY = ey
+        }
     }
 
     fun resize(newWidth: Int, newHeight: Int) {
@@ -79,16 +110,21 @@ class GpuDoubleBufferedSurface(
         backBuffer = ImageBuffer(safeW, safeH, PixelFormat.RGBA_8888)
         frontBuffer = ImageBuffer(safeW, safeH, PixelFormat.RGBA_8888)
         frontBgraBytes = ByteArray(safeW * safeH * 4)
-        backBufferDirty = true
+        markBackBufferDirty()
     }
 
     /**
      * Atomically commits the offscreen back-buffer to the GPU [backTexture], dispatches the hardware
      * Vulkan / OpenGL ES (ANGLE) presentation shader into [frontTexture], swaps the GPU texture handles,
-     * and updates the presented RGBA and BGRA front buffers.
+     * and updates the presented RGBA and BGRA front buffers over the active dirty region.
      */
     fun swapBuffers() {
         if (!backBufferDirty && swapCount > 0L) return
+
+        val minX = dirtyMinX.coerceIn(0, width)
+        val minY = dirtyMinY.coerceIn(0, height)
+        val maxX = dirtyMaxX.coerceIn(minX, width)
+        val maxY = dirtyMaxY.coerceIn(minY, height)
 
         // 1. Upload offscreen staging buffer into GPU backTexture
         gpuContext.updateTexture(backTexture, backBuffer)
@@ -109,25 +145,56 @@ class GpuDoubleBufferedSurface(
         val srcBytes = backBuffer.bytes
         val dstBytes = frontBuffer.bytes
         val totalBytes = min(srcBytes.size, dstBytes.size)
-        srcBytes.copyInto(dstBytes, 0, 0, totalBytes)
-
         if (frontBgraBytes.size != totalBytes) {
             frontBgraBytes = ByteArray(totalBytes)
         }
-        var i = 0
-        while (i + 3 < totalBytes) {
-            val r = dstBytes[i]
-            val g = dstBytes[i + 1]
-            val b = dstBytes[i + 2]
-            val a = dstBytes[i + 3]
-            frontBgraBytes[i] = b
-            frontBgraBytes[i + 1] = g
-            frontBgraBytes[i + 2] = r
-            frontBgraBytes[i + 3] = a
-            i += 4
+
+        if (minX == 0 && maxX == width) {
+            val startByte = (minY * width) shl 2
+            val endByte = min(totalBytes, (maxY * width) shl 2)
+            if (endByte > startByte) {
+                srcBytes.copyInto(dstBytes, startByte, startByte, endByte)
+                var i = startByte
+                while (i + 3 < endByte) {
+                    val r = dstBytes[i]
+                    val g = dstBytes[i + 1]
+                    val b = dstBytes[i + 2]
+                    val a = dstBytes[i + 3]
+                    frontBgraBytes[i] = b
+                    frontBgraBytes[i + 1] = g
+                    frontBgraBytes[i + 2] = r
+                    frontBgraBytes[i + 3] = a
+                    i += 4
+                }
+            }
+        } else {
+            val rowSpanBytes = (maxX - minX) shl 2
+            for (py in minY until maxY) {
+                val startByte = ((py * width) + minX) shl 2
+                val endByte = min(totalBytes, startByte + rowSpanBytes)
+                if (endByte > startByte) {
+                    srcBytes.copyInto(dstBytes, startByte, startByte, endByte)
+                    var i = startByte
+                    while (i + 3 < endByte) {
+                        val r = dstBytes[i]
+                        val g = dstBytes[i + 1]
+                        val b = dstBytes[i + 2]
+                        val a = dstBytes[i + 3]
+                        frontBgraBytes[i] = b
+                        frontBgraBytes[i + 1] = g
+                        frontBgraBytes[i + 2] = r
+                        frontBgraBytes[i + 3] = a
+                        i += 4
+                    }
+                }
+            }
         }
 
         backBufferDirty = false
+        dirtyMinX = width
+        dirtyMinY = height
+        dirtyMaxX = 0
+        dirtyMaxY = 0
         swapCount++
     }
 
@@ -162,9 +229,15 @@ class GpuDoubleBufferedSurface(
         val g = color.g.toByte()
         val b = color.b.toByte()
         val a = color.a.toByte()
+        if (sx == 0 && sy == 0 && ex == width && ey == height && r == 0.toByte() && g == 0.toByte() && b == 0.toByte() && a == 0.toByte()) {
+            bytes.fill(0)
+            markBackBufferDirty()
+            return
+        }
         for (py in sy until ey) {
+            val rowBase = py * width
             for (px in sx until ex) {
-                val idx = (py * width + px) * 4
+                val idx = (rowBase + px) shl 2
                 if (idx + 3 < bytes.size) {
                     bytes[idx] = r
                     bytes[idx + 1] = g
@@ -173,7 +246,7 @@ class GpuDoubleBufferedSurface(
                 }
             }
         }
-        backBufferDirty = true
+        markBackBufferDirtyRegion(sx, sy, ex, ey)
     }
 
     fun blendPixelOnBackBuffer(px: Int, py: Int, color: RgbaColor, globalAlpha: Float, compositeOp: String) {
@@ -181,7 +254,7 @@ class GpuDoubleBufferedSurface(
         val bytes = backBuffer.bytes
         val idx = (py * width + px) * 4
         if (idx + 3 >= bytes.size) return
-        backBufferDirty = true
+        markBackBufferDirtyRegion(px, py, px + 1, py + 1)
         val srcA = ((color.a / 255f) * globalAlpha).coerceIn(0f, 1f)
         if (srcA >= 0.995f || compositeOp == "copy") {
             bytes[idx] = color.r.toByte()

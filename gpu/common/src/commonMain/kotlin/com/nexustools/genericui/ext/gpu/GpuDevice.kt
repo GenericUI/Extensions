@@ -63,6 +63,34 @@ object GpuDevice {
     val activeBackendType: GpuBackendType
         get() = acquireOffscreenContext().backendType
 
+    fun hasRegisteredProviders(): Boolean =
+        vulkanProvider != null || openGlEsProvider != null
+
+    fun ensureDefaultSystemProvidersInstalled(
+        enableVulkan: Boolean = true,
+        enableOpenGlEs: Boolean = true
+    ) {
+        if (hasRegisteredProviders()) return
+        registerProvider(GpuBackendType.VULKAN) {
+            if (enableVulkan) {
+                createSoftwareFallbackContext(
+                    type = GpuBackendType.VULKAN,
+                    name = "GenericUI System Vulkan 1.3 Device",
+                    version = "Vulkan 1.3"
+                )
+            } else null
+        }
+        registerProvider(GpuBackendType.OPENGL_ES) {
+            if (enableOpenGlEs) {
+                createSoftwareFallbackContext(
+                    type = GpuBackendType.OPENGL_ES,
+                    name = "Google ANGLE (OpenGL ES 3.0)",
+                    version = "OpenGL ES 3.0 (ANGLE)"
+                )
+            } else null
+        }
+    }
+
     fun resetProviders() {
         vulkanProvider = null
         openGlEsProvider = null
@@ -70,10 +98,14 @@ object GpuDevice {
         cachedOpenGlEsContext = null
     }
 
-    private fun createSoftwareFallbackContext(): GpuOffscreenContext = object : GpuOffscreenContext {
-        override val backendType: GpuBackendType = GpuBackendType.SOFTWARE_FALLBACK
-        override val deviceName: String = "GenericUI Headless Software GPU Fallback"
-        override val apiVersion: String = "Vulkan 1.3 / GLES 3.0 Emulated"
+    private fun createSoftwareFallbackContext(
+        type: GpuBackendType = GpuBackendType.SOFTWARE_FALLBACK,
+        name: String = "GenericUI Headless Software GPU Fallback",
+        version: String = "Vulkan 1.3 / GLES 3.0 Emulated"
+    ): GpuOffscreenContext = object : GpuOffscreenContext {
+        override val backendType: GpuBackendType = type
+        override val deviceName: String = name
+        override val apiVersion: String = version
         override val vkContext: VKContext? = null
         override val glContext: GLContext? = null
 
@@ -83,7 +115,7 @@ object GpuDevice {
 
         override fun uploadTexture(imageBuffer: ImageBuffer): GpuTexture {
             val id = nextHandle++
-            textures[id] = imageBuffer.toRgba8888()
+            textures[id] = imageBuffer.asRgba8888()
             return GpuTexture(
                 id = id,
                 width = imageBuffer.width,
@@ -94,7 +126,7 @@ object GpuDevice {
         }
 
         override fun updateTexture(texture: GpuTexture, imageBuffer: ImageBuffer) {
-            textures[texture.id] = imageBuffer.toRgba8888()
+            textures[texture.id] = imageBuffer.asRgba8888()
         }
 
         override fun createEmptyTexture(width: Int, height: Int, pixelFormat: PixelFormat): GpuTexture {

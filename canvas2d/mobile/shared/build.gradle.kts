@@ -20,10 +20,10 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":mobile:shared"))
-            api(project(":extensions:gpu:mobile:shared"))
+            api(project(":extensions:imageprocessing:sharedSystem"))
             api(project(":extensions:canvas2d:common"))
+            api(project(":extensions:canvas2d:sharedSystem"))
             implementation(libs.kotlinx.coroutines.core)
-
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

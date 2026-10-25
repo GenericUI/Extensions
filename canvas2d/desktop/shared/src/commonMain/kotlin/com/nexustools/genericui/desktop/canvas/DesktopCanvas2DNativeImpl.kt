@@ -3,16 +3,14 @@ package com.nexustools.genericui.desktop.canvas
 import com.nexustools.genericui.component.media.Canvas2DContext
 import com.nexustools.genericui.desktop.core.DesktopBaseNativeImpl
 import com.nexustools.genericui.desktop.core.DesktopNativeWidget
-import com.nexustools.genericui.image.ImageBuffer
-import com.nexustools.genericui.image.PixelFormat
+import com.nexustools.genericui.ext.imageprocessing.context2d.SystemGpuImageBuffer
 import com.nexustools.genericui.image.codec.LibJpegCodec
 import com.nexustools.genericui.nativeimpl.media.Canvas2DNativeImpl
 
 /**
- * Shared desktop base implementation of [Canvas2DNativeImpl] backed by [DesktopCanvas2DContextImpl]
- * (which delegates to `:extensions:canvas2d`'s [com.nexustools.genericui.ext.canvas2d.OffscreenCanvas2D]
- * and `:extensions:gpu`'s [com.nexustools.genericui.ext.gpu.GpuDoubleBufferedSurface])
- * and [LibJpegCodec] frame capture.
+ * Shared desktop base implementation of [Canvas2DNativeImpl] backed directly by
+ * `:extensions:imageprocessing:sharedSystem`'s [SystemGpuImageBuffer] (`contextImpl.imageBuffer`)
+ * and `GpuAcceleratedContext2DBackend` (`contextImpl.backend`).
  */
 open class DesktopCanvas2DNativeImpl<out W : DesktopNativeWidget>(
     nativeWidget: W,
@@ -31,12 +29,22 @@ open class DesktopCanvas2DNativeImpl<out W : DesktopNativeWidget>(
     protected var passThroughEvents: Boolean = false
     protected var devicePixelRatioVal: Float = 1.0f
 
+    /**
+     * Direct access to the unbuffered GL/Vulkan [SystemGpuImageBuffer] surface backing this canvas.
+     */
+    val imageBuffer: SystemGpuImageBuffer
+        get() = contextImpl.imageBuffer
+
     init {
         nativeWidget.attributes["canvas2DNativeImpl"] = this
         nativeWidget.attributes["canvas2DContext"] = contextImpl
-        nativeWidget.attributes["offscreenCanvas2D"] = contextImpl.offscreenCanvas
+        nativeWidget.attributes["imageBuffer"] = contextImpl.imageBuffer
         nativeWidget.attributes["captureRgba"] = { contextImpl.presentFrontBufferRgba() }
         nativeWidget.attributes["captureBgra"] = { contextImpl.presentFrontBufferBgra() }
+        nativeWidget.attributes["frameBufferRgba"] = { contextImpl.presentFrontBufferRgba() }
+        nativeWidget.attributes["frameBufferBgra"] = { contextImpl.presentFrontBufferBgra() }
+        nativeWidget.attributes["swapBuffers"] = { contextImpl.swapBuffers() }
+        nativeWidget.attributes["swapCount"] = { contextImpl.swapCount }
         nativeWidget.attributes["surfaceWidth"] = { contextImpl.width }
         nativeWidget.attributes["surfaceHeight"] = { contextImpl.height }
         nativeWidget.attributes["resizeSurface"] = { w: Int, h: Int -> contextImpl.resizeSurface(w, h) }
@@ -57,13 +65,13 @@ open class DesktopCanvas2DNativeImpl<out W : DesktopNativeWidget>(
 
     override fun setVBlankLoopActive(active: Boolean, onVBlankFrame: (explicitTimestampMs: Double?) -> Unit) {
         vblankActive = active
-        val doubleBufferedCallback: (Double?) -> Unit = { ts ->
+        val directFlushCallback: (Double?) -> Unit = { ts ->
             onVBlankFrame(ts)
             contextImpl.swapBuffers()
         }
-        vblankCallback = if (active) doubleBufferedCallback else null
+        vblankCallback = if (active) directFlushCallback else null
         if (active) {
-            nativeWidget.attributes["vblankDispatch"] = doubleBufferedCallback
+            nativeWidget.attributes["vblankDispatch"] = directFlushCallback
         } else {
             nativeWidget.attributes.remove("vblankDispatch")
         }
@@ -86,11 +94,8 @@ open class DesktopCanvas2DNativeImpl<out W : DesktopNativeWidget>(
     override fun getDevicePixelRatio(): Float = devicePixelRatioVal
 
     override fun captureFrameToRgba(): ByteArray =
-        contextImpl.getImageDataRgba(0, 0, contextImpl.width, contextImpl.height)
+        contextImpl.presentFrontBufferRgba()
 
-    override fun captureFrameToJpeg(quality: Int): ByteArray {
-        val rgba = captureFrameToRgba()
-        val buf = ImageBuffer(contextImpl.width, contextImpl.height, PixelFormat.RGBA_8888, bytes = rgba)
-        return LibJpegCodec.encode(buf, quality)
-    }
+    override fun captureFrameToJpeg(quality: Int): ByteArray =
+        LibJpegCodec.encode(contextImpl.imageBuffer, quality)
 }

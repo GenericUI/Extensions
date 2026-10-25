@@ -33,7 +33,7 @@ class DesktopAngleGlesGpuContext(
     private val textureCache = mutableMapOf<Long, ImageBuffer>()
 
     override fun uploadTexture(imageBuffer: ImageBuffer): GpuTexture {
-        val rgba = imageBuffer.toRgba8888()
+        val rgba = imageBuffer.asRgba8888()
         val glTex = glContext.createTexture()
         glContext.bindTexture(GLContext.GL_TEXTURE_2D, glTex)
         glContext.texImage2DRgba(GLContext.GL_TEXTURE_2D, 0, rgba.width, rgba.height, rgba.bytes)
@@ -49,7 +49,7 @@ class DesktopAngleGlesGpuContext(
     }
 
     override fun updateTexture(texture: GpuTexture, imageBuffer: ImageBuffer) {
-        val rgba = imageBuffer.toRgba8888()
+        val rgba = imageBuffer.asRgba8888()
         glContext.bindTexture(GLContext.GL_TEXTURE_2D, GLTexture(texture.id.toInt(), rgba.width, rgba.height))
         glContext.texImage2DRgba(GLContext.GL_TEXTURE_2D, 0, rgba.width, rgba.height, rgba.bytes)
         textureCache[texture.id] = rgba
@@ -134,7 +134,7 @@ class DesktopAngleGlesGpuContext(
         glContext.useProgram(GLProgram(program.glesProgramId))
         val firstInput = inputs.firstOrNull()?.let { textureCache[it.id] }
         if (firstInput != null) {
-            textureCache[output.id] = firstInput.copy()
+            textureCache[output.id] = firstInput
         }
         glContext.flush()
     }

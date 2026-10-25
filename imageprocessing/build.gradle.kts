@@ -14,7 +14,7 @@ kotlin {
     }
 
     android {
-        namespace = "com.nexustools.genericui.ext.imageprocessing"
+        namespace = "com.nexustools.genericui.ext.imageprocessing.umbrella"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
 
@@ -37,12 +37,43 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            api(project(":common"))
-            api(project(":extensions:gpu:common"))
-            implementation(libs.kotlinx.coroutines.core)
+            api(project(":extensions:gpu"))
+            api(project(":extensions:imageprocessing:common"))
         }
-        commonTest.dependencies {
-            implementation(libs.kotlin.test)
+        jsMain.dependencies {
+            api(project(":extensions:imageprocessing:web"))
+        }
+        val wasmJsMain by getting {
+            dependencies {
+                api(project(":extensions:imageprocessing:web"))
+            }
+        }
+        jvmMain.dependencies {
+            api(project(":extensions:imageprocessing:sharedSystem"))
+        }
+        androidMain.dependencies {
+            api(project(":extensions:imageprocessing:sharedSystem"))
+        }
+        mingwX64Main.dependencies {
+            api(project(":extensions:imageprocessing:sharedSystem"))
+        }
+        linuxX64Main.dependencies {
+            api(project(":extensions:imageprocessing:sharedSystem"))
+        }
+        linuxArm64Main.dependencies {
+            api(project(":extensions:imageprocessing:sharedSystem"))
+        }
+        macosArm64Main.dependencies {
+            api(project(":extensions:imageprocessing:sharedSystem"))
+        }
+        macosX64Main.dependencies {
+            api(project(":extensions:imageprocessing:sharedSystem"))
+        }
+        iosArm64Main.dependencies {
+            api(project(":extensions:imageprocessing:sharedSystem"))
+        }
+        iosSimulatorArm64Main.dependencies {
+            api(project(":extensions:imageprocessing:sharedSystem"))
         }
     }
 }

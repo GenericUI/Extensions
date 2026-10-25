@@ -17,6 +17,7 @@ kotlin {
             api(project(":common"))
             api(project(":desktop:shared"))
             api(project(":extensions:webview:common"))
+            api(project(":extensions:webview:sharedSystem"))
             // NJS :common & :native subprojects (symlinked at lib/NJS; Desktop builds ONLY)
             api("com.nexustools.njs:common:1.0")
             api("com.nexustools.njs:native:1.0")

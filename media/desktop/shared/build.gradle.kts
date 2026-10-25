@@ -15,6 +15,7 @@ kotlin {
         commonMain.dependencies {
             api(project(":desktop:shared"))
             api(project(":extensions:media:common"))
+            api(project(":extensions:media:sharedSystem"))
             implementation(libs.kotlinx.coroutines.core)
             api(project(":extensions:gpu:desktop:shared"))
         }

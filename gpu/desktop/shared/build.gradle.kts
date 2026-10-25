@@ -13,6 +13,7 @@ kotlin {
         commonMain.dependencies {
             api(project(":desktop:shared"))
             api(project(":extensions:gpu:common"))
+            api(project(":extensions:gpu:sharedSystem"))
             implementation(libs.kotlinx.coroutines.core)
 
         }

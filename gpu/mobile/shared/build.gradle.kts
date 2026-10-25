@@ -21,6 +21,7 @@ kotlin {
         commonMain.dependencies {
             api(project(":mobile:shared"))
             api(project(":extensions:gpu:common"))
+            api(project(":extensions:gpu:sharedSystem"))
             implementation(libs.kotlinx.coroutines.core)
 
         }

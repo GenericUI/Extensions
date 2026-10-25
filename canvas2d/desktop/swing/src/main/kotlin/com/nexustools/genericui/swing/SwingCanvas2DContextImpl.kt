@@ -43,6 +43,10 @@ class SwingCanvas2DContextImpl(
         g2d = createGraphics(backingImage)
     }
 
+    override fun resizeSurface(newWidth: Int, newHeight: Int) {
+        resizeBackingBuffer(newWidth, newHeight)
+    }
+
     override fun save() {
         transformStack.push(g2d.transform)
     }

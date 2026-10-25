@@ -1,16 +1,18 @@
 package com.nexustools.genericui.ext.canvas2d
 
 import com.nexustools.genericui.component.media.Canvas2DContext
-import com.nexustools.genericui.ext.gpu.GpuDevice
-import com.nexustools.genericui.image.ImageBuffer
+import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer
+import com.nexustools.genericui.ext.imageprocessing.context2d.ImageProcessingContext2DBackend
 import com.nexustools.genericui.image.PixelFormat
 import com.nexustools.genericui.nativeimpl.media.Canvas2DNativeImpl
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * Extension registry and [ImageBuffer] drawing bridge for `:extensions:canvas2d`,
- * backed by hardware-accelerated [OffscreenCanvas2D] (`:extensions:gpu` Vulkan primary, OpenGL ES / ANGLE fallback).
+ * Extension registry and [ImageBuffer] bridge for `:extensions:canvas2d`,
+ * relying strictly on `:extensions:imageprocessing`'s universal [ImageBuffer] and
+ * [ImageBuffer.getContext] (`SystemGpuImageBuffer` on System targets, and
+ * `WebCanvasImageBuffer` backed by an HTML5 `<canvas>` on Web).
  */
 object Canvas2DExtension {
     private var contextFactory: ((Int, Int) -> Canvas2DContext)? = null
@@ -28,31 +30,52 @@ object Canvas2DExtension {
         canvas2dNativeFactory?.invoke(width, height)
             ?: throw IllegalStateException("No Canvas2DNativeImpl provider registered in Canvas2DExtension")
 
-    fun createOffscreenCanvas2D(
+    /**
+     * Creates an `:extensions:imageprocessing` [ImageBuffer] for offscreen 2D rendering or
+     * as a `Canvas2D` backend. Call `imageBuffer.getContext()` to fetch its 2D context.
+     */
+    fun createImageBuffer(
         width: Int = 800,
         height: Int = 600,
-        preferVulkan: Boolean = true
-    ): OffscreenCanvas2D = OffscreenCanvas2D(
+        doubleBuffer: Boolean = false,
+        antialias: Boolean = true
+    ): ImageBuffer = ImageBuffer.create(
         width = width,
         height = height,
-        gpuContext = GpuDevice.acquireOffscreenContext(preferVulkan = preferVulkan)
+        doubleBuffer = doubleBuffer,
+        antialias = antialias
     )
 
-    fun createContext(width: Int = 800, height: Int = 600): Canvas2DContext {
+    fun wrapImageBufferContext(imageBuffer: ImageBuffer): Canvas2DContext =
+        ImageBufferCanvas2DContext(imageBuffer)
+
+    fun createContext(width: Int = 800, height: Int = 600, doubleBuffer: Boolean = false): Canvas2DContext {
         contextFactory?.let { return it(width, height) }
-        return createOffscreenCanvas2D(width, height, preferVulkan = true)
+        return ImageBufferCanvas2DContext(
+            createImageBuffer(width = width, height = height, doubleBuffer = doubleBuffer, antialias = true)
+        )
     }
 
     /**
-     * Draws an [ImageBuffer] onto [context] at `(dx, dy)`.
+     * Draws an [com.nexustools.genericui.image.ImageBuffer] onto [context] at `(dx, dy)` using
+     * `:extensions:imageprocessing`'s accelerated 2D context backend.
      */
     fun drawImage(
         context: Canvas2DContext,
-        buffer: ImageBuffer,
+        buffer: com.nexustools.genericui.image.ImageBuffer,
         dx: Float = 0f,
         dy: Float = 0f
     ) {
-        val rgba = buffer.toRgba8888()
+        if (context is ImageProcessingContext2DBackend) {
+            context.drawImageBuffer(buffer, dx, dy)
+            return
+        }
+        val surface = context.imageBuffer
+        if (surface != null) {
+            surface.getContext().drawImageBuffer(buffer, dx, dy)
+            return
+        }
+        val rgba = buffer.asRgba8888()
         context.putImageDataRgba(
             rgbaBytes = rgba.bytes,
             width = rgba.width,
@@ -63,7 +86,8 @@ object Canvas2DExtension {
     }
 
     /**
-     * Reads a rectangular region of [context] into a `:common` [ImageBuffer].
+     * Fetches a rectangular region of [context] into a `:common` [com.nexustools.genericui.image.ImageBuffer]
+     * via `:extensions:imageprocessing`.
      */
     fun extractImageBuffer(
         context: Canvas2DContext,
@@ -71,11 +95,16 @@ object Canvas2DExtension {
         y: Int = 0,
         width: Int = context.width,
         height: Int = context.height
-    ): ImageBuffer {
+    ): com.nexustools.genericui.image.ImageBuffer {
         val safeW = max(1, width)
         val safeH = max(1, height)
-        val rgbaBytes = context.getImageDataRgba(x, y, safeW, safeH)
-        return ImageBuffer(
+        val surface = context.imageBuffer
+        if (surface != null && x == 0 && y == 0 && safeW == surface.width && safeH == surface.height) {
+            return surface.toImageBuffer()
+        }
+        val rgbaBytes = surface?.readPixelsRgba(x, y, safeW, safeH)
+            ?: context.getImageDataRgba(x, y, safeW, safeH)
+        return com.nexustools.genericui.image.ImageBuffer(
             width = safeW,
             height = safeH,
             pixelFormat = PixelFormat.RGBA_8888,

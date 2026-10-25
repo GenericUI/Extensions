@@ -24,6 +24,7 @@ kotlin {
             api(project(":common"))
             api(project(":mobile:shared"))
             api(project(":extensions:webview:common"))
+            api(project(":extensions:webview:sharedSystem"))
         }
     }
 }

@@ -30,7 +30,7 @@ class DesktopVulkanGpuContext(
     private val textureCache = mutableMapOf<Long, ImageBuffer>()
 
     override fun uploadTexture(imageBuffer: ImageBuffer): GpuTexture {
-        val rgba = imageBuffer.toRgba8888()
+        val rgba = imageBuffer.asRgba8888()
         val handle = vkContext.createTextureImageRgba(rgba.width, rgba.height, rgba.bytes)
         textureCache[handle] = rgba
         return GpuTexture(
@@ -43,7 +43,7 @@ class DesktopVulkanGpuContext(
     }
 
     override fun updateTexture(texture: GpuTexture, imageBuffer: ImageBuffer) {
-        val rgba = imageBuffer.toRgba8888()
+        val rgba = imageBuffer.asRgba8888()
         vkContext.updateTextureImageRgba(texture.id, rgba.width, rgba.height, rgba.bytes)
         textureCache[texture.id] = rgba
     }
@@ -119,7 +119,7 @@ class DesktopVulkanGpuContext(
         vkContext.pushConstantsFloat(program.vulkanModuleHandle, uniforms)
         val firstInput = inputs.firstOrNull()?.let { textureCache[it.id] }
         if (firstInput != null) {
-            textureCache[output.id] = firstInput.copy()
+            textureCache[output.id] = firstInput
         }
         vkContext.waitIdle()
     }

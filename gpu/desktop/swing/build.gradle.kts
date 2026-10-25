@@ -18,6 +18,7 @@ kotlin {
 dependencies {
     api(project(":desktop:swing"))
     api(project(":extensions:gpu:common"))
+    api(project(":extensions:gpu:sharedSystem"))
     implementation(libs.kotlinx.coroutinesSwing)
     compileOnly(libs.lwjgl.core)
     compileOnly(libs.lwjgl.jawt)

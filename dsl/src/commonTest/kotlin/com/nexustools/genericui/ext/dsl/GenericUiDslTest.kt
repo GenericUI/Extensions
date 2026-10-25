@@ -33,7 +33,7 @@ class GenericUiDslTest {
         var level: Int = 1
     ) : MvcModel()
 
-    private class SampleCharView(model: SampleCharModel) : MvcView<SampleCharModel>(model, "chargen-mvc-view") {
+    private class SampleCharView(model: SampleCharModel) : MvcView<SampleCharModel>(model, "sample-mvc-view") {
         var onLevelUpClicked: (() -> Unit)? = null
 
         override fun Container.render() {
@@ -67,7 +67,7 @@ class GenericUiDslTest {
         var clickedCount = 0
         var selectedAlignment = "LN"
 
-        val root = buildDiv(classes = "chargen-root container", id = "main-page") {
+        val root = buildDiv(classes = "sample-root container", id = "main-page") {
             h1(classes = "page-title") {
                 +"Create Your Character"
             }

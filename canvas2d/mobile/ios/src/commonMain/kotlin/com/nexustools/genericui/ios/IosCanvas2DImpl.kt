@@ -10,8 +10,7 @@ class IosCanvas2DImpl : IosAbstractCanvasImpl<Canvas2DContext>("UIView", "canvas
     private val context = IosCanvas2DContextImpl()
 
     override fun getRenderingContext(): Canvas2DContext {
-        context.width = getSurfaceWidth()
-        context.height = getSurfaceHeight()
+        context.resizeSurface(getSurfaceWidth(), getSurfaceHeight())
         return context
     }
 }
