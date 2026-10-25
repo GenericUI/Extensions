@@ -8,7 +8,6 @@ import com.nexustools.genericui.component.layout.Container
  *
  * Subclasses implement [render] using the in-place DSL functions directly on the receiver [Container].
  */
-@GenericUiDslMarker
 abstract class MvcView<M : Any>(
     var model: M,
     classPrefix: String = ""

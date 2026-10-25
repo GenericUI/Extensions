@@ -2,6 +2,18 @@ package com.nexustools.genericui.ext.dsl
 
 import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.form.Select
+import com.nexustools.genericui.component.htmlcompat.Div
+import com.nexustools.genericui.component.htmlcompat.H1
+import com.nexustools.genericui.component.htmlcompat.H2
+import com.nexustools.genericui.component.htmlcompat.Header
+import com.nexustools.genericui.component.htmlcompat.Li
+import com.nexustools.genericui.component.htmlcompat.Ol
+import com.nexustools.genericui.component.htmlcompat.P
+import com.nexustools.genericui.component.htmlcompat.Span
+import com.nexustools.genericui.component.htmlcompat.Td
+import com.nexustools.genericui.component.htmlcompat.Th
+import com.nexustools.genericui.component.htmlcompat.Tr
+import com.nexustools.genericui.component.htmlcompat.Ul
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.Row
 import com.nexustools.genericui.component.typography.Heading
@@ -10,6 +22,7 @@ import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class GenericUiDslTest {
@@ -95,14 +108,20 @@ class GenericUiDslTest {
             }
         }
 
+        assertIs<Div>(root)
+        assertEquals("div", root.htmlTag)
         assertEquals("main-page", root.id)
         assertEquals(4, root.children.size)
 
         val heading = root.children[0] as Heading
+        assertIs<H1>(heading)
+        assertEquals("h1", heading.htmlTag)
         assertEquals("Create Your Character", heading.text)
         assertEquals(1, heading.level)
 
         val paragraph = root.children[1] as Text
+        assertIs<P>(paragraph)
+        assertEquals("p", paragraph.htmlTag)
         assertEquals("Select your character's alignment and attributes.", paragraph.text)
 
         val row = root.children[2] as Row
@@ -114,6 +133,7 @@ class GenericUiDslTest {
 
         val rightCol = row.children[1] as Container
         val btn = rightCol.children[0] as Button
+        assertEquals("button", btn.htmlTag)
         assertEquals("Continue", btn.text)
         btn.onClick?.invoke()
         assertEquals(1, clickedCount)
@@ -134,5 +154,49 @@ class GenericUiDslTest {
         val updatedHeader = view.children[0] as Container
         val updatedTitle = updatedHeader.children[0] as Heading
         assertEquals("Alden (Lv. 2)", updatedTitle.text)
+    }
+
+    @Test
+    fun testHtmlCompatAndMdiDslBuilders() {
+        val root = buildDiv {
+            header {
+                h2("Workspace")
+                span("v1.0")
+            }
+            ul {
+                li("First")
+            }
+            ol {
+                li("Step 1")
+            }
+            mdiContainer(showTaskbar = true, id = "mdi-root") {
+                mdiWindow(windowId = "win-1", title = "Document 1", width = 500, height = 360) {
+                    contentContainer.p("Inside MDI Window")
+                }
+            }
+            lazyGridTree<String>(id = "inspector-tree") {
+                showHeaderRow = true
+            }
+        }
+
+        val header = assertIs<Header>(root.children[0])
+        assertIs<H2>(header.children[0])
+        assertIs<Span>(header.children[1])
+
+        val ul = assertIs<Ul>(root.children[1])
+        assertIs<Li>(ul.children[0])
+
+        val ol = assertIs<Ol>(root.children[2])
+        assertIs<Li>(ol.children[0])
+
+        val mdi = root.children[3] as com.nexustools.genericui.component.shell.MdiContainer
+        assertEquals("genericui:mdicontainer", mdi.htmlTag)
+        assertEquals(1, mdi.windows.size)
+        assertEquals("genericui:mdiwindow", mdi.windows[0].htmlTag)
+        assertEquals("Document 1", mdi.windows[0].title)
+
+        val gridTree = root.children[4] as com.nexustools.genericui.component.lazy.LazyGridTree<*>
+        assertEquals("genericui:lazygridtree", gridTree.htmlTag)
+        assertEquals("inspector-tree", gridTree.id)
     }
 }

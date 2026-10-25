@@ -1,5 +1,24 @@
 package com.nexustools.genericui.ext.dsl
 
+import com.nexustools.genericui.component.htmlcompat.Article
+import com.nexustools.genericui.component.htmlcompat.Aside
+import com.nexustools.genericui.component.htmlcompat.Br
+import com.nexustools.genericui.component.htmlcompat.Details
+import com.nexustools.genericui.component.htmlcompat.Div
+import com.nexustools.genericui.component.htmlcompat.Fieldset
+import com.nexustools.genericui.component.htmlcompat.Figure
+import com.nexustools.genericui.component.htmlcompat.Footer
+import com.nexustools.genericui.component.htmlcompat.Form
+import com.nexustools.genericui.component.htmlcompat.Header
+import com.nexustools.genericui.component.htmlcompat.Hr
+import com.nexustools.genericui.component.htmlcompat.Main
+import com.nexustools.genericui.component.htmlcompat.Section
+import com.nexustools.genericui.component.htmlcompat.Tbody
+import com.nexustools.genericui.component.htmlcompat.Td
+import com.nexustools.genericui.component.htmlcompat.Tfoot
+import com.nexustools.genericui.component.htmlcompat.Th
+import com.nexustools.genericui.component.htmlcompat.Thead
+import com.nexustools.genericui.component.htmlcompat.Tr
 import com.nexustools.genericui.component.layout.Box
 import com.nexustools.genericui.component.layout.Col
 import com.nexustools.genericui.component.layout.Container
@@ -41,14 +60,14 @@ internal inline fun <T : AbstractComponent> mountDslComponent(
 }
 
 /**
- * Top-level `kotlinx.html`-style entry point that creates and configures a root [Container] (`div`).
+ * Top-level `kotlinx.html`-style entry point that creates and configures a root [Div] (`div`).
  */
 inline fun buildDiv(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container {
-    val root = Container("div", classes ?: "")
+    block: (@GenericUiDslMarker Div).() -> Unit = {}
+): Div {
+    val root = Div(classes ?: "")
     if (!id.isNullOrBlank()) {
         root.id = id
     }
@@ -64,7 +83,7 @@ inline fun buildContainer(
     id: String? = null,
     block: (@GenericUiDslMarker Container).() -> Unit = {}
 ): Container {
-    val root = Container("div", classes ?: "container")
+    val root = Container(classes ?: "container")
     if (!id.isNullOrBlank()) {
         root.id = id
     }
@@ -98,13 +117,13 @@ inline fun <T : AbstractComponent> AbstractContainer.component(
 ): T = mountDslComponent(this, child, classes, id, block)
 
 /**
- * In-place `<div>` [Container] builder matching `kotlinx.html`'s `div(classes = "...") { ... }`.
+ * In-place `<div>` [Div] builder matching `kotlinx.html`'s `div(classes = "...") { ... }`.
  */
 inline fun AbstractContainer.div(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("div", ""), classes, id, block)
+    block: (@GenericUiDslMarker Div).() -> Unit = {}
+): Div = mountDslComponent(this, Div(), classes, id, block)
 
 /**
  * In-place Bootstrap `.container` builder.
@@ -113,43 +132,43 @@ inline fun AbstractContainer.container(
     classes: String? = "container",
     id: String? = null,
     block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("div", "container"), classes, id, block)
+): Container = mountDslComponent(this, Container("container"), classes, id, block)
 
 /**
- * In-place `<section>` [Container] builder.
+ * In-place `<section>` [Section] builder.
  */
 inline fun AbstractContainer.section(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("section", ""), classes, id, block)
+    block: (@GenericUiDslMarker Section).() -> Unit = {}
+): Section = mountDslComponent(this, Section(), classes, id, block)
 
 /**
- * In-place `<header>` [Container] builder.
+ * In-place `<header>` [Header] builder.
  */
 inline fun AbstractContainer.header(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("header", ""), classes, id, block)
+    block: (@GenericUiDslMarker Header).() -> Unit = {}
+): Header = mountDslComponent(this, Header(), classes, id, block)
 
 /**
- * In-place `<footer>` [Container] builder.
+ * In-place `<footer>` [Footer] builder.
  */
 inline fun AbstractContainer.footer(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("footer", ""), classes, id, block)
+    block: (@GenericUiDslMarker Footer).() -> Unit = {}
+): Footer = mountDslComponent(this, Footer(), classes, id, block)
 
 /**
- * In-place `<main>` [Container] builder.
+ * In-place `<main>` [Main] builder.
  */
 inline fun AbstractContainer.main(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("main", ""), classes, id, block)
+    block: (@GenericUiDslMarker Main).() -> Unit = {}
+): Main = mountDslComponent(this, Main(), classes, id, block)
 
 /**
  * In-place `<nav>` [Container] builder.
@@ -161,31 +180,58 @@ inline fun AbstractContainer.nav(
 ): Container = mountDslComponent(this, Container("nav", ""), classes, id, block)
 
 /**
- * In-place `<article>` [Container] builder.
+ * In-place `<article>` [Article] builder.
  */
 inline fun AbstractContainer.article(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("article", ""), classes, id, block)
+    block: (@GenericUiDslMarker Article).() -> Unit = {}
+): Article = mountDslComponent(this, Article(), classes, id, block)
 
 /**
- * In-place `<aside>` [Container] builder.
+ * In-place `<aside>` [Aside] builder.
  */
 inline fun AbstractContainer.aside(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("aside", ""), classes, id, block)
+    block: (@GenericUiDslMarker Aside).() -> Unit = {}
+): Aside = mountDslComponent(this, Aside(), classes, id, block)
 
 /**
- * In-place `<form>` [Container] builder.
+ * In-place `<form>` [Form] builder.
  */
 inline fun AbstractContainer.form(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("form", ""), classes, id, block)
+    block: (@GenericUiDslMarker Form).() -> Unit = {}
+): Form = mountDslComponent(this, Form(), classes, id, block)
+
+/**
+ * In-place `<fieldset>` [Fieldset] builder.
+ */
+inline fun AbstractContainer.fieldset(
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker Fieldset).() -> Unit = {}
+): Fieldset = mountDslComponent(this, Fieldset(), classes, id, block)
+
+/**
+ * In-place `<figure>` [Figure] builder.
+ */
+inline fun AbstractContainer.figure(
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker Figure).() -> Unit = {}
+): Figure = mountDslComponent(this, Figure(), classes, id, block)
+
+/**
+ * In-place `<details>` [Details] builder.
+ */
+inline fun AbstractContainer.details(
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker Details).() -> Unit = {}
+): Details = mountDslComponent(this, Details(), classes, id, block)
 
 /**
  * In-place stacked overlay [Box] builder (`position-relative`).
@@ -289,13 +335,13 @@ inline fun AbstractContainer.stepScrollView(
 )
 
 /**
- * In-place `<hr>` [Divider] builder.
+ * In-place `<hr>` [Hr] builder.
  */
 inline fun AbstractContainer.hr(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Divider).() -> Unit = {}
-): Divider = mountDslComponent(this, Divider(), classes, id, block)
+    block: (@GenericUiDslMarker Hr).() -> Unit = {}
+): Hr = mountDslComponent(this, Hr(), classes, id, block)
 
 /**
  * Alias for [hr].
@@ -318,12 +364,12 @@ inline fun AbstractContainer.spacer(
 ): Spacer = mountDslComponent(this, Spacer(widthPx = widthPx, heightPx = heightPx), classes, id, block)
 
 /**
- * Alias for [spacer] (`<br>`).
+ * In-place `<br>` [Br] builder.
  */
-inline fun AbstractContainer.br(
+fun AbstractContainer.br(
     heightPx: Int = 8,
     classes: String? = null
-): Spacer = spacer(widthPx = 0, heightPx = heightPx, classes = classes)
+): Br = mountDslComponent(this, Br(heightPx = heightPx), classes, null)
 
 /**
  * In-place HTML/layout `<table>` [Container] builder (supports nested `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`).
@@ -335,50 +381,50 @@ inline fun AbstractContainer.table(
 ): Container = mountDslComponent(this, Container("table", "table"), classes, id, block)
 
 /**
- * In-place `<thead>` [Container] builder.
+ * In-place `<thead>` [Thead] builder.
  */
 inline fun AbstractContainer.thead(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("thead", ""), classes, id, block)
+    block: (@GenericUiDslMarker Thead).() -> Unit = {}
+): Thead = mountDslComponent(this, Thead(), classes, id, block)
 
 /**
- * In-place `<tbody>` [Container] builder.
+ * In-place `<tbody>` [Tbody] builder.
  */
 inline fun AbstractContainer.tbody(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("tbody", ""), classes, id, block)
+    block: (@GenericUiDslMarker Tbody).() -> Unit = {}
+): Tbody = mountDslComponent(this, Tbody(), classes, id, block)
 
 /**
- * In-place `<tfoot>` [Container] builder.
+ * In-place `<tfoot>` [Tfoot] builder.
  */
 inline fun AbstractContainer.tfoot(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("tfoot", ""), classes, id, block)
+    block: (@GenericUiDslMarker Tfoot).() -> Unit = {}
+): Tfoot = mountDslComponent(this, Tfoot(), classes, id, block)
 
 /**
- * In-place `<tr>` [Container] builder.
+ * In-place `<tr>` [Tr] builder.
  */
 inline fun AbstractContainer.tr(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("tr", ""), classes, id, block)
+    block: (@GenericUiDslMarker Tr).() -> Unit = {}
+): Tr = mountDslComponent(this, Tr(), classes, id, block)
 
 /**
- * In-place `<th>` [Container] builder (accepts either a [text] string or nested components / `+"text"`).
+ * In-place `<th>` [Th] builder (accepts either a [text] string or nested components / `+"text"`).
  */
 inline fun AbstractContainer.th(
     text: String = "",
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("th", ""), classes, id) {
+    block: (@GenericUiDslMarker Th).() -> Unit = {}
+): Th = mountDslComponent(this, Th(), classes, id) {
     if (text.isNotEmpty()) {
         +text
     }
@@ -386,14 +432,14 @@ inline fun AbstractContainer.th(
 }
 
 /**
- * In-place `<td>` [Container] builder (accepts either a [text] string or nested components / `+"text"`).
+ * In-place `<td>` [Td] builder (accepts either a [text] string or nested components / `+"text"`).
  */
 inline fun AbstractContainer.td(
     text: String = "",
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Container).() -> Unit = {}
-): Container = mountDslComponent(this, Container("td", ""), classes, id) {
+    block: (@GenericUiDslMarker Td).() -> Unit = {}
+): Td = mountDslComponent(this, Td(), classes, id) {
     if (text.isNotEmpty()) {
         +text
     }

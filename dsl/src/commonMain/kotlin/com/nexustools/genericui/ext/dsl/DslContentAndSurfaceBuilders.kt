@@ -8,6 +8,9 @@ import com.nexustools.genericui.component.content.Table
 import com.nexustools.genericui.component.feedback.Alert
 import com.nexustools.genericui.component.feedback.ProgressBar
 import com.nexustools.genericui.component.feedback.Spinner
+import com.nexustools.genericui.component.htmlcompat.Li
+import com.nexustools.genericui.component.htmlcompat.Ol
+import com.nexustools.genericui.component.htmlcompat.Ul
 import com.nexustools.genericui.component.navigation.Navbar
 import com.nexustools.genericui.component.surface.Card
 import com.nexustools.genericui.component.surface.CollapsiblePanel
@@ -45,27 +48,52 @@ inline fun AbstractContainer.collapsiblePanel(
 )
 
 /**
- * In-place `<ul>` / [ListGroup] builder matching `kotlinx.html`'s `ul`.
+ * In-place `<ul>` [Ul] builder matching `kotlinx.html`'s `ul`.
  */
 inline fun AbstractContainer.ul(
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker Ul).() -> Unit = {}
+): Ul = mountDslComponent(this, Ul(), classes, id, block)
+
+/**
+ * In-place `<ol>` [Ol] builder matching `kotlinx.html`'s `ol`.
+ */
+inline fun AbstractContainer.ol(
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker Ol).() -> Unit = {}
+): Ol = mountDslComponent(this, Ol(), classes, id, block)
+
+/**
+ * In-place Bootstrap [ListGroup] builder (`listGroup`).
+ */
+inline fun AbstractContainer.listGroup(
     classes: String? = null,
     id: String? = null,
     block: (@GenericUiDslMarker ListGroup).() -> Unit = {}
 ): ListGroup = mountDslComponent(this, ListGroup(), classes, id, block)
 
 /**
- * Alias for [ul] (`listGroup`).
- */
-inline fun AbstractContainer.listGroup(
-    classes: String? = null,
-    id: String? = null,
-    block: (@GenericUiDslMarker ListGroup).() -> Unit = {}
-): ListGroup = ul(classes = classes, id = id, block = block)
-
-/**
- * In-place `<li>` / [ListGroupItem] builder matching `kotlinx.html`'s `li`.
+ * In-place `<li>` [Li] builder matching `kotlinx.html`'s `li`.
  */
 inline fun AbstractContainer.li(
+    text: String = "",
+    active: Boolean = false,
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker Li).() -> Unit = {}
+): Li = mountDslComponent(this, Li(id = id, isActive = active), classes, id) {
+    if (text.isNotEmpty()) {
+        +text
+    }
+    block()
+}
+
+/**
+ * In-place Bootstrap [ListGroupItem] builder (`listGroupItem`).
+ */
+inline fun AbstractContainer.listGroupItem(
     text: String = "",
     active: Boolean = false,
     classes: String? = null,
@@ -77,17 +105,6 @@ inline fun AbstractContainer.li(
     }
     block()
 }
-
-/**
- * Alias for [li] (`listGroupItem`).
- */
-inline fun AbstractContainer.listGroupItem(
-    text: String = "",
-    active: Boolean = false,
-    classes: String? = null,
-    id: String? = null,
-    block: (@GenericUiDslMarker ListGroupItem).() -> Unit = {}
-): ListGroupItem = li(text = text, active = active, classes = classes, id = id, block = block)
 
 /**
  * In-place `<img>` / [ImageView] builder matching `kotlinx.html`'s `img`.

@@ -1,6 +1,8 @@
 package com.nexustools.genericui.ext.dsl
 
 import com.nexustools.genericui.component.lazy.LazyGrid
+import com.nexustools.genericui.component.lazy.LazyGridTree
+import com.nexustools.genericui.component.lazy.LazyGridTreeColumn
 import com.nexustools.genericui.component.lazy.LazyList
 import com.nexustools.genericui.component.lazy.TreeView
 import com.nexustools.genericui.core.AbstractContainer
@@ -49,6 +51,54 @@ inline fun AbstractContainer.lazyGrid(
     id,
     block
 )
+
+/**
+ * In-place virtualized multi-column collapsible [LazyGridTree] (`genericui:lazygridtree`) builder.
+ */
+inline fun <T> AbstractContainer.lazyGridTree(
+    treeColumns: List<LazyGridTreeColumn> = LazyGridTree.defaultTreeColumns(),
+    estimatedRowHeightPx: Float = 38f,
+    overscanRows: Int = 4,
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker LazyGridTree<T>).() -> Unit = {}
+): LazyGridTree<T> = mountDslComponent(
+    this,
+    LazyGridTree<T>(
+        treeColumns = treeColumns,
+        estimatedRowHeightPx = estimatedRowHeightPx,
+        overscanRows = overscanRows
+    ),
+    classes,
+    id,
+    block
+)
+
+/**
+ * Top-level `kotlinx.html`-style entry point that creates and configures a root [LazyGridTree].
+ */
+inline fun <T> buildLazyGridTree(
+    treeColumns: List<LazyGridTreeColumn> = LazyGridTree.defaultTreeColumns(),
+    estimatedRowHeightPx: Float = 38f,
+    overscanRows: Int = 4,
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker LazyGridTree<T>).() -> Unit = {}
+): LazyGridTree<T> {
+    val tree = LazyGridTree<T>(
+        treeColumns = treeColumns,
+        estimatedRowHeightPx = estimatedRowHeightPx,
+        overscanRows = overscanRows
+    )
+    if (!classes.isNullOrBlank()) {
+        tree.addClass(classes)
+    }
+    if (!id.isNullOrBlank()) {
+        tree.id = id
+    }
+    tree.block()
+    return tree
+}
 
 /**
  * In-place virtualized [TreeView] builder.
