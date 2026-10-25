@@ -36,13 +36,20 @@ class AiChatSession(
     fun resolveClient(backendType: AiBackendType = config.backendType): AiChatBackendClient {
         customClients[backendType]?.let { return it }
         return when (backendType) {
+            AiBackendType.LM_STUDIO -> OpenAiCompatibleBackendClient(AiBackendType.LM_STUDIO)
             AiBackendType.OPENAI -> OpenAiCompatibleBackendClient(AiBackendType.OPENAI)
             AiBackendType.XAI_GROK -> OpenAiCompatibleBackendClient(AiBackendType.XAI_GROK)
             AiBackendType.OLLAMA -> OpenAiCompatibleBackendClient(AiBackendType.OLLAMA)
+            AiBackendType.CUSTOM_OPENAI -> OpenAiCompatibleBackendClient(AiBackendType.CUSTOM_OPENAI)
             AiBackendType.OPENAI_COMPATIBLE -> OpenAiCompatibleBackendClient(AiBackendType.OPENAI_COMPATIBLE)
-            AiBackendType.ANTHROPIC -> AnthropicBackendClient()
-            AiBackendType.GEMINI -> GeminiBackendClient()
+            AiBackendType.ANTHROPIC, AiBackendType.CUSTOM_CLAUDE -> AnthropicBackendClient()
+            AiBackendType.GEMINI, AiBackendType.GEMINI_GOOGLE_ONE -> GeminiBackendClient()
         }
+    }
+
+    fun cancelStreaming() {
+        isStreaming = false
+        notifyMessagesChanged()
     }
 
     fun setReasoningEffort(effort: ReasoningEffort, budgetTokens: Int? = null) {

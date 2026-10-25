@@ -33,6 +33,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            api(project(":extensions:gpu"))
             api(project(":extensions:canvas2d:common"))
         }
     }

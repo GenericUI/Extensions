@@ -17,6 +17,7 @@ kotlin {
 
 dependencies {
     api(project(":desktop:swing"))
+    api(project(":extensions:gpu:desktop:swing"))
     api(project(":extensions:canvas2d:common"))
     implementation(libs.kotlinx.coroutinesSwing)
 

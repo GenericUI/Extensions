@@ -1,301 +1,144 @@
 package com.nexustools.genericui.desktop.canvas
 
 import com.nexustools.genericui.component.media.Canvas2DContext
+import com.nexustools.genericui.ext.canvas2d.OffscreenCanvas2D
+import com.nexustools.genericui.ext.gpu.GpuBackendType
+import com.nexustools.genericui.ext.gpu.desktop.DesktopGpuProvider
+import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.style.RgbaColor
-import kotlin.math.cos
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.roundToInt
-import kotlin.math.sin
 
 /**
  * Desktop 2D immediate-mode vector and pixel rendering context implementing [Canvas2DContext]
- * for Direct2D (`:windows`), CoreGraphics (`:macos`), Cairo (`:gtk`), and QPainter (`:qt`).
- * Maintains an RGBA8888 backing surface alongside affine transform and state stacks.
+ * for `:windows`, `:macos`, `:gtk`, and `:qt`, backed by `:extensions:canvas2d`'s hardware-accelerated
+ * [OffscreenCanvas2D] and `:extensions:gpu`'s [com.nexustools.genericui.ext.gpu.GpuDoubleBufferedSurface]
+ * (Vulkan 1.3 primary, OpenGL ES 3.0 / Google ANGLE fallback).
  */
 class DesktopCanvas2DContextImpl(
-    override var width: Int = 800,
-    override var height: Int = 600,
-    val nativeApiName: String = "Desktop2D"
+    width: Int = 800,
+    height: Int = 600,
+    val nativeApiName: String = "Desktop2D",
+    preferVulkan: Boolean = true
 ) : Canvas2DContext {
 
-    private var pixelBuffer = ByteArray(max(1, width) * max(1, height) * 4)
-    private var fillColor: RgbaColor = RgbaColor.BLACK
-    private var strokeColor: RgbaColor = RgbaColor.BLACK
-    private var lineWidth: Float = 1f
-    private var lineCap: String = "butt"
-    private var lineJoin: String = "miter"
-    private var lineDash: FloatArray = FloatArray(0)
-    private var lineDashOffset: Float = 0f
-    private var globalAlpha: Float = 1f
-    private var compositeOp: String = "source-over"
-    private var fontFamily: String = "sans-serif"
-    private var fontSizePx: Float = 14f
-    private var fontWeight: Int = 400
-    private var fontItalic: Boolean = false
+    val offscreenCanvas: OffscreenCanvas2D = OffscreenCanvas2D(
+        width = width,
+        height = height,
+        gpuContext = DesktopGpuProvider.acquireDesktopContext(preferVulkan = preferVulkan)
+    )
 
-    // 2D affine matrix [a, b, c, d, e, f]
-    private var transform = floatArrayOf(1f, 0f, 0f, 1f, 0f, 0f)
-    private val stateStack = ArrayDeque<FloatArray>()
-    private val pathPoints = mutableListOf<Pair<Float, Float>>()
+    override val width: Int
+        get() = offscreenCanvas.width
+
+    override val height: Int
+        get() = offscreenCanvas.height
+
+    val gpuBackendType: GpuBackendType
+        get() = offscreenCanvas.backendType
+
+    val gpuBackendDescription: String
+        get() = offscreenCanvas.backendDescription
+
+    val swapCount: Long
+        get() = offscreenCanvas.swapCount
 
     fun resizeSurface(newWidth: Int, newHeight: Int) {
-        val w = max(1, newWidth)
-        val h = max(1, newHeight)
-        if (w != width || h != height) {
-            width = w
-            height = h
-            pixelBuffer = ByteArray(w * h * 4)
-        }
+        offscreenCanvas.resize(newWidth, newHeight)
     }
 
-    override fun save() {
-        stateStack.addLast(transform.copyOf())
+    /**
+     * Atomically commits the offscreen back-buffer to the presented front-buffer via
+     * [OffscreenCanvas2D.swapBuffers] (executing the Vulkan / OpenGL ES ANGLE presentation pass).
+     */
+    fun swapBuffers() {
+        offscreenCanvas.swapBuffers()
     }
 
-    override fun restore() {
-        if (stateStack.isNotEmpty()) {
-            transform = stateStack.removeLast()
-        }
-    }
+    fun presentFrontImageBuffer(): ImageBuffer = offscreenCanvas.presentFrontImageBuffer()
 
-    override fun scale(sx: Float, sy: Float) {
-        transform[0] *= sx
-        transform[1] *= sx
-        transform[2] *= sy
-        transform[3] *= sy
-    }
+    fun presentFrontBufferRgba(): ByteArray = offscreenCanvas.presentFrontBufferRgba()
 
-    override fun rotate(angleRadians: Float) {
-        val c = cos(angleRadians)
-        val s = sin(angleRadians)
-        val a0 = transform[0]
-        val b0 = transform[1]
-        val c0 = transform[2]
-        val d0 = transform[3]
-        transform[0] = a0 * c + c0 * s
-        transform[1] = b0 * c + d0 * s
-        transform[2] = c0 * c - a0 * s
-        transform[3] = d0 * c - b0 * s
-    }
+    fun presentFrontBufferBgra(): ByteArray = offscreenCanvas.presentFrontBufferBgra()
 
-    override fun translate(dx: Float, dy: Float) {
-        transform[4] += transform[0] * dx + transform[2] * dy
-        transform[5] += transform[1] * dx + transform[3] * dy
-    }
+    override fun save() = offscreenCanvas.save()
 
-    override fun setTransform(a: Float, b: Float, c: Float, d: Float, e: Float, f: Float) {
-        transform[0] = a
-        transform[1] = b
-        transform[2] = c
-        transform[3] = d
-        transform[4] = e
-        transform[5] = f
-    }
+    override fun restore() = offscreenCanvas.restore()
 
-    override fun resetTransform() {
-        setTransform(1f, 0f, 0f, 1f, 0f, 0f)
-    }
+    override fun scale(sx: Float, sy: Float) = offscreenCanvas.scale(sx, sy)
 
-    override fun setGlobalAlpha(alpha: Float) {
-        globalAlpha = alpha.coerceIn(0f, 1f)
-    }
+    override fun rotate(angleRadians: Float) = offscreenCanvas.rotate(angleRadians)
 
-    override fun setGlobalCompositeOperation(mode: String) {
-        compositeOp = mode
-    }
+    override fun translate(dx: Float, dy: Float) = offscreenCanvas.translate(dx, dy)
 
-    override fun setFillColor(color: RgbaColor) {
-        fillColor = color
-    }
+    override fun setTransform(a: Float, b: Float, c: Float, d: Float, e: Float, f: Float) =
+        offscreenCanvas.setTransform(a, b, c, d, e, f)
 
-    override fun setStrokeColor(color: RgbaColor) {
-        strokeColor = color
-    }
+    override fun resetTransform() = offscreenCanvas.resetTransform()
 
-    override fun setLineWidth(width: Float) {
-        lineWidth = max(0.1f, width)
-    }
+    override fun setGlobalAlpha(alpha: Float) = offscreenCanvas.setGlobalAlpha(alpha)
 
-    override fun setLineCap(cap: String) {
-        lineCap = cap
-    }
+    override fun setGlobalCompositeOperation(mode: String) = offscreenCanvas.setGlobalCompositeOperation(mode)
 
-    override fun setLineJoin(join: String) {
-        lineJoin = join
-    }
+    override fun setFillColor(color: RgbaColor) = offscreenCanvas.setFillColor(color)
 
-    override fun setLineDash(segments: FloatArray, offset: Float) {
-        lineDash = segments.copyOf()
-        lineDashOffset = offset
-    }
+    override fun setStrokeColor(color: RgbaColor) = offscreenCanvas.setStrokeColor(color)
 
-    override fun clearRect(x: Float, y: Float, width: Float, height: Float) {
-        rasterizeRect(x, y, width, height, RgbaColor.TRANSPARENT)
-    }
+    override fun setLineWidth(width: Float) = offscreenCanvas.setLineWidth(width)
 
-    override fun fillRect(x: Float, y: Float, width: Float, height: Float) {
-        rasterizeRect(x, y, width, height, fillColor)
-    }
+    override fun setLineCap(cap: String) = offscreenCanvas.setLineCap(cap)
 
-    override fun strokeRect(x: Float, y: Float, width: Float, height: Float) {
-        val lw = max(1f, lineWidth)
-        rasterizeRect(x, y, width, lw, strokeColor)
-        rasterizeRect(x, y + height - lw, width, lw, strokeColor)
-        rasterizeRect(x, y, lw, height, strokeColor)
-        rasterizeRect(x + width - lw, y, lw, height, strokeColor)
-    }
+    override fun setLineJoin(join: String) = offscreenCanvas.setLineJoin(join)
 
-    override fun roundRect(x: Float, y: Float, width: Float, height: Float, radius: Float) {
-        beginPath()
-        moveTo(x + radius, y)
-        lineTo(x + width - radius, y)
-        lineTo(x + width, y + height)
-        lineTo(x, y + height)
-        closePath()
-    }
+    override fun setLineDash(segments: FloatArray, offset: Float) = offscreenCanvas.setLineDash(segments, offset)
 
-    override fun beginPath() {
-        pathPoints.clear()
-    }
+    override fun clearRect(x: Float, y: Float, width: Float, height: Float) =
+        offscreenCanvas.clearRect(x, y, width, height)
 
-    override fun closePath() {
-        if (pathPoints.size > 1) {
-            pathPoints.add(pathPoints.first())
-        }
-    }
+    override fun fillRect(x: Float, y: Float, width: Float, height: Float) =
+        offscreenCanvas.fillRect(x, y, width, height)
 
-    override fun moveTo(x: Float, y: Float) {
-        pathPoints.add(x to y)
-    }
+    override fun strokeRect(x: Float, y: Float, width: Float, height: Float) =
+        offscreenCanvas.strokeRect(x, y, width, height)
 
-    override fun lineTo(x: Float, y: Float) {
-        pathPoints.add(x to y)
-    }
+    override fun roundRect(x: Float, y: Float, width: Float, height: Float, radius: Float) =
+        offscreenCanvas.roundRect(x, y, width, height, radius)
 
-    override fun quadraticCurveTo(cpx: Float, cpy: Float, x: Float, y: Float) {
-        pathPoints.add(cpx to cpy)
-        pathPoints.add(x to y)
-    }
+    override fun beginPath() = offscreenCanvas.beginPath()
 
-    override fun bezierCurveTo(cp1x: Float, cp1y: Float, cp2x: Float, cp2y: Float, x: Float, y: Float) {
-        pathPoints.add(cp1x to cp1y)
-        pathPoints.add(cp2x to cp2y)
-        pathPoints.add(x to y)
-    }
+    override fun closePath() = offscreenCanvas.closePath()
 
-    override fun arc(x: Float, y: Float, radius: Float, startAngle: Float, endAngle: Float, counterClockwise: Boolean) {
-        val steps = 16
-        val delta = (endAngle - startAngle) / steps
-        for (i in 0..steps) {
-            val a = startAngle + delta * i
-            pathPoints.add((x + cos(a) * radius) to (y + sin(a) * radius))
-        }
-    }
+    override fun moveTo(x: Float, y: Float) = offscreenCanvas.moveTo(x, y)
 
-    override fun fill() {
-        if (pathPoints.isEmpty()) return
-        val minX = pathPoints.minOf { it.first }
-        val maxX = pathPoints.maxOf { it.first }
-        val minY = pathPoints.minOf { it.second }
-        val maxY = pathPoints.maxOf { it.second }
-        rasterizeRect(minX, minY, maxX - minX, maxY - minY, fillColor)
-    }
+    override fun lineTo(x: Float, y: Float) = offscreenCanvas.lineTo(x, y)
 
-    override fun stroke() {
-        if (pathPoints.size < 2) return
-        val minX = pathPoints.minOf { it.first }
-        val maxX = pathPoints.maxOf { it.first }
-        val minY = pathPoints.minOf { it.second }
-        val maxY = pathPoints.maxOf { it.second }
-        strokeRect(minX, minY, max(1f, maxX - minX), max(1f, maxY - minY))
-    }
+    override fun quadraticCurveTo(cpx: Float, cpy: Float, x: Float, y: Float) =
+        offscreenCanvas.quadraticCurveTo(cpx, cpy, x, y)
 
-    override fun clip() {
-        // Clip region recorded for current path
-    }
+    override fun bezierCurveTo(cp1x: Float, cp1y: Float, cp2x: Float, cp2y: Float, x: Float, y: Float) =
+        offscreenCanvas.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y)
 
-    override fun setFont(fontFamily: String, fontSizePx: Float, fontWeight: Int, italic: Boolean) {
-        this.fontFamily = fontFamily
-        this.fontSizePx = fontSizePx
-        this.fontWeight = fontWeight
-        this.fontItalic = italic
-    }
+    override fun arc(x: Float, y: Float, radius: Float, startAngle: Float, endAngle: Float, counterClockwise: Boolean) =
+        offscreenCanvas.arc(x, y, radius, startAngle, endAngle, counterClockwise)
 
-    override fun fillText(text: String, x: Float, y: Float) {
-        val textW = measureTextWidth(text)
-        rasterizeRect(x, y - fontSizePx, textW, fontSizePx, fillColor)
-    }
+    override fun fill() = offscreenCanvas.fill()
 
-    override fun strokeText(text: String, x: Float, y: Float) {
-        val textW = measureTextWidth(text)
-        strokeRect(x, y - fontSizePx, textW, fontSizePx)
-    }
+    override fun stroke() = offscreenCanvas.stroke()
 
-    override fun measureTextWidth(text: String): Float =
-        text.length * (fontSizePx * 0.56f)
+    override fun clip() = offscreenCanvas.clip()
 
-    override fun putImageDataRgba(rgbaBytes: ByteArray, width: Int, height: Int, dx: Int, dy: Int) {
-        for (row in 0 until height) {
-            val dstY = dy + row
-            if (dstY !in 0 until this.height) continue
-            for (col in 0 until width) {
-                val dstX = dx + col
-                if (dstX !in 0 until this.width) continue
-                val srcIdx = (row * width + col) * 4
-                val dstIdx = (dstY * this.width + dstX) * 4
-                if (srcIdx + 3 < rgbaBytes.size && dstIdx + 3 < pixelBuffer.size) {
-                    pixelBuffer[dstIdx] = rgbaBytes[srcIdx]
-                    pixelBuffer[dstIdx + 1] = rgbaBytes[srcIdx + 1]
-                    pixelBuffer[dstIdx + 2] = rgbaBytes[srcIdx + 2]
-                    pixelBuffer[dstIdx + 3] = rgbaBytes[srcIdx + 3]
-                }
-            }
-        }
-    }
+    override fun setFont(fontFamily: String, fontSizePx: Float, fontWeight: Int, italic: Boolean) =
+        offscreenCanvas.setFont(fontFamily, fontSizePx, fontWeight, italic)
 
-    override fun getImageDataRgba(x: Int, y: Int, width: Int, height: Int): ByteArray {
-        val w = max(0, width)
-        val h = max(0, height)
-        val out = ByteArray(w * h * 4)
-        for (row in 0 until h) {
-            val srcY = y + row
-            if (srcY !in 0 until this.height) continue
-            for (col in 0 until w) {
-                val srcX = x + col
-                if (srcX !in 0 until this.width) continue
-                val srcIdx = (srcY * this.width + srcX) * 4
-                val dstIdx = (row * w + col) * 4
-                if (srcIdx + 3 < pixelBuffer.size && dstIdx + 3 < out.size) {
-                    out[dstIdx] = pixelBuffer[srcIdx]
-                    out[dstIdx + 1] = pixelBuffer[srcIdx + 1]
-                    out[dstIdx + 2] = pixelBuffer[srcIdx + 2]
-                    out[dstIdx + 3] = pixelBuffer[srcIdx + 3]
-                }
-            }
-        }
-        return out
-    }
+    override fun fillText(text: String, x: Float, y: Float) = offscreenCanvas.fillText(text, x, y)
 
-    private fun rasterizeRect(x: Float, y: Float, w: Float, h: Float, color: RgbaColor) {
-        val x0 = max(0, min(this.width, x.roundToInt()))
-        val y0 = max(0, min(this.height, y.roundToInt()))
-        val x1 = max(0, min(this.width, (x + w).roundToInt()))
-        val y1 = max(0, min(this.height, (y + h).roundToInt()))
-        val r = color.r.toByte()
-        val g = color.g.toByte()
-        val b = color.b.toByte()
-        val a = (color.a * globalAlpha).roundToInt().coerceIn(0, 255).toByte()
-        for (py in y0 until y1) {
-            for (px in x0 until x1) {
-                val idx = (py * this.width + px) * 4
-                if (idx + 3 < pixelBuffer.size) {
-                    pixelBuffer[idx] = r
-                    pixelBuffer[idx + 1] = g
-                    pixelBuffer[idx + 2] = b
-                    pixelBuffer[idx + 3] = a
-                }
-            }
-        }
-    }
+    override fun strokeText(text: String, x: Float, y: Float) = offscreenCanvas.strokeText(text, x, y)
+
+    override fun measureTextWidth(text: String): Float = offscreenCanvas.measureTextWidth(text)
+
+    override fun putImageDataRgba(rgbaBytes: ByteArray, width: Int, height: Int, dx: Int, dy: Int) =
+        offscreenCanvas.putImageDataRgba(rgbaBytes, width, height, dx, dy)
+
+    override fun getImageDataRgba(x: Int, y: Int, width: Int, height: Int): ByteArray =
+        offscreenCanvas.getImageDataRgba(x, y, width, height)
+
+    fun rawPixelBuffer(): ByteArray = presentFrontBufferRgba()
 }

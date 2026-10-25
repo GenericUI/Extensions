@@ -12,6 +12,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":desktop:shared"))
+            api(project(":extensions:gpu:desktop:shared"))
             api(project(":extensions:canvas2d:common"))
             implementation(libs.kotlinx.coroutines.core)
 

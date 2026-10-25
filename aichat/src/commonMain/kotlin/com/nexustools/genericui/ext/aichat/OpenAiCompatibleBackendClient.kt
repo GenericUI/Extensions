@@ -192,18 +192,105 @@ class OpenAiCompatibleBackendClient(
                 }
             }
         } else {
-            // Default local fallback simulation when no external network transport is injected
-            if (config.reasoningConfig.isReasoningActive) {
-                val thought = "Analyzing request with ${config.model} (reasoning effort: ${config.reasoningConfig.effort.wireValue})..."
-                reasoningBuilder.append(thought)
-                onChunk(AiStreamChunk(type = AiStreamChunkType.REASONING_DELTA, reasoningDelta = thought))
-            }
+            // Local fallback / built-in studio tool-calling agent when no external HTTP transport is injected
+            val lastMessage = messages.lastOrNull()
             val lastUser = messages.lastOrNull { it.role == AiMessageRole.USER }?.content.orEmpty()
-            val reply = "[${backendType.displayName} - ${config.model}] Processed: $lastUser"
-            contentBuilder.append(reply)
-            onChunk(AiStreamChunk(type = AiStreamChunkType.CONTENT_DELTA, textDelta = reply))
+            val lowerPrompt = lastUser.lowercase()
+            val registeredNames = tools.map { it.name }.toSet()
+
+            if (lastMessage?.role == AiMessageRole.TOOL && lastMessage.toolResults.isNotEmpty()) {
+                // Summarize completed tool calls on the follow-up turn
+                val summaryLines = lastMessage.toolResults.joinToString("\n") { tr ->
+                    "- **`${tr.toolName}`**: ${tr.outputContent}"
+                }
+                val reply = buildString {
+                    appendLine("Executed **${lastMessage.toolResults.size}** tool operation(s) via **${backendType.displayName}** (`${config.model}`):")
+                    appendLine(summaryLines)
+                }.trim()
+                contentBuilder.append(reply)
+                onChunk(AiStreamChunk(type = AiStreamChunkType.CONTENT_DELTA, textDelta = reply))
+            } else {
+                if (config.reasoningConfig.isReasoningActive) {
+                    val thought = buildString {
+                        append("Analyzing studio request with ${config.model} ")
+                        append("(reasoning effort: ${config.reasoningConfig.effort.wireValue}, ")
+                        append("${tools.size} tools available)...")
+                    }
+                    reasoningBuilder.append(thought)
+                    onChunk(AiStreamChunk(type = AiStreamChunkType.REASONING_DELTA, reasoningDelta = thought))
+                }
+
+                // Match tool calls if tools are registered
+                val matchedCalls = mutableListOf<Pair<String, String>>()
+                if (tools.isNotEmpty()) {
+                    when {
+                        (lowerPrompt.contains("inspect") || lowerPrompt.contains("scene") || lowerPrompt.contains("layer")) &&
+                            "inspect_scene" in registeredNames -> {
+                            matchedCalls.add("inspect_scene" to "{\"includeLayers\":true,\"includeFilters\":true,\"includeTimeline\":true}")
+                        }
+                        (lowerPrompt.contains("star") || lowerPrompt.contains("rect") || lowerPrompt.contains("circle") || lowerPrompt.contains("vector") || lowerPrompt.contains("draw")) &&
+                            "draw_vector_shape" in registeredNames -> {
+                            val shapeType = when {
+                                lowerPrompt.contains("star") -> "star"
+                                lowerPrompt.contains("circle") -> "circle"
+                                lowerPrompt.contains("ellipse") -> "ellipse"
+                                lowerPrompt.contains("polygon") -> "polygon"
+                                else -> "rect"
+                            }
+                            val fill = if (lowerPrompt.contains("cyan")) "#38bdf8" else "#6366f1"
+                            val stroke = if (lowerPrompt.contains("gold") || lowerPrompt.contains("star")) "#facc15" else "#e2e8f0"
+                            matchedCalls.add("draw_vector_shape" to "{\"shape\":\"$shapeType\",\"fill\":\"$fill\",\"stroke\":\"$stroke\",\"strokeWidth\":4}")
+                        }
+                        (lowerPrompt.contains("gradient") || lowerPrompt.contains("paint") || lowerPrompt.contains("backdrop")) &&
+                            "apply_raster_gradient" in registeredNames -> {
+                            matchedCalls.add("apply_raster_gradient" to "{\"startColor\":\"#1e1b4b\",\"endColor\":\"#7c3aed\",\"type\":\"linear\"}")
+                        }
+                        (lowerPrompt.contains("blur") || lowerPrompt.contains("shadow") || lowerPrompt.contains("glow") || lowerPrompt.contains("filter")) &&
+                            "apply_gimp_filter" in registeredNames -> {
+                            val filterId = when {
+                                lowerPrompt.contains("shadow") -> "drop-shadow"
+                                lowerPrompt.contains("glow") -> "neon-glow"
+                                else -> "gaussian-blur"
+                            }
+                            matchedCalls.add("apply_gimp_filter" to "{\"filterId\":\"$filterId\",\"dynamic\":true,\"radius\":8.0}")
+                        }
+                        (lowerPrompt.contains("shared") || lowerPrompt.contains("badge") || lowerPrompt.contains("reusable")) &&
+                            "create_shared_object" in registeredNames -> {
+                            matchedCalls.add("create_shared_object" to "{\"name\":\"Shared Studio Badge\",\"width\":256,\"height\":256,\"insertInstances\":2}")
+                        }
+                        (lowerPrompt.contains("animate") || lowerPrompt.contains("pulse") || lowerPrompt.contains("keyframe") || lowerPrompt.contains("timeline")) &&
+                            "set_keyframe" in registeredNames -> {
+                            matchedCalls.add("set_keyframe" to "{\"frame\":1,\"scaleX\":1.0,\"scaleY\":1.0,\"easing\":\"ease-in-out\"}")
+                            matchedCalls.add("set_keyframe" to "{\"frame\":12,\"scaleX\":1.25,\"scaleY\":1.25,\"easing\":\"cubic-bezier(0.42,0,0.58,1)\"}")
+                        }
+                    }
+                }
+
+                if (matchedCalls.isNotEmpty()) {
+                    matchedCalls.forEachIndexed { idx, (toolName, argsJson) ->
+                        val callId = "call_${idx + 1}"
+                        toolCallIds[idx] = callId
+                        toolCallNames[idx] = toolName
+                        toolCallArgs[idx] = StringBuilder(argsJson)
+                        onChunk(AiStreamChunk(type = AiStreamChunkType.TOOL_CALL_START, toolCallId = callId, toolName = toolName))
+                        onChunk(
+                            AiStreamChunk(
+                                type = AiStreamChunkType.TOOL_CALL_ARGS_DELTA,
+                                toolCallId = callId,
+                                toolName = toolName,
+                                toolArgsDelta = argsJson
+                            )
+                        )
+                    }
+                } else {
+                    val reply = "[${backendType.displayName} - ${config.model}] Processed: $lastUser"
+                    contentBuilder.append(reply)
+                    onChunk(AiStreamChunk(type = AiStreamChunkType.CONTENT_DELTA, textDelta = reply))
+                }
+            }
+
             val pTok = (messages.sumOf { it.content.length } / 4).coerceAtLeast(8)
-            val cTok = (reply.length / 4).coerceAtLeast(8)
+            val cTok = (contentBuilder.length / 4).coerceAtLeast(8)
             val rTok = if (reasoningBuilder.isNotEmpty()) (reasoningBuilder.length / 4).coerceAtLeast(4) else 0
             usageMetrics = AiUsageMetrics(
                 promptTokens = pTok,

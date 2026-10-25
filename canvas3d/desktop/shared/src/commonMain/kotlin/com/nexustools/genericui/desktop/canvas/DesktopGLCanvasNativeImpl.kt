@@ -3,6 +3,8 @@ package com.nexustools.genericui.desktop.canvas
 import com.nexustools.genericui.component.media.GLContext
 import com.nexustools.genericui.desktop.core.DesktopBaseNativeImpl
 import com.nexustools.genericui.desktop.core.DesktopNativeWidget
+import com.nexustools.genericui.ext.canvas3d.OffscreenCanvas3D
+import com.nexustools.genericui.ext.gpu.desktop.DesktopGpuProvider
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.PixelFormat
 import com.nexustools.genericui.image.codec.LibJpegCodec
@@ -10,6 +12,7 @@ import com.nexustools.genericui.nativeimpl.media.GLCanvasNativeImpl
 
 /**
  * Shared desktop base implementation of [GLCanvasNativeImpl] backed by [DesktopGLContextImpl]
+ * and `:extensions:canvas3d`'s hardware-accelerated double-buffered [OffscreenCanvas3D]
  * (Google ANGLE `libEGL.dll` + `libGLESv2.dll` on Windows, Metal-backed ANGLE on macOS,
  * `GtkGLArea` on GTK4, and `QOpenGLWidget` ES 3.0 on Qt6).
  */
@@ -18,6 +21,13 @@ open class DesktopGLCanvasNativeImpl<out W : DesktopNativeWidget>(
     rendererName: String = "ANGLE (Desktop OpenGL ES 3.0)",
     isAngle: Boolean = true
 ) : DesktopBaseNativeImpl<W>(nativeWidget, "gl-canvas"), GLCanvasNativeImpl<W> {
+
+    val offscreenCanvas3D: OffscreenCanvas3D = OffscreenCanvas3D(
+        width = 800,
+        height = 600,
+        preferVulkan = false,
+        gpuContext = DesktopGpuProvider.acquireDesktopContext(preferVulkan = false)
+    )
 
     protected val glContext: DesktopGLContextImpl = DesktopGLContextImpl(
         rendererString = rendererName,
@@ -29,6 +39,12 @@ open class DesktopGLCanvasNativeImpl<out W : DesktopNativeWidget>(
     protected var vblankCallback: ((Double?) -> Unit)? = null
     protected var onSurfaceCreatedListener: ((GLContext, Int, Int) -> Unit)? = null
     protected var onSurfaceResizedListener: ((GLContext, Int, Int) -> Unit)? = null
+
+    init {
+        nativeWidget.attributes["offscreenCanvas3D"] = offscreenCanvas3D
+        nativeWidget.attributes["captureRgba"] = { offscreenCanvas3D.presentFrontBufferRgba() }
+        nativeWidget.attributes["captureBgra"] = { offscreenCanvas3D.presentFrontBufferBgra() }
+    }
 
     override fun getRenderingContext(): GLContext = glContext
 
@@ -43,11 +59,21 @@ open class DesktopGLCanvasNativeImpl<out W : DesktopNativeWidget>(
 
     override fun setVBlankLoopActive(active: Boolean, onVBlankFrame: (explicitTimestampMs: Double?) -> Unit) {
         vblankActive = active
-        vblankCallback = if (active) onVBlankFrame else null
+        val doubleBufferedCallback: (Double?) -> Unit = { ts ->
+            onVBlankFrame(ts)
+            offscreenCanvas3D.swapBuffers()
+        }
+        vblankCallback = if (active) doubleBufferedCallback else null
+        if (active) {
+            nativeWidget.attributes["vblankDispatch"] = doubleBufferedCallback
+        } else {
+            nativeWidget.attributes.remove("vblankDispatch")
+        }
     }
 
     override fun requestSingleRender() {
         vblankCallback?.invoke(null)
+        offscreenCanvas3D.swapBuffers()
     }
 
     override fun setPointerEventsPassThrough(passThrough: Boolean) {

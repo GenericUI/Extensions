@@ -62,6 +62,21 @@ object Canvas3DExtension {
     fun acquireGpuOffscreenContext(preferVulkan: Boolean = true): GpuOffscreenContext =
         GpuDevice.acquireOffscreenContext(preferVulkan)
 
+    fun createOffscreenCanvas3D(
+        width: Int = 800,
+        height: Int = 600,
+        preferVulkan: Boolean = true,
+        vkConfig: VKCanvasConfig = VKCanvasConfig(),
+        glConfig: GLCanvasConfig = GLCanvasConfig()
+    ): OffscreenCanvas3D = OffscreenCanvas3D(
+        width = width,
+        height = height,
+        preferVulkan = preferVulkan,
+        vkConfig = vkConfig,
+        glConfig = glConfig,
+        gpuContext = acquireGpuOffscreenContext(preferVulkan)
+    )
+
     fun createVKContext(
         config: VKCanvasConfig = VKCanvasConfig(),
         width: Int = 800,

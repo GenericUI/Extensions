@@ -1,67 +1,88 @@
 package com.nexustools.genericui.ios
 
 import com.nexustools.genericui.component.media.Canvas2DContext
+import com.nexustools.genericui.ext.canvas2d.OffscreenCanvas2D
+import com.nexustools.genericui.ext.gpu.mobile.MobileGpuProvider
 import com.nexustools.genericui.style.RgbaColor
 
 /**
- * iOS CoreGraphics (`CGContextRef`) implementation of [Canvas2DContext].
+ * iOS hardware-accelerated implementation of [Canvas2DContext] backed by [OffscreenCanvas2D]
+ * and `:extensions:gpu` (MoltenVK Vulkan primary, OpenGL ES / Metal fallback).
  */
 class IosCanvas2DContextImpl(
-    override var width: Int = 390,
-    override var height: Int = 600
+    width: Int = 390,
+    height: Int = 600
 ) : Canvas2DContext {
-    private var framebuffer = ByteArray((width * height * 4).coerceAtLeast(4))
 
-    override fun save() {}
-    override fun restore() {}
-    override fun scale(sx: Float, sy: Float) {}
-    override fun rotate(angleRadians: Float) {}
-    override fun translate(dx: Float, dy: Float) {}
-    override fun setTransform(a: Float, b: Float, c: Float, d: Float, e: Float, f: Float) {}
-    override fun resetTransform() {}
+    val offscreenCanvas: OffscreenCanvas2D = OffscreenCanvas2D(
+        width = width,
+        height = height,
+        gpuContext = MobileGpuProvider.acquireMobileContext(preferVulkan = true)
+    )
 
-    override fun setGlobalAlpha(alpha: Float) {}
-    override fun setGlobalCompositeOperation(mode: String) {}
-    override fun setFillColor(color: RgbaColor) {}
-    override fun setStrokeColor(color: RgbaColor) {}
-    override fun setLineWidth(width: Float) {}
-    override fun setLineCap(cap: String) {}
-    override fun setLineJoin(join: String) {}
-    override fun setLineDash(segments: FloatArray, offset: Float) {}
+    override var width: Int
+        get() = offscreenCanvas.width
+        set(value) {
+            offscreenCanvas.resize(value, offscreenCanvas.height)
+        }
 
-    override fun clearRect(x: Float, y: Float, width: Float, height: Float) {
-        framebuffer.fill(0)
-    }
+    override var height: Int
+        get() = offscreenCanvas.height
+        set(value) {
+            offscreenCanvas.resize(offscreenCanvas.width, value)
+        }
 
-    override fun fillRect(x: Float, y: Float, width: Float, height: Float) {}
-    override fun strokeRect(x: Float, y: Float, width: Float, height: Float) {}
-    override fun roundRect(x: Float, y: Float, width: Float, height: Float, radius: Float) {}
+    fun swapBuffers() = offscreenCanvas.swapBuffers()
 
-    override fun beginPath() {}
-    override fun closePath() {}
-    override fun moveTo(x: Float, y: Float) {}
-    override fun lineTo(x: Float, y: Float) {}
-    override fun quadraticCurveTo(cpx: Float, cpy: Float, x: Float, y: Float) {}
-    override fun bezierCurveTo(cp1x: Float, cp1y: Float, cp2x: Float, cp2y: Float, x: Float, y: Float) {}
-    override fun arc(x: Float, y: Float, radius: Float, startAngle: Float, endAngle: Float, counterClockwise: Boolean) {}
-    override fun fill() {}
-    override fun stroke() {}
-    override fun clip() {}
+    override fun save() = offscreenCanvas.save()
+    override fun restore() = offscreenCanvas.restore()
+    override fun scale(sx: Float, sy: Float) = offscreenCanvas.scale(sx, sy)
+    override fun rotate(angleRadians: Float) = offscreenCanvas.rotate(angleRadians)
+    override fun translate(dx: Float, dy: Float) = offscreenCanvas.translate(dx, dy)
+    override fun setTransform(a: Float, b: Float, c: Float, d: Float, e: Float, f: Float) =
+        offscreenCanvas.setTransform(a, b, c, d, e, f)
+    override fun resetTransform() = offscreenCanvas.resetTransform()
 
-    override fun setFont(fontFamily: String, fontSizePx: Float, fontWeight: Int, italic: Boolean) {}
-    override fun fillText(text: String, x: Float, y: Float) {}
-    override fun strokeText(text: String, x: Float, y: Float) {}
-    override fun measureTextWidth(text: String): Float = text.length * 7.5f
+    override fun setGlobalAlpha(alpha: Float) = offscreenCanvas.setGlobalAlpha(alpha)
+    override fun setGlobalCompositeOperation(mode: String) = offscreenCanvas.setGlobalCompositeOperation(mode)
+    override fun setFillColor(color: RgbaColor) = offscreenCanvas.setFillColor(color)
+    override fun setStrokeColor(color: RgbaColor) = offscreenCanvas.setStrokeColor(color)
+    override fun setLineWidth(width: Float) = offscreenCanvas.setLineWidth(width)
+    override fun setLineCap(cap: String) = offscreenCanvas.setLineCap(cap)
+    override fun setLineJoin(join: String) = offscreenCanvas.setLineJoin(join)
+    override fun setLineDash(segments: FloatArray, offset: Float) = offscreenCanvas.setLineDash(segments, offset)
 
-    override fun putImageDataRgba(rgbaBytes: ByteArray, width: Int, height: Int, dx: Int, dy: Int) {
-        val copyLen = minOf(rgbaBytes.size, framebuffer.size)
-        rgbaBytes.copyInto(framebuffer, 0, 0, copyLen)
-    }
+    override fun clearRect(x: Float, y: Float, width: Float, height: Float) =
+        offscreenCanvas.clearRect(x, y, width, height)
+    override fun fillRect(x: Float, y: Float, width: Float, height: Float) =
+        offscreenCanvas.fillRect(x, y, width, height)
+    override fun strokeRect(x: Float, y: Float, width: Float, height: Float) =
+        offscreenCanvas.strokeRect(x, y, width, height)
+    override fun roundRect(x: Float, y: Float, width: Float, height: Float, radius: Float) =
+        offscreenCanvas.roundRect(x, y, width, height, radius)
 
-    override fun getImageDataRgba(x: Int, y: Int, width: Int, height: Int): ByteArray {
-        val out = ByteArray((width * height * 4).coerceAtLeast(0))
-        val copyLen = minOf(out.size, framebuffer.size)
-        framebuffer.copyInto(out, 0, 0, copyLen)
-        return out
-    }
+    override fun beginPath() = offscreenCanvas.beginPath()
+    override fun closePath() = offscreenCanvas.closePath()
+    override fun moveTo(x: Float, y: Float) = offscreenCanvas.moveTo(x, y)
+    override fun lineTo(x: Float, y: Float) = offscreenCanvas.lineTo(x, y)
+    override fun quadraticCurveTo(cpx: Float, cpy: Float, x: Float, y: Float) =
+        offscreenCanvas.quadraticCurveTo(cpx, cpy, x, y)
+    override fun bezierCurveTo(cp1x: Float, cp1y: Float, cp2x: Float, cp2y: Float, x: Float, y: Float) =
+        offscreenCanvas.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y)
+    override fun arc(x: Float, y: Float, radius: Float, startAngle: Float, endAngle: Float, counterClockwise: Boolean) =
+        offscreenCanvas.arc(x, y, radius, startAngle, endAngle, counterClockwise)
+    override fun fill() = offscreenCanvas.fill()
+    override fun stroke() = offscreenCanvas.stroke()
+    override fun clip() = offscreenCanvas.clip()
+
+    override fun setFont(fontFamily: String, fontSizePx: Float, fontWeight: Int, italic: Boolean) =
+        offscreenCanvas.setFont(fontFamily, fontSizePx, fontWeight, italic)
+    override fun fillText(text: String, x: Float, y: Float) = offscreenCanvas.fillText(text, x, y)
+    override fun strokeText(text: String, x: Float, y: Float) = offscreenCanvas.strokeText(text, x, y)
+    override fun measureTextWidth(text: String): Float = offscreenCanvas.measureTextWidth(text)
+
+    override fun putImageDataRgba(rgbaBytes: ByteArray, width: Int, height: Int, dx: Int, dy: Int) =
+        offscreenCanvas.putImageDataRgba(rgbaBytes, width, height, dx, dy)
+    override fun getImageDataRgba(x: Int, y: Int, width: Int, height: Int): ByteArray =
+        offscreenCanvas.getImageDataRgba(x, y, width, height)
 }

@@ -10,6 +10,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":web"))
+            api(project(":extensions:gpu:web"))
             api(project(":extensions:canvas2d:common"))
             implementation(libs.kotlinx.coroutines.core)
 

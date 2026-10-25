@@ -23,13 +23,26 @@ import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.ui.Orientation
+import com.nexustools.genericui.style.RgbaColor
+
+fun ColorRgba(r: Int, g: Int, b: Int, a: Double = 1.0): RgbaColor =
+    RgbaColor(r, g, b, a)
+
+fun ColorRgba(r: Int, g: Int, b: Int, a: Float): RgbaColor =
+    RgbaColor(r, g, b, a)
+
+fun ColorRgba(r: Int, g: Int, b: Int, a: Int): RgbaColor =
+    RgbaColor(r, g, b, a)
 
 /**
  * In-place `<button>` [Button] builder matching `kotlinx.html`'s `button`.
+ * Supports text-only buttons, icon + text buttons, and icon-only buttons (`text = ""` with [icon]).
  */
 inline fun AbstractContainer.button(
     text: String = "",
-    type: BootstrapType = BootstrapType.PRIMARY,
+    icon: String? = null,
+    tooltipText: String? = null,
+    type: BootstrapType? = null,
     size: BootstrapSize = BootstrapSize.MD,
     outline: Boolean = false,
     classes: String? = null,
@@ -38,10 +51,13 @@ inline fun AbstractContainer.button(
     block: (@GenericUiDslMarker Button).() -> Unit = {}
 ): Button = mountDslComponent(
     this,
-    Button(text = text, type = type, size = size, outline = outline),
+    Button(text = text, icon = icon, type = type, size = size, outline = outline),
     classes,
     id
 ) {
+    if (tooltipText != null) {
+        this.tooltipText = tooltipText
+    }
     if (onClick != null) {
         this.onClick = onClick
     }
