@@ -18,9 +18,8 @@ kotlin {
 dependencies {
     api(project(":desktop:swing"))
     api(project(":extensions:media:common"))
-    api(project(":extensions:media:sharedSystem"))
+    api(project(":extensions:media:systemCommon"))
     api(libs.vlcj)
     implementation(libs.kotlinx.coroutinesSwing)
-    api(project(":extensions:gpu:desktop:swing"))
     testImplementation(libs.kotlin.test)
 }

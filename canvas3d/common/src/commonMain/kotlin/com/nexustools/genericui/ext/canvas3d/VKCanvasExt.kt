@@ -2,10 +2,12 @@ package com.nexustools.genericui.ext.canvas3d
 
 import com.nexustools.genericui.component.media.AbstractCanvas
 import com.nexustools.genericui.component.media.VKCanvas
+import com.nexustools.genericui.ext.canvas3d.overlay.Canvas3DOverlayHost
 import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
 import com.nexustools.genericui.ext.gpu.GpuTexture
 import com.nexustools.genericui.ext.gpu.VKCanvasConfig
 import com.nexustools.genericui.ext.gpu.VKContext
+import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.image.ImageBuffer
 
 /**
@@ -40,6 +42,18 @@ open class VKCanvasExt(
      */
     fun uploadGpuTexture(imageBuffer: ImageBuffer): GpuTexture =
         gpuContext.uploadTexture(imageBuffer)
+
+    /**
+     * Wraps this [VKCanvasExt] in a [Canvas3DOverlayHost] with the given [overlay] attached.
+     */
+    fun attachOverlay(overlay: AbstractOverlay): Canvas3DOverlayHost =
+        Canvas3DOverlayHost(canvas = this, initialOverlay = overlay)
+
+    /**
+     * Wraps this [VKCanvasExt] in a [Canvas3DOverlayHost] with an optional [overlay] (`null` by default).
+     */
+    fun withOverlay(overlay: AbstractOverlay? = null): Canvas3DOverlayHost =
+        Canvas3DOverlayHost(canvas = this, initialOverlay = overlay)
 
     public override fun resolveRenderingContext(): VKContext? {
         super.resolveRenderingContext()?.let { return it }

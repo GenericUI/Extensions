@@ -7,8 +7,11 @@ import com.nexustools.genericui.ext.canvas2d.Canvas2DExtSurface
 import com.nexustools.genericui.ext.canvas2d.CurveEditorExt
 import com.nexustools.genericui.ext.canvas2d.ScrollCanvas2D
 import com.nexustools.genericui.ext.canvas2d.ScrollCanvas2DListener
+import com.nexustools.genericui.ext.canvas2d.overlay.Canvas2DOverlayHost
+import com.nexustools.genericui.ext.canvas2d.overlay.ScrollCanvas2DOverlayHost
 import com.nexustools.genericui.ext.dsl.GenericUiDslMarker
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
+import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.geometry.Point
 
 /**
@@ -175,4 +178,130 @@ fun AbstractContainer.curveEditor(
     }
     addChild(editor)
     return editor
+}
+
+/**
+ * In-place [Canvas2DOverlayHost] builder wrapping a [Canvas2DExtSurface] with an optional [overlay]
+ * (`null` by default unless explicitly supplied).
+ */
+fun AbstractContainer.canvas2DOverlayHost(
+    width: Int = 800,
+    height: Int = 600,
+    overlay: AbstractOverlay? = null,
+    id: String? = null,
+    classes: String? = null,
+    onRender: ((ImageBuffer2DContext, Double, Double, Long) -> Unit)? = null,
+    block: (@GenericUiDslMarker Canvas2DOverlayHost.() -> Unit)? = null
+): Canvas2DOverlayHost {
+    val surface = Canvas2DExtSurface(width = width, height = height)
+    if (onRender != null) {
+        surface.registerVBlankRender { ctx, deltaMs, elapsedMs, frameIdx ->
+            onRender(ctx, deltaMs, elapsedMs, frameIdx)
+        }
+    }
+    val host = Canvas2DOverlayHost(canvas = surface, initialOverlay = overlay)
+    if (!classes.isNullOrBlank()) {
+        host.addClass(classes)
+    }
+    if (!id.isNullOrBlank()) {
+        host.id = id
+    }
+    if (block != null) {
+        host.block()
+    }
+    addChild(host)
+    return host
+}
+
+/**
+ * In-place [Canvas2DOverlayHost] builder wrapping an existing [canvas] with an optional [overlay].
+ */
+fun AbstractContainer.canvas2DOverlayHost(
+    canvas: Canvas2DExtSurface,
+    overlay: AbstractOverlay? = null,
+    id: String? = null,
+    classes: String? = null,
+    block: (@GenericUiDslMarker Canvas2DOverlayHost.() -> Unit)? = null
+): Canvas2DOverlayHost {
+    val host = Canvas2DOverlayHost(canvas = canvas, initialOverlay = overlay)
+    if (!classes.isNullOrBlank()) {
+        host.addClass(classes)
+    }
+    if (!id.isNullOrBlank()) {
+        host.id = id
+    }
+    if (block != null) {
+        host.block()
+    }
+    addChild(host)
+    return host
+}
+
+/**
+ * In-place [ScrollCanvas2DOverlayHost] builder wrapping a [ScrollCanvas2D] where `overlayRoot`
+ * covers only the viewport area (`viewportWidth` x `viewportHeight`), excluding the scrollbars.
+ */
+fun AbstractContainer.scrollCanvas2DOverlayHost(
+    viewportWidth: Int = 800,
+    viewportHeight: Int = 600,
+    contentWidth: Int = viewportWidth,
+    contentHeight: Int = viewportHeight,
+    overlay: AbstractOverlay? = null,
+    id: String? = null,
+    classes: String? = null,
+    onScroll: ScrollCanvas2DListener? = null,
+    onRender: ((ImageBuffer2DContext, Double, Double, Long) -> Unit)? = null,
+    block: (@GenericUiDslMarker ScrollCanvas2DOverlayHost.() -> Unit)? = null
+): ScrollCanvas2DOverlayHost {
+    val scrollCanvas = ScrollCanvas2D(
+        viewportWidth = viewportWidth,
+        viewportHeight = viewportHeight,
+        contentWidth = contentWidth,
+        contentHeight = contentHeight
+    )
+    if (onScroll != null) {
+        scrollCanvas.onScroll(onScroll)
+    }
+    if (onRender != null) {
+        scrollCanvas.registerVBlankRender { ctx, deltaMs, elapsedMs, frameIdx ->
+            onRender(ctx, deltaMs, elapsedMs, frameIdx)
+        }
+    }
+    val host = ScrollCanvas2DOverlayHost(scrollCanvas = scrollCanvas, initialOverlay = overlay)
+    if (!classes.isNullOrBlank()) {
+        host.addClass(classes)
+    }
+    if (!id.isNullOrBlank()) {
+        host.id = id
+    }
+    if (block != null) {
+        host.block()
+    }
+    addChild(host)
+    return host
+}
+
+/**
+ * In-place [ScrollCanvas2DOverlayHost] builder wrapping an existing [scrollCanvas] with an optional [overlay]
+ * positioned over the viewport area only (excluding scrollbars).
+ */
+fun AbstractContainer.scrollCanvas2DOverlayHost(
+    scrollCanvas: ScrollCanvas2D,
+    overlay: AbstractOverlay? = null,
+    id: String? = null,
+    classes: String? = null,
+    block: (@GenericUiDslMarker ScrollCanvas2DOverlayHost.() -> Unit)? = null
+): ScrollCanvas2DOverlayHost {
+    val host = ScrollCanvas2DOverlayHost(scrollCanvas = scrollCanvas, initialOverlay = overlay)
+    if (!classes.isNullOrBlank()) {
+        host.addClass(classes)
+    }
+    if (!id.isNullOrBlank()) {
+        host.id = id
+    }
+    if (block != null) {
+        host.block()
+    }
+    addChild(host)
+    return host
 }

@@ -34,6 +34,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":extensions:media:common"))
+            api(project(":extensions:overlay"))
         }
     }
 }

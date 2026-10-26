@@ -3,8 +3,11 @@ package com.nexustools.genericui.ext.alien
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 import com.nexustools.genericui.style.css.CssStyleSheet
+import com.nexustools.genericui.style.css.PrecompiledStyleSheet
+import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 
 /**
  * Self-rendering Bootstrap 5.3 [Fragment] powered by `:extensions:canvas2d` and [AlienRepaintManager]
@@ -53,11 +56,31 @@ abstract class AlienFragment : Fragment() {
 
     private fun syncRootNodeState(session: AlienRenderSession) {
         session.rootNode.tagName = htmlTag
+        session.rootNode.styleSnapshot = BootstrapClassMapper.fromClassString(
+            getClass(),
+            "alien-root"
+        )
         computedStyle?.let { session.rootNode.computedStyle = it }
+    }
+
+    override fun onAttachNative(impl: NativeImpl<*>) {
+        super.onAttachNative(impl)
+        renderSession?.let {
+            syncRootNodeState(it)
+            it.requestLayoutAndRepaint()
+        }
     }
 
     override fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int) {
         super.applyStyleSheet(styleSheet, viewportWidthPx)
+        renderSession?.let {
+            syncRootNodeState(it)
+            it.requestLayoutAndRepaint()
+        }
+    }
+
+    override fun applyPrecompiledStyleSheet(precompiled: PrecompiledStyleSheet, viewportWidthPx: Int) {
+        super.applyPrecompiledStyleSheet(precompiled, viewportWidthPx)
         renderSession?.let {
             syncRootNodeState(it)
             it.requestLayoutAndRepaint()
@@ -104,6 +127,9 @@ abstract class AlienFragment : Fragment() {
         widthPx = safeW
         heightPx = safeH
         setPreferredSize(com.nexustools.genericui.geometry.Size(safeW, safeH))
+        if (nativeImpl == null && !AlienExtension.platformBridge.isWebPassThrough && resolveActiveFactory() != null) {
+            runCatching { ensureNativeImpl() }
+        }
         getOrCreateRenderSession()?.resizeViewport(safeW, safeH)
     }
 
@@ -111,6 +137,9 @@ abstract class AlienFragment : Fragment() {
      * Triggers an immediate animation/layout/dirty-region repaint pass on System targets.
      */
     fun repaintAlien(deltaMs: Float = 16.67f) {
+        if (nativeImpl == null && !AlienExtension.platformBridge.isWebPassThrough && resolveActiveFactory() != null) {
+            runCatching { ensureNativeImpl() }
+        }
         getOrCreateRenderSession()?.repaintIfDirty(deltaMs)
     }
 }

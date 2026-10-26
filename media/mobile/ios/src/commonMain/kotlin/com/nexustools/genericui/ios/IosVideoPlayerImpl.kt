@@ -23,7 +23,10 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
     private var mutedFlag: Boolean = false
     private var resizeMode: VideoResizeMode = VideoResizeMode.FIT
     private var pipActive: Boolean = false
+    private var fullscreenTargetElementId: String? = null
+    private val audioTracks = mutableListOf<MediaTrackInfo>()
     private val subtitleTracks = mutableListOf<SubtitleTrackInfo>()
+    private var activeSubtitleTrackId: String? = null
     private var attachedAnalyzer: AudioAnalyzer? = null
 
     private var onTimeUpdateListener: ((Double) -> Unit)? = null
@@ -31,6 +34,10 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
     private var onEndedListener: (() -> Unit)? = null
     private var onBufferingChangedListener: ((Boolean) -> Unit)? = null
     private var onErrorListener: ((String) -> Unit)? = null
+    private var onPlayingStateChangedListener: ((Boolean) -> Unit)? = null
+    private var onBufferingStateChangedListener: ((Boolean) -> Unit)? = null
+    private var onBufferedRangesChangedListener: ((List<Pair<Double, Double>>) -> Unit)? = null
+    private var onTracksChangedListener: (() -> Unit)? = null
 
     override fun getMediaCapabilities(): MediaCapabilitiesReport = MediaCapabilitiesReport(
         videoCodecs = mapOf(
@@ -70,11 +77,21 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
         nativeWidget.metadata["avPlayerUrl"] = url
     }
 
-    override fun play() { playing = true }
-    override fun pause() { playing = false }
+    override fun play() {
+        playing = true
+        onPlayingStateChangedListener?.invoke(true)
+    }
+
+    override fun pause() {
+        playing = false
+        onPlayingStateChangedListener?.invoke(false)
+    }
+
     override fun stop() {
         playing = false
         currentTimeSec = 0.0
+        onPlayingStateChangedListener?.invoke(false)
+        onTimeUpdateListener?.invoke(0.0)
     }
 
     override fun seekTo(seconds: Double) {
@@ -98,16 +115,31 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
     override fun setResizeMode(mode: VideoResizeMode) { resizeMode = mode }
     override fun getResizeMode(): VideoResizeMode = resizeMode
 
-    override fun getAudioTracks(): List<MediaTrackInfo> = emptyList()
-    override fun selectAudioTrack(trackId: String) {}
+    override fun getAudioTracks(): List<MediaTrackInfo> = audioTracks.toList()
+    override fun selectAudioTrack(trackId: String) {
+        for (i in audioTracks.indices) {
+            val item = audioTracks[i]
+            audioTracks[i] = item.copy(isSelected = item.id == trackId)
+        }
+        onTracksChangedListener?.invoke()
+    }
 
     override fun getSubtitleTracks(): List<SubtitleTrackInfo> = subtitleTracks.toList()
 
     override fun addExternalSubtitleTrack(label: String, language: String, vttOrSrtUrl: String) {
-        subtitleTracks.add(SubtitleTrackInfo("sub-${subtitleTracks.size}", label, language, externalUrl = vttOrSrtUrl))
+        val id = "sub-${subtitleTracks.size}"
+        subtitleTracks.add(SubtitleTrackInfo(id, label, language, externalUrl = vttOrSrtUrl, isSelected = activeSubtitleTrackId == id))
+        onTracksChangedListener?.invoke()
     }
 
-    override fun selectSubtitleTrack(trackId: String?) {}
+    override fun selectSubtitleTrack(trackId: String?) {
+        activeSubtitleTrackId = trackId
+        for (i in subtitleTracks.indices) {
+            val item = subtitleTracks[i]
+            subtitleTracks[i] = item.copy(isSelected = trackId != null && item.id == trackId)
+        }
+        onTracksChangedListener?.invoke()
+    }
 
     override fun supportsPictureInPicture(): Boolean = true
 
@@ -129,4 +161,17 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
     override fun setOnEnded(listener: ((() -> Unit))?) { onEndedListener = listener }
     override fun setOnBufferingChanged(listener: ((Boolean) -> Unit)?) { onBufferingChangedListener = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { onErrorListener = listener }
+
+    override fun setOnPlayingStateChanged(listener: ((Boolean) -> Unit)?) { onPlayingStateChangedListener = listener }
+    override fun setOnBufferingStateChanged(listener: ((Boolean) -> Unit)?) { onBufferingStateChangedListener = listener }
+    override fun setOnBufferedRangesChanged(listener: ((List<Pair<Double, Double>>) -> Unit)?) { onBufferedRangesChangedListener = listener }
+    override fun setOnTracksChanged(listener: (() -> Unit)?) { onTracksChangedListener = listener }
+    override fun setFullscreenTargetElementId(elementId: String?) {
+        fullscreenTargetElementId = elementId
+        if (!elementId.isNullOrBlank()) {
+            nativeWidget.metadata["fullscreenTargetElementId"] = elementId
+        } else {
+            nativeWidget.metadata.remove("fullscreenTargetElementId")
+        }
+    }
 }

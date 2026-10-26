@@ -5,8 +5,8 @@ import com.nexustools.genericui.geometry.Point
 /**
  * Interactive cubic-Bezier and spline curve editor widget built on [Canvas2D].
  *
- * Used in HAEditor for animation timeline keyframe easing curves (`(x1, y1, x2, y2)`)
- * and GIMP filter tone/color curves.
+ * Used for animation timeline keyframe easing curves (`(x1, y1, x2, y2)`)
+ * and filter tone/color curves.
  */
 class CurveEditor(
     width: Int = 240,

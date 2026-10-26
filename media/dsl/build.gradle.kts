@@ -47,6 +47,8 @@ kotlin {
         commonMain.dependencies {
             api(project(":extensions:dsl"))
             api(project(":extensions:media:common"))
+            api(project(":extensions:overlay"))
+            api(project(":extensions:overlay:dsl"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

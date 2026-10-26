@@ -3,9 +3,12 @@ package com.nexustools.genericui.ext.canvas2d.dsl
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtSurface
 import com.nexustools.genericui.ext.canvas2d.CurveEditorExt
 import com.nexustools.genericui.ext.canvas2d.ScrollCanvas2D
+import com.nexustools.genericui.ext.canvas2d.overlay.Canvas2DOverlayHost
+import com.nexustools.genericui.ext.canvas2d.overlay.ScrollCanvas2DOverlayHost
 import com.nexustools.genericui.ext.dsl.buildDiv
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class Canvas2DDslTest {
 
@@ -43,5 +46,28 @@ class Canvas2DDslTest {
         scroll2d.scrollTo(250, 350)
         assertEquals(250, lastScrollX)
         assertEquals(350, lastScrollY)
+    }
+
+    @Test
+    fun testCanvas2DOverlayHostDslBuilders() {
+        val root = buildDiv {
+            canvas2DOverlayHost(width = 640, height = 480, id = "c2dHost")
+            scrollCanvas2DOverlayHost(
+                viewportWidth = 500,
+                viewportHeight = 400,
+                contentWidth = 2000,
+                contentHeight = 1600,
+                id = "scroll2dHost"
+            )
+        }
+        assertEquals(2, root.children.size)
+        val c2dHost = root.children[0] as Canvas2DOverlayHost
+        val scroll2dHost = root.children[1] as ScrollCanvas2DOverlayHost
+        assertNull(c2dHost.activeOverlay)
+        assertNull(scroll2dHost.activeOverlay)
+        assertEquals(640, c2dHost.overlayRoot.widthPx)
+        assertEquals(480, c2dHost.overlayRoot.heightPx)
+        assertEquals(500, scroll2dHost.overlayRoot.widthPx)
+        assertEquals(400, scroll2dHost.overlayRoot.heightPx)
     }
 }

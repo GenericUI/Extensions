@@ -1,11 +1,11 @@
 # `:extensions:imageprocessing` — Offscreen GPU Image Filtering, Resampling, Compositing, & `ImageBuffer2DContext`
 
-> **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
+> **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Fragments & Windows (`../../docs/fragments-and-windows.md`)**](../../docs/fragments-and-windows.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:imageprocessing` is built directly on top of [`:extensions:gpu`](gpu.md) (`GpuDevice`, `GpuOffscreenContext`) and `:common`'s `ImageLoader` / `ImageBuffer`. It provides both:
+`:extensions:imageprocessing` is a **Multi-Module Project-of-Projects** (`:extensions:imageprocessing:common`, `:extensions:imageprocessing:systemCommon`, `:extensions:imageprocessing:web`) built directly on top of [`:extensions:gpu`](gpu.md) (`GpuDevice`, `GpuOffscreenContext`) and `:common`'s `ImageLoader` / `ImageBuffer`. It provides both:
 1. **Universal Hardware-Accelerated `ImageBuffer` & `ImageBuffer2DContext` (`com.nexustools.genericui.ext.imageprocessing.context2d`)**:
    - `ImageBuffer` extends `:common`'s `ImageBuffer` and exposes `imageBuffer.getContext(): ImageBuffer2DContext` (`context2D`) with **100% HTML5 2D Context feature parity** using strongly-typed `ImageBuffer*` enums and value types (`ImageBufferCompositeOperation`, `ImageBufferLineCap`, `ImageBufferLineJoin`, `ImageBufferFillRule`, `ImageBufferTextAlign`, `ImageBufferTextBaseline`, `ImageBufferTextDirection`, `ImageBufferFontStyle`, `ImageBufferFontKerning`, `ImageBufferFontStretch`, `ImageBufferFontVariantCaps`, `ImageBufferTextRendering`, `ImageBufferImageSmoothingQuality`, `ImageBufferPatternRepetition`, `ImageBufferPaintStyle`, `ImageBufferGradient2D`, `ImageBufferPattern2D`, `ImageBufferMatrix2D`, `ImageBufferPath2D`, `ImageBufferTextMetrics`, and `ScalableVectorFontEngine`).
-   - On **System targets** (`:extensions:imageprocessing:sharedSystem`), `SystemGpuImageBuffer` and `GpuAcceleratedContext2DBackend` execute 12 hardware **Vulkan (`#version 450`)** and **OpenGL ES (`#version 300 es`)** shaders (`GpuContext2DShaderCatalog`) and support optional double buffering (`doubleBuffer = true`) and `ImageBufferDirtyListener` tracking.
+   - On **System targets** (`:extensions:imageprocessing:systemCommon`: Windows, macOS, GTK4, Qt6, Swing, Android, iOS), `SystemGpuImageBuffer` and `GpuAcceleratedContext2DBackend` execute 12 hardware **Vulkan (`#version 450`)** and **OpenGL ES (`#version 300 es`)** shaders (`GpuContext2DShaderCatalog`) and support optional double buffering (`doubleBuffer = true`) and `ImageBufferDirtyListener` tracking.
    - On **Web targets** (`:extensions:imageprocessing:web`), `WebImageBuffer` and `WebImageBuffer2DContext` operate directly on the browser's 2D surface with `enableDirtyTracking = false`.
 2. **Offscreen GPU Filter Pipelines & Compositing (`com.nexustools.genericui.ext.imageprocessing`)**:
    - Chainable multi-pass filter pipelines (`GpuImageProcessor`), 12-mode multi-layer compositing (`GpuImageCompositor`), Lanczos-3 resampling, cropping, rotation, and 256-bin RGB + Rec.709 luminance histograms (`ImageHistogramResult`).
@@ -36,7 +36,7 @@ flowchart LR
 
 ## 2. Gradle Plugin Configuration
 
-Enable `:extensions:imageprocessing` via the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md):
+Enable `:extensions:imageprocessing` via the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md). The plugin automatically includes `:extensions:gpu` and wires `SystemGpuImageBuffer` / `WebImageBuffer` factory registration in each target's generated launcher:
 
 ```kotlin
 plugins {
@@ -44,6 +44,10 @@ plugins {
 }
 
 genericui {
+    app {
+        id = "com.example.imagelab"
+        name = "GPU Image Filter Lab"
+    }
     backends {
         allExceptSwing()
     }
@@ -91,7 +95,7 @@ genericui {
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBufferFontStyle
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBufferPath2D
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 fun renderBadgeImageBuffer(): ImageBuffer {
     val buffer = ImageBuffer.create(width = 320, height = 120, doubleBuffer = false)
@@ -156,6 +160,6 @@ fun gradeAndCompositeFrame(
 ## 5. Related Extensions & Cross-References
 
 - [`:extensions:gpu` (`gpu.md`)](gpu.md) — Provides `GpuDevice`, `GpuOffscreenContext`, `GpuTexture`, `GpuShaderProgram`, `AbstractCanvas`, and `VBlankWatcher`.
-- [`:extensions:canvas2d` (`canvas2d.md`)](canvas2d.md) — Uses a double-buffered `ImageBuffer` (`doubleBuffer = true`) and `ImageBuffer2DContext` as the surface of `Canvas2D` and `Canvas2DExtSurface`.
-- [`:extensions:media` (`media.md`)](media.md) — Processes decoded video frames on the GPU using `VideoPlayerExt.processVideoFrameOnGpu()`.
+- [`:extensions:canvas2d` (`canvas2d.md`)](canvas2d.md) — Uses a double-buffered `ImageBuffer` (`doubleBuffer = true`) and `ImageBuffer2DContext` as the surface of `Canvas2D`, `Canvas2DExtSurface`, and `ScrollCanvas2D`.
+- [`:extensions:alien` (`alien.md`)](alien.md) — Uses `Canvas2D` and `ImageBuffer2DContext` to self-render Bootstrap 5.3 component trees on System targets.
 - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Declarative Kotlin UI & Style DSL.

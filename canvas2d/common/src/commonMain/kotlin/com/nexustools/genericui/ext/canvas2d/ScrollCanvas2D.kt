@@ -8,8 +8,10 @@ import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.event.WheelEvent
+import com.nexustools.genericui.ext.canvas2d.overlay.ScrollCanvas2DOverlayHost
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
+import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.nativeimpl.media.ScrollCanvas2DNativeImpl
 import kotlin.math.roundToInt
 
@@ -336,6 +338,20 @@ open class ScrollCanvas2D(
         val ctx = getContext()
         return Canvas2DExtension.extractImageBuffer(ctx, 0, 0, ctx.width, ctx.height)
     }
+
+    /**
+     * Wraps this [ScrollCanvas2D] in a [ScrollCanvas2DOverlayHost] with the given [overlay] attached
+     * over the viewport area only (excluding the horizontal and vertical scrollbars).
+     */
+    fun attachOverlay(overlay: AbstractOverlay): ScrollCanvas2DOverlayHost =
+        ScrollCanvas2DOverlayHost(scrollCanvas = this, initialOverlay = overlay)
+
+    /**
+     * Wraps this [ScrollCanvas2D] in a [ScrollCanvas2DOverlayHost] with an optional [overlay] (`null` by default)
+     * positioned over the viewport area only (excluding scrollbars).
+     */
+    fun withOverlay(overlay: AbstractOverlay? = null): ScrollCanvas2DOverlayHost =
+        ScrollCanvas2DOverlayHost(scrollCanvas = this, initialOverlay = overlay)
 
     /**
      * Binds a [ScrollCanvas2DNativeImpl] peer directly (used by `:web` or tests) and synchronizes

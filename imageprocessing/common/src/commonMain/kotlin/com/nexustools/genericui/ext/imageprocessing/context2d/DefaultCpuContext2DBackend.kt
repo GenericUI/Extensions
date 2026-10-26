@@ -361,7 +361,10 @@ class DefaultCpuContext2DBackend(
         var minY = Float.POSITIVE_INFINITY
         var maxX = Float.NEGATIVE_INFINITY
         var maxY = Float.NEGATIVE_INFINITY
+        var totalEdges = 0
         for (poly in subpaths) {
+            val pts = poly.size / 2
+            if (pts >= 3) totalEdges += pts
             var i = 0
             while (i + 1 < poly.size) {
                 val px = poly[i]
@@ -373,21 +376,92 @@ class DefaultCpuContext2DBackend(
                 i += 2
             }
         }
+        if (totalEdges == 0) return
+
         val sx = floor(minX).toInt().coerceIn(max(0, clipBoundsMinX), min(width, clipBoundsMaxX))
         val sy = floor(minY).toInt().coerceIn(max(0, clipBoundsMinY), min(height, clipBoundsMaxY))
         val ex = ceil(maxX).toInt().coerceIn(max(0, clipBoundsMinX), min(width, clipBoundsMaxX))
         val ey = ceil(maxY).toInt().coerceIn(max(0, clipBoundsMinY), min(height, clipBoundsMaxY))
         if (ex <= sx || ey <= sy) return
 
-        val invMatrix = currentMatrix.invert() ?: ImageBufferMatrix2D.IDENTITY
+        val isSolid = fillStyle.kind == ImageBufferPaintStyleKind.SOLID_COLOR
+        val solidColor = fillStyle.color
+        val invMatrix = if (!isSolid) (currentMatrix.invert() ?: ImageBufferMatrix2D.IDENTITY) else ImageBufferMatrix2D.IDENTITY
+        val intersectXBuf = FloatArray(totalEdges)
+        val intersectDirBuf = IntArray(totalEdges)
+
         for (py in sy until ey) {
             val sampleY = py + 0.5f
-            for (px in sx until ex) {
-                val sampleX = px + 0.5f
-                val (localX, localY) = invMatrix.transformPoint(sampleX, sampleY)
-                if (path.containsPoint(localX, localY, fillRule)) {
-                    val src = fillStyle.sampleAt(localX, localY, imageSmoothingEnabled)
-                    blendPixel(px, py, src)
+            var hitCount = 0
+            for (poly in subpaths) {
+                val pointCount = poly.size / 2
+                if (pointCount < 3) continue
+                for (i in 0 until pointCount) {
+                    val j = if (i + 1 < pointCount) i + 1 else 0
+                    val x0 = poly[i * 2]
+                    val y0 = poly[i * 2 + 1]
+                    val x1 = poly[j * 2]
+                    val y1 = poly[j * 2 + 1]
+                    if ((y0 <= sampleY && y1 > sampleY) || (y1 <= sampleY && y0 > sampleY)) {
+                        val vt = (sampleY - y0) / (y1 - y0)
+                        intersectXBuf[hitCount] = x0 + vt * (x1 - x0)
+                        intersectDirBuf[hitCount] = if (y1 > y0) 1 else -1
+                        hitCount++
+                    }
+                }
+            }
+            if (hitCount < 2) continue
+
+            for (i in 1 until hitCount) {
+                val keyX = intersectXBuf[i]
+                val keyDir = intersectDirBuf[i]
+                var k = i - 1
+                while (k >= 0 && intersectXBuf[k] > keyX) {
+                    intersectXBuf[k + 1] = intersectXBuf[k]
+                    intersectDirBuf[k + 1] = intersectDirBuf[k]
+                    k--
+                }
+                intersectXBuf[k + 1] = keyX
+                intersectDirBuf[k + 1] = keyDir
+            }
+
+            if (fillRule == ImageBufferFillRule.EVENODD) {
+                var i = 0
+                while (i + 1 < hitCount) {
+                    val xStart = ceil(intersectXBuf[i] - 0.5f).toInt().coerceIn(sx, ex)
+                    val xEnd = ceil(intersectXBuf[i + 1] - 0.5f).toInt().coerceIn(sx, ex)
+                    for (px in xStart until xEnd) {
+                        val src = if (isSolid) {
+                            solidColor
+                        } else {
+                            val (localX, localY) = invMatrix.transformPoint(px + 0.5f, sampleY)
+                            fillStyle.sampleAt(localX, localY, imageSmoothingEnabled)
+                        }
+                        blendPixel(px, py, src)
+                    }
+                    i += 2
+                }
+            } else {
+                var winding = 0
+                var spanStartX = 0f
+                for (i in 0 until hitCount) {
+                    val prevWinding = winding
+                    winding += intersectDirBuf[i]
+                    if (prevWinding == 0 && winding != 0) {
+                        spanStartX = intersectXBuf[i]
+                    } else if (prevWinding != 0 && winding == 0) {
+                        val xStart = ceil(spanStartX - 0.5f).toInt().coerceIn(sx, ex)
+                        val xEnd = ceil(intersectXBuf[i] - 0.5f).toInt().coerceIn(sx, ex)
+                        for (px in xStart until xEnd) {
+                            val src = if (isSolid) {
+                                solidColor
+                            } else {
+                                val (localX, localY) = invMatrix.transformPoint(px + 0.5f, sampleY)
+                                fillStyle.sampleAt(localX, localY, imageSmoothingEnabled)
+                            }
+                            blendPixel(px, py, src)
+                        }
+                    }
                 }
             }
         }

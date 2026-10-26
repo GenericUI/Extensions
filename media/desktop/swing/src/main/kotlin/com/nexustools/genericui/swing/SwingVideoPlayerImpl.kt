@@ -46,11 +46,31 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
     private var endedListener: (() -> Unit)? = null
     private var bufferingListener: ((Boolean) -> Unit)? = null
     private var errorListener: ((String) -> Unit)? = null
+    private var playingStateChangedListener: ((Boolean) -> Unit)? = null
+    private var bufferingStateChangedListener: ((Boolean) -> Unit)? = null
+    private var bufferedRangesChangedListener: ((List<Pair<Double, Double>>) -> Unit)? = null
+    private var tracksChangedListener: (() -> Unit)? = null
+    private var fullscreenTargetElementId: String? = null
 
     init {
         if (vlcjComponent != null) {
             nativeWidget.add(vlcjComponent, BorderLayout.CENTER)
             vlcjComponent.mediaPlayer().events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
+                override fun playing(mediaPlayer: MediaPlayer) {
+                    playingFallback = true
+                    playingStateChangedListener?.invoke(true)
+                }
+
+                override fun paused(mediaPlayer: MediaPlayer) {
+                    playingFallback = false
+                    playingStateChangedListener?.invoke(false)
+                }
+
+                override fun stopped(mediaPlayer: MediaPlayer) {
+                    playingFallback = false
+                    playingStateChangedListener?.invoke(false)
+                }
+
                 override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) {
                     val sec = newTime / 1000.0
                     currentSecFallback = sec
@@ -65,15 +85,24 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
 
                 override fun finished(mediaPlayer: MediaPlayer) {
                     playingFallback = false
+                    playingStateChangedListener?.invoke(false)
                     endedListener?.invoke()
                 }
 
                 override fun buffering(mediaPlayer: MediaPlayer, newCache: Float) {
-                    bufferingListener?.invoke(newCache < 100f)
+                    val isBuf = newCache < 100f
+                    bufferingListener?.invoke(isBuf)
+                    bufferingStateChangedListener?.invoke(isBuf)
+                    val dur = getDurationSeconds()
+                    if (dur > 0.0) {
+                        val endSec = dur * (newCache.coerceIn(0f, 100f) / 100.0)
+                        bufferedRangesChangedListener?.invoke(listOf(0.0 to endSec))
+                    }
                 }
 
                 override fun error(mediaPlayer: MediaPlayer) {
                     playingFallback = false
+                    playingStateChangedListener?.invoke(false)
                     errorListener?.invoke("vlcj playback error")
                 }
             })
@@ -112,17 +141,21 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
     override fun play() {
         playingFallback = true
         vlcjPlayer?.controls()?.play()
+        playingStateChangedListener?.invoke(true)
     }
 
     override fun pause() {
         playingFallback = false
         vlcjPlayer?.controls()?.setPause(true)
+        playingStateChangedListener?.invoke(false)
     }
 
     override fun stop() {
         playingFallback = false
         currentSecFallback = 0.0
         vlcjPlayer?.controls()?.stop()
+        playingStateChangedListener?.invoke(false)
+        timeUpdateListener?.invoke(0.0)
     }
 
     override fun seekTo(seconds: Double) {
@@ -203,8 +236,11 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
     }
 
     override fun selectAudioTrack(trackId: String) {
-        val id = trackId.toIntOrNull() ?: return
-        vlcjPlayer?.audio()?.setTrack(id)
+        val id = trackId.toIntOrNull()
+        if (id != null) {
+            vlcjPlayer?.audio()?.setTrack(id)
+        }
+        tracksChangedListener?.invoke()
     }
 
     override fun getSubtitleTracks(): List<SubtitleTrackInfo> {
@@ -219,13 +255,23 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
     }
 
     override fun addExternalSubtitleTrack(label: String, language: String, vttOrSrtUrl: String) {
-        subtitles.add(SubtitleTrackInfo("sub_${subtitles.size}", label, language, externalUrl = vttOrSrtUrl))
+        val id = "sub_${subtitles.size}"
+        for (i in subtitles.indices) {
+            subtitles[i] = subtitles[i].copy(isSelected = false)
+        }
+        subtitles.add(SubtitleTrackInfo(id, label, language, externalUrl = vttOrSrtUrl, isSelected = true))
         vlcjPlayer?.media()?.addSlave(MediaSlaveType.SUBTITLE, vttOrSrtUrl, true)
+        tracksChangedListener?.invoke()
     }
 
     override fun selectSubtitleTrack(trackId: String?) {
+        for (i in subtitles.indices) {
+            val item = subtitles[i]
+            subtitles[i] = item.copy(isSelected = trackId != null && item.id == trackId)
+        }
         val id = trackId?.toIntOrNull() ?: -1
         vlcjPlayer?.subpictures()?.setTrack(id)
+        tracksChangedListener?.invoke()
     }
 
     override fun supportsPictureInPicture(): Boolean = false
@@ -239,6 +285,15 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
     override fun setOnEnded(listener: (() -> Unit)?) { endedListener = listener }
     override fun setOnBufferingChanged(listener: ((Boolean) -> Unit)?) { bufferingListener = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { errorListener = listener }
+
+    override fun setOnPlayingStateChanged(listener: ((Boolean) -> Unit)?) { playingStateChangedListener = listener }
+    override fun setOnBufferingStateChanged(listener: ((Boolean) -> Unit)?) { bufferingStateChangedListener = listener }
+    override fun setOnBufferedRangesChanged(listener: ((List<Pair<Double, Double>>) -> Unit)?) { bufferedRangesChangedListener = listener }
+    override fun setOnTracksChanged(listener: (() -> Unit)?) { tracksChangedListener = listener }
+    override fun setFullscreenTargetElementId(elementId: String?) {
+        fullscreenTargetElementId = elementId
+        nativeWidget.putClientProperty("fullscreenTargetElementId", elementId)
+    }
 
     override fun dispose() {
         vlcjComponent?.release()

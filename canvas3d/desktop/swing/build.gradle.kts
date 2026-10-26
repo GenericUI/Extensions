@@ -18,7 +18,7 @@ kotlin {
 dependencies {
     api(project(":desktop:swing"))
     api(project(":extensions:canvas3d:common"))
-    api(project(":extensions:canvas3d:sharedSystem"))
+    api(project(":extensions:canvas3d:systemCommon"))
     implementation(libs.kotlinx.coroutinesSwing)
     api(project(":extensions:gpu:desktop:swing"))
     testImplementation(libs.kotlin.test)

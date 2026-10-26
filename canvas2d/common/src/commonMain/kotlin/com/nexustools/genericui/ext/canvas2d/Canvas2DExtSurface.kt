@@ -2,7 +2,9 @@ package com.nexustools.genericui.ext.canvas2d
 
 import com.nexustools.genericui.component.media.AbstractCanvas
 import com.nexustools.genericui.component.media.Canvas2D
+import com.nexustools.genericui.ext.canvas2d.overlay.Canvas2DOverlayHost
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
+import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.image.ImageBuffer
 
 /**
@@ -61,6 +63,18 @@ open class Canvas2DExtSurface(
             ctx.resizeSurface(safeW, safeH)
         }
     }
+
+    /**
+     * Wraps this [Canvas2DExtSurface] in a [Canvas2DOverlayHost] with the given [overlay] attached.
+     */
+    fun attachOverlay(overlay: AbstractOverlay): Canvas2DOverlayHost =
+        Canvas2DOverlayHost(canvas = this, initialOverlay = overlay)
+
+    /**
+     * Wraps this [Canvas2DExtSurface] in a [Canvas2DOverlayHost] with an optional [overlay] (`null` by default).
+     */
+    fun withOverlay(overlay: AbstractOverlay? = null): Canvas2DOverlayHost =
+        Canvas2DOverlayHost(canvas = this, initialOverlay = overlay)
 
     public override fun resolveRenderingContext(): ImageBuffer2DContext? =
         super.resolveRenderingContext()

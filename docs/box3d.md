@@ -2,7 +2,7 @@
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:box3d` is a **Single Multiplatform Project** providing a full 3D rigid-body physics engine (**`World3D`**, **`RigidBody3D`**, **`Collider3D`**, 7 collision shape types, 5 3D joint constraints, **`CharacterController3D`**, 3D raycasting, and **`Box3DDebugRenderer`**) built directly atop [`:extensions:threejs`](threejs.md) and [`:extensions:canvas3d`](canvas3d.md). Every `RigidBody3D` can bind to a Three.js `Object3D` (`Mesh`, `Group`) so its 3D position and quaternion rotation are automatically synchronized on every simulation step.
+`:extensions:box3d` is a **Single Multiplatform Project** (`src/commonMain` across all 8 platform targets) providing a full 3D rigid-body physics engine (**`World3D`**, **`RigidBody3D`**, **`Collider3D`**, 7 collision shape types, 5 3D joint constraints, **`CharacterController3D`**, 3D raycasting, and **`Box3DDebugRenderer`**) built directly atop [`:extensions:threejs`](threejs.md) and [`:extensions:canvas3d`](canvas3d.md). Every `RigidBody3D` can bind to a Three.js `Object3D` (`Mesh`, `Group`) so its 3D position and quaternion rotation are automatically synchronized on every simulation step.
 
 ---
 
@@ -26,7 +26,7 @@ flowchart LR
 
 ## 2. Gradle Plugin Configuration
 
-Enabling `box3d()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) automatically configures `:extensions:box3d`, `:extensions:threejs`, `:extensions:canvas3d`, `:extensions:gpu`, and (when `dsl()` is active) `:extensions:box3d:dsl`:
+Enabling `box3d()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) automatically configures `:extensions:box3d`, `:extensions:threejs`, `:extensions:canvas3d`, `:extensions:overlay`, `:extensions:gpu`, and (when `dsl()` is active) `:extensions:box3d:dsl`, and automatically registers the underlying 3D/GPU providers at startup:
 
 ```kotlin
 plugins {
@@ -71,7 +71,6 @@ import com.nexustools.genericui.ext.box3d.BodyType3D
 import com.nexustools.genericui.ext.box3d.Box3DDebugRenderer
 import com.nexustools.genericui.ext.box3d.BoxShape3D
 import com.nexustools.genericui.ext.box3d.ColliderDesc3D
-import com.nexustools.genericui.ext.box3d.HingeJoint3D
 import com.nexustools.genericui.ext.box3d.Ray3D
 import com.nexustools.genericui.ext.box3d.RigidBodyDesc3D
 import com.nexustools.genericui.ext.box3d.SphereShape3D
@@ -220,7 +219,7 @@ val physics3DViewport = buildDiv(classes = "p-3") {
 
 - **Related Extensions**:
   - [`:extensions:threejs` (`threejs.md`)](threejs.md) — Provides `Scene`, `Object3D`, `Mesh`, `PerspectiveCamera`, and `WebGLRenderer` synchronized with `World3D`.
-  - [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Provides `GLCanvasExt` and `VKCanvasExt` viewports.
+  - [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Provides `GLCanvasExt`, `VKCanvasExt`, and `Canvas3DOverlayHost` viewports.
   - [`:extensions:gpu` (`gpu.md`)](gpu.md) — Provides the underlying Vulkan 1.2+ and OpenGL ES 3.0+ GPU foundation.
   - [`:extensions:box2d` (`box2d.md`)](box2d.md) — Sister 2D rigid-body physics engine.
   - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.

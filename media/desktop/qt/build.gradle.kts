@@ -12,7 +12,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":desktop:qt"))
-            api(project(":extensions:media:desktop:shared"))
+            api(project(":extensions:media:desktop:nativeCommon"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

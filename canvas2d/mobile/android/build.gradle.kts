@@ -20,7 +20,7 @@ kotlin {
         commonMain.dependencies {
             api(project(":mobile:android"))
             api(project(":extensions:gpu:mobile:android"))
-            api(project(":extensions:canvas2d:mobile:shared"))
+            api(project(":extensions:canvas2d:mobile:common"))
         }
         androidMain.dependencies {
             implementation(libs.androidx.core.ktx)

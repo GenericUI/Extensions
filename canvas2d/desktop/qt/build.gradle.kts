@@ -12,7 +12,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":desktop:qt"))
-            api(project(":extensions:canvas2d:desktop:shared"))
+            api(project(":extensions:canvas2d:desktop:nativeCommon"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

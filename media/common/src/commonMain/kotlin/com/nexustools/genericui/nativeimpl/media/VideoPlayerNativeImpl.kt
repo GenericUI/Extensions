@@ -54,4 +54,10 @@ interface VideoPlayerNativeImpl<out W> : NativeImpl<W> {
     fun setOnEnded(listener: (() -> Unit)?)
     fun setOnBufferingChanged(listener: ((Boolean) -> Unit)?)
     fun setOnError(listener: ((String) -> Unit)?)
+
+    fun setOnPlayingStateChanged(listener: ((Boolean) -> Unit)?) {}
+    fun setOnBufferingStateChanged(listener: ((Boolean) -> Unit)?) {}
+    fun setOnBufferedRangesChanged(listener: ((List<Pair<Double, Double>>) -> Unit)?) {}
+    fun setOnTracksChanged(listener: (() -> Unit)?) {}
+    fun setFullscreenTargetElementId(elementId: String?) {}
 }

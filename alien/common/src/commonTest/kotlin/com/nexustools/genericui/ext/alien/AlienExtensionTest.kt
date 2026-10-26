@@ -50,7 +50,7 @@ import com.nexustools.genericui.ext.alien.impl.*
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.image.ImageBuffer
-import com.nexustools.genericui.image.ImageCacheManager
+import com.nexustools.genericui.image.cache.ImageCacheManager
 import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
 import com.nexustools.genericui.nativeimpl.dialog.FileBrowserDialogNativeImpl
 import com.nexustools.genericui.nativeimpl.dialog.StandardDialogsNativeImpl

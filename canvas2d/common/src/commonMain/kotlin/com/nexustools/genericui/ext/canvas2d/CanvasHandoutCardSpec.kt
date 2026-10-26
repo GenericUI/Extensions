@@ -3,7 +3,7 @@ package com.nexustools.genericui.ext.canvas2d
 import com.nexustools.genericui.image.ImageBuffer
 
 /**
- * Specification for a printable RPG handout card (`DCGame`'s `CharGenView.HandoutCard`),
+ * Specification for a printable handout card,
  * rendered in a multi-up grid (default `2x2` per page) by [PrintableCanvasDocument].
  */
 data class CanvasHandoutCardSpec(

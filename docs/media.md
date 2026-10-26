@@ -1,77 +1,80 @@
-# `:extensions:media` & `:extensions:media:dsl` — Cross-Platform Video/Audio Playback, Desktop VLC HDR Pipeline, & FFT Audio Analysis
+# `:extensions:media` & `:extensions:media:dsl` — Cross-Platform Video/Audio Playback, Desktop `libvlc` / `libvlcj`, `VideoOverlayHost`, & FFT Audio Analysis
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:media` is a **Project-of-Projects** extension providing hardware-accelerated `VideoPlayerExt` (`VideoPlayer`), `AudioPlayerExt` (`AudioPlayer`), real-time FFT `AudioAnalyzerExt` (`AudioAnalyzer`, `AudioEnergyBands`), OS-level `MediaSessionManager`, and `WebVttSrtParser` subtitle parsing.
+`:extensions:media` is a **Project-of-Projects** extension providing `VideoPlayerExt` (`VideoPlayer`), `AudioPlayerExt` (`AudioPlayer`), real-time FFT `AudioAnalyzerExt` (`AudioAnalyzer`, `AudioEnergyBands`), `VideoOverlayHost` / `VideoPlayerOverlayBinder` (built atop [`:extensions:overlay`](overlay.md)), OS-level `MediaSessionManager`, and `WebVttSrtParser` subtitle parsing. It depends only on `:common`, [`:extensions:overlay`](overlay.md), and the target platform backend — it does **not** depend on `:extensions:gpu` or `:extensions:canvas2d`.
 
 > [!IMPORTANT]
-> **Strict Architectural Ownership of Desktop VLC & HDR Code**:
-> All desktop VLC video/audio decoding, HDR tone-mapping, CIE 1931 color matrices, master playback clock synchronization, and GPU video output shaders live **exclusively inside `:extensions:media:desktop`** (and **never** inside `:desktop` core UI toolkits). Core desktop UI backends ([`../../desktop/README.md`](../../desktop/README.md)) remain lightweight windowing/widget toolkits, while `:extensions:media:desktop` owns the entire `libvlc` / `vlcj` + `:extensions:gpu` HDR multimedia stack.
+> **Strict Architectural Ownership**:
+> - **Native Desktop (`:windows`, `:macos`, `:gtk`, `:qt`)**: Uses native `libvlc` (`LibVlcBindings`, `DesktopLibVlcVideoPlayerImpl`, `DesktopLibVlcAudioPlayerImpl`, `DesktopLibVlcAudioAnalyzerImpl`) inside `:extensions:media:desktop:nativeCommon`.
+> - **JVM Desktop (`:swing`)**: Uses `libvlcj` (`uk.co.caprica:vlcj`) inside `:extensions:media:desktop:swing`.
+> - **Mobile (`:android`, `:ios`)**: Uses native platform media components (`MediaPlayer`/`MediaCodec`/`Visualizer` on Android, `AVPlayer`/`vDSP` on iOS) inside `:extensions:media:mobile:{common,android,ios}`.
+> - **Web (`:web`)**: Uses native HTML5 `<video>`, `<audio>`, and Web Audio API `AnalyserNode` components inside `:extensions:media:web`.
 
 ---
 
-## 1. Architecture & Platform Media Engine Matrix
+## 1. Submodule Hierarchy & Platform Media Engine Matrix
 
 ```mermaid
 flowchart TD
-    MediaExt["MediaExtension<br/>(:extensions:media:common)"]
-    VideoPlayer["VideoPlayerExt / VideoPlayer<br/>(Vulkan #version 450 Primary + GLES #version 300 es Fallback Shaders)"]
-    AudioPlayer["AudioPlayerExt / AudioPlayer"]
-    AudioAnalyzer["AudioAnalyzerExt / AudioAnalyzer<br/>(FFT Spectrum + AudioEnergyBands)"]
+    MediaCommon[":extensions:media:common<br/>(MediaExtension, VideoPlayerExt, AudioPlayerExt, AudioAnalyzerExt, VideoOverlayHost)"]
+    OverlayExt[":extensions:overlay<br/>(OverlayHostBox, AbstractOverlay, PresetOverlay)"]
+    MediaSystemCommon[":extensions:media:systemCommon<br/>(System Media Foundations)"]
+    DesktopNativeCommon[":extensions:media:desktop:nativeCommon<br/>(Native libvlc: LibVlcBindings, DesktopLibVlcVideoPlayerImpl,<br/>DesktopLibVlcAudioPlayerImpl, DesktopLibVlcAudioAnalyzerImpl)"]
+    DesktopTargets[":extensions:media:desktop:{windows,macos,gtk,qt}"]
+    SwingVlc[":extensions:media:desktop:swing<br/>(libvlcj uk.co.caprica:vlcj: SwingVideoPlayerImpl,<br/>SwingAudioPlayerImpl, SwingAudioAnalyzerImpl)"]
+    MobileCommon[":extensions:media:mobile:common"]
+    MobileTargets[":extensions:media:mobile:{android,ios}<br/>(Native Android MediaPlayer/Visualizer • iOS AVPlayer/vDSP)"]
+    WebMedia[":extensions:media:web<br/>(Native HTML5 <video>, <audio>, Web Audio API AnalyserNode)"]
+    MediaDsl[":extensions:media:dsl<br/>(videoPlayerExt, videoOverlayHost, audioPlayerExt, audioAnalyzerExt)"]
 
-    DesktopVlc[":extensions:media:desktop:shared<br/>(LibVlcBindings, DesktopLibVlcVideoPlayerImpl / DesktopVlcVideoPlayerImpl,<br/>VlcHdrToneMapper, VlcColorMatrixBuilder, VlcCie1931MatrixMath,<br/>VlcPlaybackClock, VlcVideoOutputPipeline, VlcDecoderRegistry)"]
-    SwingVlc[":extensions:media:desktop:swing<br/>(uk.co.caprica:vlcj SwingVideoPlayerImpl)"]
-    MobileMedia[":extensions:media:mobile:{android,ios}<br/>(Android MediaCodec/AudioTrack • iOS AVPlayer/vDSP)"]
-    WebMedia[":extensions:media:web<br/>(HTML5 <video>, <audio>, Web Audio API AnalyserNode)"]
-    Gpu[":extensions:gpu<br/>(GpuDevice, GpuOffscreenContext, GpuShaderProgram)"]
-
-    MediaExt --> VideoPlayer
-    MediaExt --> AudioPlayer
-    MediaExt --> AudioAnalyzer
-    VideoPlayer --> Gpu
-    VideoPlayer --> DesktopVlc
-    VideoPlayer --> SwingVlc
-    VideoPlayer --> MobileMedia
-    VideoPlayer --> WebMedia
+    MediaCommon --> OverlayExt
+    MediaSystemCommon --> MediaCommon
+    DesktopNativeCommon --> MediaSystemCommon
+    DesktopTargets --> DesktopNativeCommon
+    SwingVlc --> MediaSystemCommon
+    MobileCommon --> MediaSystemCommon
+    MobileTargets --> MobileCommon
+    WebMedia --> MediaCommon
+    MediaDsl --> MediaCommon
 ```
 
-| Target Family | Submodule | Media & Audio Engine | GPU Color & HDR Pipeline | Backend Documentation |
-| :--- | :--- | :--- | :--- | :--- |
-| **Desktop Native (`:windows`, `:macos`, `:gtk`, `:qt`)** | `:extensions:media:desktop:{shared,windows,macos,gtk,qt}` | Native `libvlc` C API (`LibVlcBindings`, `DesktopLibVlcVideoPlayerImpl` / `DesktopVlcVideoPlayerImpl`, `DesktopLibVlcAudioPlayerImpl`, `DesktopLibVlcAudioAnalyzerImpl`) | **Vulkan `#version 450` SPIR-V Primary** + **OpenGL ES `#version 300 es` / Google ANGLE Fallback** via `:extensions:gpu` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
-| **Desktop JVM (`:swing`)** | `:extensions:media:desktop:swing` | `libvlcj` (`uk.co.caprica:vlcj` via `SwingVideoPlayerImpl`, `SwingAudioPlayerImpl`, `SwingAudioAnalyzerImpl`) | LWJGL 3 Vulkan / OpenGL ES via `:extensions:gpu:desktop:swing` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
-| **Android (`:android`)** | `:extensions:media:mobile:android` | Android `MediaPlayer` / `MediaCodec` + `Visualizer` FFT (`AndroidVideoPlayerImpl`, `AndroidAudioAnalyzerImpl`) | Vulkan 1.1+ / EGL14 GLES 3.0 via `:extensions:gpu:mobile:android` | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
-| **iOS (`:ios`)** | `:extensions:media:mobile:ios` | Apple `AVPlayer` + `MTAudioProcessingTap` / Accelerate `vDSP` FFT (`IosVideoPlayerImpl`, `IosAudioAnalyzerImpl`) | MoltenVK / Metal / EAGL via `:extensions:gpu:mobile:ios` | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
-| **Web (`:web`)** | `:extensions:media:web` | HTML5 `<video>`, `<audio>`, and Web Audio API `AnalyserNode` (`WebVideoPlayerImpl`, `WebAudioAnalyzerImpl`) | WebGPU / WebGL2 via `:extensions:gpu:web` | [Web Backend (`../../web/README.md`)](../../web/README.md) |
+| Target Family | Submodules | Media & Audio Engine | Backend Documentation |
+| :--- | :--- | :--- | :--- |
+| **Desktop Native (`:windows`, `:macos`, `:gtk`, `:qt`)** | `:extensions:media:desktop:{nativeCommon,windows,macos,gtk,qt}` | Native `libvlc` C API (`LibVlcBindings`, `DesktopLibVlcVideoPlayerImpl`, `DesktopLibVlcAudioPlayerImpl`, `DesktopLibVlcAudioAnalyzerImpl`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **Desktop JVM (`:swing`)** | `:extensions:media:desktop:swing` | `libvlcj` (`uk.co.caprica:vlcj` via `SwingVideoPlayerImpl`, `SwingAudioPlayerImpl`, `SwingAudioAnalyzerImpl`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **Android (`:android`)** | `:extensions:media:mobile:{common,android}` | Native Android `MediaPlayer` / `MediaCodec` + `Visualizer` FFT (`AndroidVideoPlayerImpl`, `AndroidAudioAnalyzerImpl`) | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
+| **iOS (`:ios`)** | `:extensions:media:mobile:{common,ios}` | Native Apple `AVPlayer` + `MTAudioProcessingTap` / Accelerate `vDSP` FFT (`IosVideoPlayerImpl`, `IosAudioAnalyzerImpl`) | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
+| **Web (`:web`)** | `:extensions:media:web` | Native HTML5 `<video>`, `<audio>`, and Web Audio API `AnalyserNode` (`WebVideoPlayerImpl`, `WebAudioAnalyzerImpl`) | [Web Backend (`../../web/README.md`)](../../web/README.md) |
 
 ---
 
-## 2. Desktop VLC & GPU HDR Tone-Mapping Pipeline (`:extensions:media:desktop`)
+## 2. Desktop `libvlc` & `libvlcj` Pipeline (`:extensions:media:desktop`)
 
-On desktop targets, `:extensions:media:desktop` strictly encapsulates all VLC Cinterop/dynamic loading and HDR color science:
+On desktop targets, `:extensions:media:desktop` encapsulates `libvlc` (native desktop in `:desktop:nativeCommon`) and `libvlcj` (Swing in `:desktop:swing`):
 
-1. **Dynamic `libvlc` Bindings & Native Surface Attachment (`LibVlcBindings`, `LibVlcDynamicLoader`, `DesktopLibVlcVideoPlayerImpl` / `DesktopVlcVideoPlayerImpl`)**:
+1. **Dynamic `libvlc` Bindings & Native Surface Attachment (`LibVlcBindings`, `LibVlcDynamicLoader`, `DesktopLibVlcVideoPlayerImpl`)**:
    - Dynamically loads `libvlc.dll` (Windows), `libvlc.dylib` (macOS), or `libvlc.so.5` (Linux).
-   - Binds native window handles (`bindWin32Hwnd` $\rightarrow$ `libvlc_media_player_set_hwnd`, `bindMacosNsView` $\rightarrow$ `libvlc_media_player_set_nsobject`, `bindXWindow` $\rightarrow$ `libvlc_media_player_set_xwindow`) or routes decoded planes through `:extensions:gpu`.
-2. **HDR Electro-Optical Transfer Functions & Tone-Mapping Curves (`VlcHdrToneMapper`, `VlcVideoOutputPipeline`)**:
-   - **Supported HDR Transfer Functions**:
-     - **`SMPTE ST 2084 (PQ)`** — Perceptual Quantizer (HDR10 / HDR10+ up to 10,000 $\text{cd/m}^2$).
-     - **`ARIB STD-B67 (HLG)`** — Hybrid Log-Gamma scene-referred HDR.
-     - **`Dolby Vision`** — Profile 5 / Profile 8 dynamic metadata reshaping and ICtCp/YCbCr tone mapping.
-   - **Supported Tone-Mapping Operators**:
-     - **`ITU-R BT.2390 EETF`** — Broadcast reference Hermite spline roll-off knee.
-     - **`Hable (Uncharted 2 Filmic)`** — Filmic shoulder/toe curve preserving highlight detail.
-     - **`Mobius`** — Linear-to-asymptotic highlight compression with configurable transition point.
-     - **`Reinhard`** — Luminance-preserving global tone-mapping operator.
-3. **CIE 1931 Gamut & YCbCr Color Matrices (`VlcColorMatrixBuilder`, `VlcCie1931MatrixMath`)**:
-   - Computes exact $3 \times 3$ and $4 \times 4$ primary conversion matrices between **BT.2020**, **DCI-P3**, and **BT.709 / sRGB** using CIE 1931 $(x, y)$ chromaticity coordinates and Bradford chromatic adaptation, plus full/limited-range YCbCr (`NV12`, `P010`, `I420`, `I420_10L`) to linear RGB matrices.
-4. **Master Clock, Decoder Registry, & Dual-Target GPU Shaders (`VlcPlaybackClock`, `VlcDecoderRegistry`, `MediaExtension`)**:
-   - Synchronizes video PTS presentation timestamps to audio master clock (`VlcPlaybackClock`) and compiles **Vulkan `#version 450` SPIR-V primary** + **OpenGL ES `#version 300 es` fallback** fragment shaders via `MediaExtension.compileVideoFrameShader()`.
+   - Binds native window handles (`bindWin32Hwnd` $\rightarrow$ `libvlc_media_player_set_hwnd`, `bindMacosNsView` $\rightarrow$ `libvlc_media_player_set_nsobject`, `bindXWindow` $\rightarrow$ `libvlc_media_player_set_xwindow`).
+2. **JVM Swing `libvlcj` Integration (`SwingVideoPlayerImpl`, `SwingAudioPlayerImpl`, `SwingAudioAnalyzerImpl`)**:
+   - Uses `uk.co.caprica:vlcj` (`MediaPlayerFactory`, `EmbeddedMediaPlayer`) for native VLC media playback and audio callbacks inside Swing components.
 
 ---
 
-## 3. Gradle Plugin Configuration
+## 3. Interactive `VideoOverlayHost` & `:extensions:overlay` Integration
 
-Enabling `media()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) wires `:extensions:media`, `:extensions:gpu`, and (when `dsl()` is active) `:extensions:media:dsl`:
+`VideoPlayerExt` integrates directly with [`:extensions:overlay`](overlay.md) via **`VideoOverlayHost`** and **`VideoPlayerOverlayBinder`**:
+
+- **Bidirectional State & Action Binding (`VideoPlayerOverlayBinder`)**: Automatically synchronizes `VideoPlayerExt` playback state (`isPlaying`, `currentTimeSeconds`, `durationSeconds`, `bufferedEndSeconds`, `volume`, `isMuted`, `playbackSpeed`, `audioTracks`, `subtitleTracks`, `activeSubtitleCueText`, `isFullscreen`, `isPictureInPicture`) with `OverlayPlaybackState` and routes user `OverlayAction` events (`TogglePlayPause`, `SeekTo`, `SeekRelative`, `SetVolume`, `ToggleMute`, `SetPlaybackSpeed`, `SelectAudioTrack`, `SelectSubtitleTrack`, `SelectQuality`, `ToggleFullscreen`, `TogglePictureInPicture`) back to `VideoPlayerExt`.
+- **Host-Level Fullscreen**: Setting or mounting `VideoOverlayHost` calls `videoPlayer.setFullscreenTargetElementId(host.id)` so entering fullscreen expands the entire `VideoOverlayHost` (keeping the overlay visible over the video in fullscreen).
+- **Picture-in-Picture (`setPictureInPictureMode`)**: Calling `host.setPictureInPictureMode(true)` enters Picture-in-Picture on `videoPlayer` while suppressing the overlay inside the main viewport.
+- **Subtitle Cue Rendering**: `host.loadSubtitleContent(vttOrSrtContent)` and `host.attachSubtitleCues(cues)` parse `.vtt`/`.srt` cues via `WebVttSrtParser` and stream active cue text into the overlay's `SubtitleCueView`.
+
+---
+
+## 4. Gradle Plugin Configuration
+
+Enabling `media()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) wires `:extensions:media`, `:extensions:overlay`, and (when `dsl()` is active) `:extensions:media:dsl` and `:extensions:overlay:dsl`, and automatically registers the platform media provider at startup:
 
 ```kotlin
 plugins {
@@ -84,92 +87,51 @@ genericui {
     }
     extensions {
         dsl()   // Enables :extensions:dsl
-        media() // Automatically includes :extensions:media, :extensions:gpu, and :extensions:media:dsl
+        media() // Includes :extensions:media, :extensions:overlay, and :extensions:media:dsl
     }
 }
 ```
 
 ---
 
-## 4. Core API Reference (`com.nexustools.genericui.ext.media` & `component.media`)
+## 5. Core API Reference (`com.nexustools.genericui.ext.media` & `ext.media.overlay`)
 
 | Class / Object / Function | Package | Description & Key Members |
 | :--- | :--- | :--- |
-| `MediaExtension` | `ext.media` | Coordinator singleton connecting `:extensions:media` to `:extensions:gpu`. Key members: `DEFAULT_VULKAN_VIDEO_SHADER`, `DEFAULT_GLES_VIDEO_SHADER`, `acquireVideoGpuContext(preferVulkan)`, `activeVideoGpuBackend`, `compileVideoFrameShader(vulkanGlsl450, gles300Shader, gpu)`, `renderVideoFrameOnGpu(frameBuffer, program, uniforms, gpu)`. |
-| `VideoPlayerExt` | `ext.media` | Hardware-accelerated video player extending `VideoPlayer`. Key members: `preferVulkanGpuPipeline: Boolean`, `gpuContext: GpuOffscreenContext`, `activeGpuBackend: GpuBackendType`, `updateVideoFrameShaders(vulkanGlsl450, gles300Shader)`, `processVideoFrameOnGpu(frame, luminanceScale, opacity): ImageBuffer`, `setSource(url, seekOffsetSeconds, durationOverrideSeconds)`, `play()`, `pause()`, `stop()`, `seekTo(seconds)`, `volume`, `isMuted`, `playbackSpeed`, `resizeMode: VideoResizeMode`, `getMediaCapabilities(): MediaCapabilitiesReport`, `getAudioTracks()`, `selectAudioTrack(trackId)`, `getSubtitleTracks()`, `addExternalSubtitleTrack(label, language, vttOrSrtUrl)`, `selectSubtitleTrack(trackId)`, `attachAudioAnalyzer(analyzer)`. |
+| `MediaExtension` | `ext.media` | Coordinator singleton registering and creating platform media providers (`registerProviders`, `createVideoPlayerNative`, `createAudioPlayerNative`, `createAudioAnalyzerNative`, `createMediaSessionManagerNative`). |
+| `VideoPlayerExt` | `ext.media` | Video player extending `VideoPlayer`. Key members: `setSource(url, seekOffsetSeconds, durationOverrideSeconds)`, `play()`, `pause()`, `stop()`, `seekTo(seconds)`, `volume`, `isMuted`, `playbackSpeed`, `resizeMode: VideoResizeMode`, `getMediaCapabilities(): MediaCapabilitiesReport`, `getAudioTracks()`, `selectAudioTrack(trackId)`, `getSubtitleTracks()`, `addExternalSubtitleTrack(label, language, vttOrSrtUrl)`, `selectSubtitleTrack(trackId)`, `attachAudioAnalyzer(analyzer)`, `attachVideoOverlay(overlay): VideoOverlayHost`, `withOverlay(overlay): VideoOverlayHost`. |
+| `VideoOverlayHost` | `ext.media.overlay` | Specialized `OverlayHostBox` wrapping a `VideoPlayerExt` (`videoPlayer`, `binder: VideoPlayerOverlayBinder`, `loadSubtitleContent(vttOrSrtContent, trackId)`, `attachSubtitleCues(cues, trackId)`, `setPictureInPictureMode(enabled)`). |
+| `VideoPlayerOverlayBinder` | `ext.media.overlay` | Bidirectional synchronizer between `VideoPlayerExt` callbacks and `OverlayHost` state/actions. |
 | `AudioPlayerExt` | `ext.media` | Extended audio player component (`sourceUrl`, `volume`, `currentTimeSeconds`, `durationSeconds`, `isPlaying`, `getSupportedAudioCodecs()`, `setSource(url, seekOffsetSeconds)`, `play()`, `pause()`, `stop()`, `seekTo(seconds)`, `attachAudioAnalyzer(analyzerExt)`). |
 | `AudioAnalyzerExt` | `ext.media` | Real-time FFT spectrum & waveform analyzer (`fftSize: Int = 2048`, `frequencyBinCount: Int`, `getByteTimeDomainData(dst)`, `getFloatTimeDomainData(dst)`, `getByteFrequencyData(dst)`, `getFloatFrequencyData(dst)`, `computeEnergyBands(): AudioEnergyBands`, `dispose()`). |
 | `AudioEnergyBands` | `component.media` | Normalized `[0.0 .. 1.0]` multi-band audio energy snapshot (`subBass: Float`, `bass: Float`, `lowMid: Float`, `mid: Float`, `highMid: Float`, `presence: Float`, `brilliance: Float`, `rmsLevel: Float`, `peakLevel: Float`). |
 | `WebVttSrtParser` | `component.media` | Cross-platform parser for `.vtt` (WebVTT) and `.srt` (SubRip) subtitle files (`parse(content: String): List<SubtitleCue>`, `activeCuesAt(cues, timeSeconds): List<SubtitleCue>`). |
-| `MediaSessionManager` | `component.system` | OS media transport controls & Now Playing metadata (`updateMetadata(MediaSessionMetadata)`, `setPlaybackState(isPlaying, positionSeconds)`). |
-| `DesktopLibVlcVideoPlayerImpl` | `ext.media.desktop.libvlc` | Shared native `libvlc` desktop video player implementation (`bindWin32Hwnd`, `bindMacosNsView`, `bindXWindow`, `getMediaCapabilities()`, HDR10 / Dolby Vision / HLG support). |
+| `DesktopLibVlcVideoPlayerImpl` | `ext.media.desktop.libvlc` | Native `libvlc` desktop video player implementation (`bindWin32Hwnd`, `bindMacosNsView`, `bindXWindow`, `getMediaCapabilities()`). |
 | `videoPlayerExt` / `videoPlayer` | `ext.media.dsl` | Declarative DSL builders in `:extensions:media:dsl` for mounting `VideoPlayerExt` and `VideoPlayer`. |
+| `videoOverlayHost` | `ext.media.dsl` | Declarative DSL builder in `:extensions:media:dsl` wrapping a `VideoPlayerExt` and an optional `AbstractOverlay` (`PresetOverlay`, custom `AbstractOverlay`). |
 | `audioPlayerExt` / `audioPlayer` | `ext.media.dsl` | Declarative DSL builders in `:extensions:media:dsl` for mounting `AudioPlayerExt` and `AudioPlayer`. |
 | `audioAnalyzerExt` / `audioAnalyzer` | `ext.media.dsl` | Declarative DSL builders in `:extensions:media:dsl` for creating `AudioAnalyzerExt` and `AudioAnalyzer`. |
 
 ---
 
-## 5. Imperative Kotlin Examples
+## 6. Imperative Kotlin Examples
 
-### Example 1: HDR Video Playback with Subtitles, Audio Track Selection, & Custom Vulkan/GLES Tone-Mapping Shader
+### Example 1: Video Playback with `VideoOverlayHost`, `PresetOverlay`, Subtitles, & FFT Analyzer
 
 ```kotlin
-import com.nexustools.genericui.component.media.WebVttSrtParser
 import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.ext.media.AudioAnalyzerExt
 import com.nexustools.genericui.ext.media.VideoPlayerExt
+import com.nexustools.genericui.ext.media.overlay.VideoOverlayHost
+import com.nexustools.genericui.ext.overlay.PresetOverlay
 
-fun createHdrVideoPlayer(): VideoPlayerExt {
+fun createOverlayVideoPlayer(): VideoOverlayHost {
     val player = VideoPlayerExt(
-        sourceUrl = "https://cdn.example.com/movies/cosmos-hdr10-hevc.mkv",
-        preferVulkanGpuPipeline = true
+        sourceUrl = "https://cdn.example.com/movies/cosmos-hevc.mkv"
     ).apply {
         volume = 0.9f
         playbackSpeed = 1.0f
         resizeMode = VideoResizeMode.FIT
-
-        // Configure custom Vulkan #version 450 (primary) + OpenGL ES #version 300 es (fallback) PQ + Hable HDR tone-mapping shaders
-        updateVideoFrameShaders(
-            vulkanGlsl450 = """
-                #version 450
-                layout(location = 0) in vec2 fragUv;
-                layout(location = 0) out vec4 outColor;
-                layout(set = 0, binding = 0) uniform sampler2D videoPlane0;
-                layout(push_constant) uniform VideoConstants {
-                    float luminanceScale;
-                    float opacity;
-                } ubo;
-                vec3 hableCurve(vec3 x) {
-                    const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
-                    return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
-                }
-                void main() {
-                    vec4 sampleVal = texture(videoPlane0, fragUv);
-                    vec3 mapped = clamp(hableCurve(sampleVal.rgb * ubo.luminanceScale) / hableCurve(vec3(11.2)), 0.0, 1.0);
-                    outColor = vec4(mapped, clamp(sampleVal.a * ubo.opacity, 0.0, 1.0));
-                }
-            """.trimIndent(),
-            gles300Shader = """
-                #version 300 es
-                precision highp float;
-                in vec2 fragUv;
-                out vec4 outColor;
-                uniform sampler2D videoPlane0;
-                uniform float uLuminanceScale;
-                uniform float uOpacity;
-                void main() {
-                    vec4 sampleVal = texture(videoPlane0, fragUv);
-                    outColor = vec4(clamp(sampleVal.rgb * uLuminanceScale, 0.0, 1.0), clamp(sampleVal.a * uOpacity, 0.0, 1.0));
-                }
-            """.trimIndent()
-        )
-
-        // Attach an external WebVTT subtitle track
-        addExternalSubtitleTrack(
-            label = "English (CC)",
-            language = "en",
-            vttOrSrtUrl = "https://cdn.example.com/movies/cosmos-en.vtt"
-        )
 
         // Inspect hardware codec & HDR capabilities
         val caps = getMediaCapabilities()
@@ -180,12 +142,26 @@ fun createHdrVideoPlayer(): VideoPlayerExt {
     val analyzer = AudioAnalyzerExt(fftSize = 2048)
     player.attachAudioAnalyzer(analyzer.analyzer)
 
+    // Wrap in a VideoOverlayHost with platform-adaptive PresetOverlay
+    val overlayHost = player.attachVideoOverlay(PresetOverlay()).apply {
+        state.title = "Cosmos: A Spacetime Odyssey"
+        state.subtitle = "Episode 1 • 4K HDR10"
+        loadSubtitleContent(
+            """
+            WEBVTT
+
+            00:00:01.000 --> 00:00:05.000
+            The cosmos is all that is, or ever was, or ever will be.
+            """.trimIndent()
+        )
+    }
+
     player.play()
-    return player
+    return overlayHost
 }
 ```
 
-### Example 2: Real-Time FFT Audio Spectrum & `AudioEnergyBands` Visualization
+### Example 2: Real-Time FFT Audio Spectrum & `AudioEnergyBands` Analysis
 
 ```kotlin
 import com.nexustools.genericui.ext.media.AudioAnalyzerExt
@@ -211,37 +187,32 @@ fun startAudioWithSpectrumAnalysis(audioUrl: String): Pair<AudioPlayerExt, Audio
 
 ---
 
-## 6. Declarative `:extensions:media:dsl` Examples
+## 7. Declarative `:extensions:media:dsl` Examples
 
-When `dsl()` and `media()` are enabled in `genericui { extensions { ... } }`, use `videoPlayerExt`, `audioPlayerExt`, and `audioAnalyzerExt` directly in declarative UI trees:
+When `dsl()` and `media()` are enabled in `genericui { extensions { ... } }`, use `videoOverlayHost`, `videoPlayerExt`, `audioPlayerExt`, and `audioAnalyzerExt` directly in declarative UI trees:
 
 ```kotlin
 import com.nexustools.genericui.enums.media.VideoResizeMode
-import com.nexustools.genericui.ext.canvas2d.dsl.canvas2DExt
-import com.nexustools.genericui.ext.dsl.ColorRgba
 import com.nexustools.genericui.ext.dsl.buildDiv
 import com.nexustools.genericui.ext.dsl.button
 import com.nexustools.genericui.ext.dsl.hstack
-import com.nexustools.genericui.ext.dsl.span
 import com.nexustools.genericui.ext.media.dsl.audioAnalyzerExt
 import com.nexustools.genericui.ext.media.dsl.audioPlayerExt
-import com.nexustools.genericui.ext.media.dsl.videoPlayerExt
-import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.ext.media.dsl.videoOverlayHost
+import com.nexustools.genericui.ext.overlay.PresetOverlay
 
 val mediaStudioView = buildDiv(classes = "p-4") {
     val spectrumAnalyzer = audioAnalyzerExt(fftSize = 2048)
 
-    val video = videoPlayerExt(
-        sourceUrl = "https://cdn.example.com/streams/keynote-hdr.mp4",
-        preferVulkanGpuPipeline = true,
+    val host = videoOverlayHost(
+        sourceUrl = "https://cdn.example.com/streams/keynote.mp4",
+        overlay = PresetOverlay(),
         volume = 0.9f,
         resizeMode = VideoResizeMode.FIT
     ) {
-        attachAudioAnalyzer(spectrumAnalyzer.analyzer)
-        style {
-            borderRadiusPx = 12f
-            backgroundColor = ColorRgba(0, 0, 0, 1.0)
-        }
+        videoPlayer.attachAudioAnalyzer(spectrumAnalyzer.analyzer)
+        state.title = "GenericUI Keynote Stream"
+        state.subtitle = "Live • 60fps"
     }
 
     // Background ambient audio track
@@ -250,46 +221,21 @@ val mediaStudioView = buildDiv(classes = "p-4") {
         volume = 0.35f
     )
 
-    // Real-time equalizer bar visualizer powered by AudioAnalyzerExt + Canvas2DExtSurface
-    canvas2DExt(
-        width = 800,
-        height = 96,
-        onRender = { ctx, _, _, _ ->
-            val bands = spectrumAnalyzer.computeEnergyBands()
-            val levels = floatArrayOf(
-                bands.subBass, bands.bass, bands.lowMid, bands.mid,
-                bands.highMid, bands.presence, bands.brilliance
-            )
-            ctx.clearRect(0f, 0f, ctx.width.toFloat(), ctx.height.toFloat())
-            ctx.setFillColor(RgbaColor(56, 189, 248, 255))
-            levels.forEachIndexed { idx, energy ->
-                val barH = (energy * 84f).coerceAtLeast(4f)
-                ctx.fillRect(16f + idx * 110f, 90f - barH, 88f, barH)
-            }
-        }
-    )
-
-    val timeReadout = span("00:00 / 00:00")
-    video.setOnTimeUpdate { sec ->
-        timeReadout.text = "${"%.1f".format(sec)}s / ${"%.1f".format(video.durationSeconds)}s"
-    }
-
     hstack(classes = "gap-2 mt-3") {
-        button("▶ Play") { onClick = { video.play() } }
-        button("⏸ Pause") { onClick = { video.pause() } }
-        button("⏹ Stop") { onClick = { video.stop() } }
+        button("▶ Play") { onClick = { host.videoPlayer.play() } }
+        button("⏸ Pause") { onClick = { host.videoPlayer.pause() } }
+        button("⏹ Stop") { onClick = { host.videoPlayer.stop() } }
     }
 }
 ```
 
 ---
 
-## 7. Related Extensions & Cross-References
+## 8. Related Extensions & Cross-References
 
 - **Related Extensions**:
-  - [`:extensions:gpu` (`gpu.md`)](gpu.md) — Provides `GpuDevice`, `GpuOffscreenContext`, and `GpuShaderProgram` for Vulkan `#version 450` primary + OpenGL ES `#version 300 es` fallback HDR video tone-mapping.
-  - [`:extensions:canvas2d` (`canvas2d.md`)](canvas2d.md) — Used to render real-time FFT audio spectrum visualizers and subtitle overlays.
-  - [`:extensions:imageprocessing` (`imageprocessing.md`)](imageprocessing.md) — Offscreen GPU filtering and compositing for captured video frames (`ImageBuffer`).
+  - [`:extensions:overlay` (`overlay.md`)](overlay.md) — Composable overlay host, auto-hide controller, themed `TrackSeekBar` / `SliderSeekBar`, and platform presets used by `VideoOverlayHost`.
+  - [`:extensions:mediacontrols` (`mediacontrols.md`)](mediacontrols.md) — OS taskbar thumbnail media buttons, Now Playing / SMTC integration, and global hardware media key hooks.
   - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
 - **Root & Backend Documentation**:
   - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Source Sets (`../../docs/sourcesets.md`)](../../docs/sourcesets.md) · [Backends (`../../docs/backends.md`)](../../docs/backends.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)

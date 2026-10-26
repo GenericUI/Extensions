@@ -23,12 +23,19 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
     private var muted: Boolean = false
     private var playbackSpeed: Float = 1f
     private var resizeMode: VideoResizeMode = VideoResizeMode.FIT
+    private var fullscreenTargetElementId: String? = null
+    private val audioTracks = mutableListOf<MediaTrackInfo>()
     private val subtitles = mutableListOf<SubtitleTrackInfo>()
+    private var activeSubtitleTrackId: String? = null
     private var onTimeUpdate: ((Double) -> Unit)? = null
     private var onDurationChanged: ((Double) -> Unit)? = null
     private var onEnded: (() -> Unit)? = null
     private var onBufferingChanged: ((Boolean) -> Unit)? = null
     private var onError: ((String) -> Unit)? = null
+    private var onPlayingStateChanged: ((Boolean) -> Unit)? = null
+    private var onBufferingStateChanged: ((Boolean) -> Unit)? = null
+    private var onBufferedRangesChanged: ((List<Pair<Double, Double>>) -> Unit)? = null
+    private var onTracksChanged: (() -> Unit)? = null
 
     override fun getMediaCapabilities(): MediaCapabilitiesReport = MediaCapabilitiesReport(
         videoCodecs = mapOf(
@@ -63,11 +70,21 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
         }
     }
 
-    override fun play() { playing = true }
-    override fun pause() { playing = false }
+    override fun play() {
+        playing = true
+        onPlayingStateChanged?.invoke(true)
+    }
+
+    override fun pause() {
+        playing = false
+        onPlayingStateChanged?.invoke(false)
+    }
+
     override fun stop() {
         playing = false
         currentPositionSeconds = 0.0
+        onPlayingStateChanged?.invoke(false)
+        onTimeUpdate?.invoke(0.0)
     }
 
     override fun seekTo(seconds: Double) {
@@ -88,14 +105,29 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
     override fun setResizeMode(mode: VideoResizeMode) { this.resizeMode = mode }
     override fun getResizeMode(): VideoResizeMode = resizeMode
 
-    override fun getAudioTracks(): List<MediaTrackInfo> = emptyList()
-    override fun selectAudioTrack(trackId: String) {}
+    override fun getAudioTracks(): List<MediaTrackInfo> = audioTracks.toList()
+    override fun selectAudioTrack(trackId: String) {
+        for (i in audioTracks.indices) {
+            val item = audioTracks[i]
+            audioTracks[i] = item.copy(isSelected = item.id == trackId)
+        }
+        onTracksChanged?.invoke()
+    }
 
     override fun getSubtitleTracks(): List<SubtitleTrackInfo> = subtitles.toList()
     override fun addExternalSubtitleTrack(label: String, language: String, vttOrSrtUrl: String) {
-        subtitles.add(SubtitleTrackInfo("sub_${subtitles.size}", label, language, externalUrl = vttOrSrtUrl))
+        val id = "sub_${subtitles.size}"
+        subtitles.add(SubtitleTrackInfo(id, label, language, externalUrl = vttOrSrtUrl, isSelected = activeSubtitleTrackId == id))
+        onTracksChanged?.invoke()
     }
-    override fun selectSubtitleTrack(trackId: String?) {}
+    override fun selectSubtitleTrack(trackId: String?) {
+        activeSubtitleTrackId = trackId
+        for (i in subtitles.indices) {
+            val item = subtitles[i]
+            subtitles[i] = item.copy(isSelected = trackId != null && item.id == trackId)
+        }
+        onTracksChanged?.invoke()
+    }
 
     override fun supportsPictureInPicture(): Boolean = true
     override fun enterPictureInPicture(): Boolean = true
@@ -108,4 +140,17 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
     override fun setOnEnded(listener: (() -> Unit)?) { onEnded = listener }
     override fun setOnBufferingChanged(listener: ((Boolean) -> Unit)?) { onBufferingChanged = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { onError = listener }
+
+    override fun setOnPlayingStateChanged(listener: ((Boolean) -> Unit)?) { onPlayingStateChanged = listener }
+    override fun setOnBufferingStateChanged(listener: ((Boolean) -> Unit)?) { onBufferingStateChanged = listener }
+    override fun setOnBufferedRangesChanged(listener: ((List<Pair<Double, Double>>) -> Unit)?) { onBufferedRangesChanged = listener }
+    override fun setOnTracksChanged(listener: (() -> Unit)?) { onTracksChanged = listener }
+    override fun setFullscreenTargetElementId(elementId: String?) {
+        fullscreenTargetElementId = elementId
+        if (!elementId.isNullOrBlank()) {
+            nativeWidget.attributes["fullscreenTargetElementId"] = elementId
+        } else {
+            nativeWidget.attributes.remove("fullscreenTargetElementId")
+        }
+    }
 }

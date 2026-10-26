@@ -8,8 +8,8 @@ import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.style.RgbaColor
 
 /**
- * Multi-page high-resolution printable 2D canvas document (`DCGame`'s `CharGenView` A4 `2480 x 3508`
- * character sheet & handout card generator).
+ * Multi-page high-resolution printable 2D canvas document (default A4 `2480 x 3508`
+ * sheet & handout card generator).
  *
  * Supports:
  * - Creating fixed and dynamic overflow pages ([createPage], [createOverflowTextPages]).
@@ -65,7 +65,7 @@ open class PrintableCanvasDocument(
 
     /**
      * Renders [initialOverflowText] across as many continuation pages as needed until no overflow
-     * remains (matching `DCGame`'s `equipmentExtended` multi-page loop).
+     * remains.
      */
     fun createOverflowTextPages(
         initialOverflowText: String,

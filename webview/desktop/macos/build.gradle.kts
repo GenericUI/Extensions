@@ -9,7 +9,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":desktop:macos"))
-            api(project(":extensions:webview:desktop:shared"))
+            api(project(":extensions:webview:desktop:nativeCommon"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

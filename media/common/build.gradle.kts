@@ -34,8 +34,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":common"))
+            api(project(":extensions:overlay"))
             implementation(libs.kotlinx.coroutines.core)
-            api(project(":extensions:gpu:common"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

@@ -6,41 +6,53 @@
 
 > [!IMPORTANT]
 > **Strict Platform Engine Rule**:
-> - **Desktop (`:windows`, `:macos`, `:gtk`, `:qt`, `:swing`)**: Uses **Chromium (`ChromiumBlinkEngine`)** for HTML/CSS DOM layout & rendering paired with [**`:NJS` (`../../lib/NJS/README.md`)**](../../lib/NJS/README.md) (`NjsDesktopWebRuntime` — [AsmJit/SLJIT Native JIT (`../../lib/NJS/docs/native-jit.md`)](../../lib/NJS/docs/native-jit.md) on Kotlin/Native, and [`javax.tools.JavaCompiler` JVM bytecode compilation (`../../lib/NJS/docs/jvm-compiler.md`)](../../lib/NJS/docs/jvm-compiler.md) on JVM/Swing). See the [NJS Master Documentation Index (`../../lib/NJS/docs/README.md`)](../../lib/NJS/docs/README.md) and [NJS CLI & WebView Host Embedding (`../../lib/NJS/docs/cli-and-embedding.md`)](../../lib/NJS/docs/cli-and-embedding.md).
+> - **Desktop (`:windows`, `:macos`, `:gtk`, `:qt`, `:swing`)**: Uses **Chromium (`ChromiumBlinkEngine`)** for HTML/CSS DOM layout & rendering paired with [**`:NJS` (`../../lib/NJS/README.md`)**](../../lib/NJS/README.md) (`NjsDesktopWebRuntime` — [AsmJit/SLJIT Native JIT (`../../lib/NJS/docs/native-jit.md`)](../../lib/NJS/docs/native-jit.md) on Kotlin/Native inside `:extensions:webview:desktop:nativeCommon`, and [`javax.tools.JavaCompiler` JVM bytecode compilation (`../../lib/NJS/docs/jvm-compiler.md`)](../../lib/NJS/docs/jvm-compiler.md) on JVM/Swing inside `:extensions:webview:desktop:swing`). See the [NJS Master Documentation Index (`../../lib/NJS/docs/README.md`)](../../lib/NJS/docs/README.md) and [NJS CLI & WebView Host Embedding (`../../lib/NJS/docs/cli-and-embedding.md`)](../../lib/NJS/docs/cli-and-embedding.md).
 > - **Mobile (`:android`, `:ios`) & Web (`:web`)**: Uses the native OS browser control (`android.webkit.WebView` on Android, `WKWebView` on iOS, and HTML5 `<iframe>` on Web) and **NEVER links or executes `:NJS`**.
 
 ---
 
-## 1. Architecture & Platform WebView Engine Matrix
+## 1. Submodule Hierarchy & Platform WebView Engine Matrix
 
 ```mermaid
 flowchart TD
-    WebView["WebView / webViewExt { ... }<br/>(:extensions:webview:common & :dsl)"]
-    DesktopEngine[":extensions:webview:desktop:shared & :swing<br/>(ChromiumBlinkEngine + NjsDesktopWebRuntime)<br/>WebViewEngineType.DESKTOP_CHROMIUM_NJS_JIT"]
-    MobileEngine[":extensions:webview:mobile:{android,ios}<br/>(android.webkit.WebView / Apple WKWebView)<br/>WebViewEngineType.MOBILE_NATIVE_WEBVIEW"]
-    WebEngine[":extensions:webview:web<br/>(HTML5 &lt;iframe&gt; + postMessage)<br/>WebViewEngineType.WEB_NATIVE_IFRAME"]
+    WebViewCommon[":extensions:webview:common<br/>(WebView, WebViewConfig, WebViewEngineType, WebViewExtension)"]
+    WebViewSystemCommon[":extensions:webview:systemCommon"]
+    DesktopCommon[":extensions:webview:desktop:common<br/>(ChromiumBlinkEngine + NjsDesktopWebRuntime)"]
+    DesktopNativeCommon[":extensions:webview:desktop:nativeCommon<br/>(DesktopChromiumNjsWebViewImpl + :NJS Native JIT)"]
+    DesktopTargets[":extensions:webview:desktop:{windows,macos,gtk,qt}"]
+    DesktopSwing[":extensions:webview:desktop:swing<br/>(SwingChromiumNjsWebViewImpl + :NJS JVM Bytecode)"]
+    MobileCommon[":extensions:webview:mobile:common"]
+    MobileTargets[":extensions:webview:mobile:{android,ios}<br/>(android.webkit.WebView / Apple WKWebView)"]
+    WebEngine[":extensions:webview:web<br/>(HTML5 &lt;iframe&gt; + postMessage)"]
+    WebViewDsl[":extensions:webview:dsl<br/>(webViewExt, webView)"]
 
-    WebView --> DesktopEngine
-    WebView --> MobileEngine
-    WebView --> WebEngine
+    WebViewSystemCommon --> WebViewCommon
+    DesktopCommon --> WebViewSystemCommon
+    DesktopNativeCommon --> DesktopCommon
+    DesktopTargets --> DesktopNativeCommon
+    DesktopSwing --> DesktopCommon
+    MobileCommon --> WebViewSystemCommon
+    MobileTargets --> MobileCommon
+    WebEngine --> WebViewCommon
+    WebViewDsl --> WebViewCommon
 ```
 
-| Target Backend | Submodule | HTML/CSS Layout Engine | JavaScript Runtime | `WebViewEngineType` | Backend Documentation |
+| Target Backend | Submodules | HTML/CSS Layout Engine | JavaScript Runtime | `WebViewEngineType` | Backend Documentation |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Windows (`:windows`)** | `:extensions:webview:desktop:windows` + `:shared` | `ChromiumBlinkEngine` (`DesktopChromiumNjsWebViewImpl`) | `:NJS` AsmJit / SLJIT Native x86_64 JIT (`NjsDesktopWebRuntime`) | `DESKTOP_CHROMIUM_NJS_JIT` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
-| **macOS (`:macos`)** | `:extensions:webview:desktop:macos` + `:shared` | `ChromiumBlinkEngine` (`DesktopChromiumNjsWebViewImpl`) | `:NJS` AsmJit / SLJIT Native ARM64/x64 JIT (`NjsDesktopWebRuntime`) | `DESKTOP_CHROMIUM_NJS_JIT` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
-| **Linux GTK4 (`:gtk`)** | `:extensions:webview:desktop:gtk` + `:shared` | `ChromiumBlinkEngine` (`DesktopChromiumNjsWebViewImpl`) | `:NJS` AsmJit / SLJIT Native JIT (`NjsDesktopWebRuntime`) | `DESKTOP_CHROMIUM_NJS_JIT` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
-| **Linux Qt6 (`:qt`)** | `:extensions:webview:desktop:qt` + `:shared` | `ChromiumBlinkEngine` (`DesktopChromiumNjsWebViewImpl`) | `:NJS` AsmJit / SLJIT Native JIT (`NjsDesktopWebRuntime`) | `DESKTOP_CHROMIUM_NJS_JIT` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
-| **Desktop JVM (`:swing`)** | `:extensions:webview:desktop:swing` | `ChromiumBlinkEngine` (`SwingChromiumNjsWebViewImpl`) | `:NJS` `JavaCompiler` JVM Bytecode Transpiler | `DESKTOP_CHROMIUM_NJS_JIT` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
-| **Android (`:android`)** | `:extensions:webview:mobile:android` | `android.webkit.WebView` (`AndroidWebViewImpl`) | Android System V8 *(Never `:NJS`)* | `MOBILE_NATIVE_WEBVIEW` | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
-| **iOS (`:ios`)** | `:extensions:webview:mobile:ios` | Apple `WKWebView` (`IosWebViewImpl`) | Apple JavaScriptCore *(Never `:NJS`)* | `MOBILE_NATIVE_WEBVIEW` | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
+| **Windows (`:windows`)** | `:extensions:webview:desktop:{common,nativeCommon,windows}` | `ChromiumBlinkEngine` (`DesktopChromiumNjsWebViewImpl`) | `:NJS` AsmJit / SLJIT Native x86_64 JIT (`NjsDesktopWebRuntime`) | `DESKTOP_CHROMIUM_NJS_JIT` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **macOS (`:macos`)** | `:extensions:webview:desktop:{common,nativeCommon,macos}` | `ChromiumBlinkEngine` (`DesktopChromiumNjsWebViewImpl`) | `:NJS` AsmJit / SLJIT Native ARM64/x64 JIT (`NjsDesktopWebRuntime`) | `DESKTOP_CHROMIUM_NJS_JIT` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **Linux GTK4 (`:gtk`)** | `:extensions:webview:desktop:{common,nativeCommon,gtk}` | `ChromiumBlinkEngine` (`DesktopChromiumNjsWebViewImpl`) | `:NJS` AsmJit / SLJIT Native JIT (`NjsDesktopWebRuntime`) | `DESKTOP_CHROMIUM_NJS_JIT` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **Linux Qt6 (`:qt`)** | `:extensions:webview:desktop:{common,nativeCommon,qt}` | `ChromiumBlinkEngine` (`DesktopChromiumNjsWebViewImpl`) | `:NJS` AsmJit / SLJIT Native JIT (`NjsDesktopWebRuntime`) | `DESKTOP_CHROMIUM_NJS_JIT` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **Desktop JVM (`:swing`)** | `:extensions:webview:desktop:{common,swing}` | `ChromiumBlinkEngine` (`SwingChromiumNjsWebViewImpl`) | `:NJS` `JavaCompiler` JVM Bytecode Transpiler | `DESKTOP_CHROMIUM_NJS_JIT` | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **Android (`:android`)** | `:extensions:webview:mobile:{common,android}` | `android.webkit.WebView` (`AndroidWebViewImpl`) | Android System V8 *(Never `:NJS`)* | `MOBILE_NATIVE_WEBVIEW` | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
+| **iOS (`:ios`)** | `:extensions:webview:mobile:{common,ios}` | Apple `WKWebView` (`IosWebViewImpl`) | Apple JavaScriptCore *(Never `:NJS`)* | `MOBILE_NATIVE_WEBVIEW` | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
 | **Web (`:web`)** | `:extensions:webview:web` | Browser HTML5 `<iframe>` (`WebNativeIframeWebViewImpl`) | Host Browser JS Engine *(Never `:NJS`)* | `WEB_NATIVE_IFRAME` | [Web Backend (`../../web/README.md`)](../../web/README.md) |
 
 ---
 
 ## 2. Gradle Plugin Configuration
 
-Enabling `webView()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) configures `:extensions:webview` across all active backends and automatically includes `:extensions:webview:dsl` when `dsl()` is enabled:
+Enabling `webView()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) configures `:extensions:webview` across all active backends, automatically registers the platform `WebView` provider at startup, and includes `:extensions:webview:dsl` when `dsl()` is enabled:
 
 ```kotlin
 plugins {
@@ -68,8 +80,8 @@ genericui {
 | `WebViewConfig` | `ext.webview` | Configuration data class: `enableJavaScript: Boolean = true`, `enableDomStorage: Boolean = true`, `allowFileAccess: Boolean = false`, `customUserAgent: String? = null`, `transparentBackground: Boolean = false`. |
 | `WebViewEngineType` | `ext.webview` | Enum identifying the underlying runtime: `DESKTOP_CHROMIUM_NJS_JIT`, `MOBILE_NATIVE_WEBVIEW`, `WEB_NATIVE_IFRAME`. |
 | `WebViewExtension` | `ext.webview` | Extension provider registry (`activeEngineType: WebViewEngineType`, `registerProvider(engineType, factory)`). |
-| `ChromiumBlinkEngine` | `ext.webview.desktop` | Desktop HTML/CSS parser and layout tree builder producing `ChromiumBlinkDomNode` hierarchies on Desktop/Swing. |
-| `NjsDesktopWebRuntime` | `ext.webview.desktop` | Desktop-only `:NJS` JavaScript execution context binding `window`, `document`, and `window.genericUiBridge.postMessage(...)`. |
+| `ChromiumBlinkEngine` | `ext.webview.desktop` | Desktop HTML/CSS parser and layout tree builder producing `ChromiumBlinkDomNode` hierarchies on Desktop/Swing (`:extensions:webview:desktop:common`). |
+| `NjsDesktopWebRuntime` | `ext.webview.desktop` | Desktop-only `:NJS` JavaScript execution context binding `window`, `document`, and `window.genericUiBridge.postMessage(...)` (`:extensions:webview:desktop:common`). |
 | `webViewExt` / `webView` | `ext.webview.dsl` | Declarative DSL builders in `:extensions:webview:dsl` for mounting and configuring `WebView` components in-place. |
 
 ---

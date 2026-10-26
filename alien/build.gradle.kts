@@ -49,31 +49,31 @@ kotlin {
             }
         }
         jvmMain.dependencies {
-            api(project(":extensions:alien:sharedSystem"))
+            api(project(":extensions:alien:systemCommon"))
         }
         androidMain.dependencies {
-            api(project(":extensions:alien:sharedSystem"))
+            api(project(":extensions:alien:systemCommon"))
         }
         mingwX64Main.dependencies {
-            api(project(":extensions:alien:sharedSystem"))
+            api(project(":extensions:alien:systemCommon"))
         }
         linuxX64Main.dependencies {
-            api(project(":extensions:alien:sharedSystem"))
+            api(project(":extensions:alien:systemCommon"))
         }
         linuxArm64Main.dependencies {
-            api(project(":extensions:alien:sharedSystem"))
+            api(project(":extensions:alien:systemCommon"))
         }
         macosArm64Main.dependencies {
-            api(project(":extensions:alien:sharedSystem"))
+            api(project(":extensions:alien:systemCommon"))
         }
         macosX64Main.dependencies {
-            api(project(":extensions:alien:sharedSystem"))
+            api(project(":extensions:alien:systemCommon"))
         }
         iosArm64Main.dependencies {
-            api(project(":extensions:alien:sharedSystem"))
+            api(project(":extensions:alien:systemCommon"))
         }
         iosSimulatorArm64Main.dependencies {
-            api(project(":extensions:alien:sharedSystem"))
+            api(project(":extensions:alien:systemCommon"))
         }
     }
 }

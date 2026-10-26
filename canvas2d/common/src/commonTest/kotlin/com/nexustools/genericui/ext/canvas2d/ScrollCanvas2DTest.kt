@@ -1,9 +1,12 @@
 package com.nexustools.genericui.ext.canvas2d
 
 import com.nexustools.genericui.event.WheelEvent
+import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -94,5 +97,46 @@ class ScrollCanvas2DTest {
         assertEquals(1500, scrollCanvas.scrollY)
         assertEquals(400, scrollCanvas.imageBuffer.width)
         assertEquals(300, scrollCanvas.imageBuffer.height)
+    }
+
+    @Test
+    fun testCanvas2DAndScrollCanvas2DOverlayHostsExcludeScrollbarsAndHaveNoDefaultOverlay() {
+        val surface = Canvas2DExtSurface(width = 640, height = 360)
+        val surfaceHost = surface.withOverlay()
+        assertNull(surfaceHost.activeOverlay)
+        assertSame(surface, surfaceHost.canvas)
+        assertEquals(640, surfaceHost.overlayRoot.widthPx)
+        assertEquals(360, surfaceHost.overlayRoot.heightPx)
+
+        val customOverlay = object : AbstractOverlay("test-2d-overlay") {}
+        val attachedSurfaceHost = surface.attachOverlay(customOverlay)
+        assertSame(customOverlay, attachedSurfaceHost.activeOverlay)
+        assertEquals(640, customOverlay.widthPx)
+        assertEquals(360, customOverlay.heightPx)
+
+        val scrollCanvas = ScrollCanvas2D(
+            viewportWidth = 500,
+            viewportHeight = 350,
+            contentWidth = 2000,
+            contentHeight = 1400
+        )
+        val scrollHost = scrollCanvas.withOverlay()
+        assertNull(scrollHost.activeOverlay)
+        assertFalse(scrollHost.overlayCoversScrollbars)
+        assertEquals(500, scrollHost.overlayRoot.widthPx)
+        assertEquals(350, scrollHost.overlayRoot.heightPx)
+        assertEquals("true", scrollHost.overlayRoot.getAttribute("data-excludes-scrollbars"))
+
+        val scrollOverlay = object : AbstractOverlay("scroll-2d-overlay") {}
+        scrollHost.attachOverlay(scrollOverlay)
+        assertSame(scrollOverlay, scrollHost.activeOverlay)
+        assertEquals(500, scrollOverlay.widthPx)
+        assertEquals(350, scrollOverlay.heightPx)
+
+        scrollCanvas.setViewportSize(720, 480)
+        assertEquals(720, scrollHost.overlayRoot.widthPx)
+        assertEquals(480, scrollHost.overlayRoot.heightPx)
+        assertEquals(720, scrollOverlay.widthPx)
+        assertEquals(480, scrollOverlay.heightPx)
     }
 }

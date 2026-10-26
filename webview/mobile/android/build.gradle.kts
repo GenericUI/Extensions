@@ -19,7 +19,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":mobile:android"))
-            api(project(":extensions:webview:mobile:shared"))
+            api(project(":extensions:webview:mobile:common"))
         }
         androidMain.dependencies {
             implementation(libs.androidx.core.ktx)

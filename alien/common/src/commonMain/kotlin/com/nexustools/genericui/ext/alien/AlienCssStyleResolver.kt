@@ -45,11 +45,7 @@ object AlienCssStyleResolver {
         val inherited = resolveInheritedProperties(node, cssVars, darkTheme)
 
         // 1. Default Background, Text, & Border from Bootstrap 5.3 Browser Rules
-        var bgColor: RgbaColor = if (node.componentClassPrefix == "alien-root" && !darkTheme) {
-            RgbaColor.BLACK
-        } else {
-            RgbaColor.TRANSPARENT
-        }
+        var bgColor: RgbaColor = RgbaColor.TRANSPARENT
         var textColor: RgbaColor = inherited.textColor
         var borderColor: RgbaColor = RgbaColor.TRANSPARENT
         var borderWidthPx = 0f
@@ -627,12 +623,6 @@ object AlienCssStyleResolver {
             ?.trim()
             ?: return null
         if (extracted.isEmpty() || extracted.equals("none", ignoreCase = true)) return null
-        if (extracted.startsWith("http://", ignoreCase = true) ||
-            extracted.startsWith("https://", ignoreCase = true) ||
-            extracted.startsWith("data:", ignoreCase = true)
-        ) {
-            return extracted
-        }
-        return extracted.substringBefore('?').substringBefore('#').trim().takeIf { it.isNotEmpty() }
+        return extracted
     }
 }

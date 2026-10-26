@@ -2,7 +2,7 @@
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:aichat` is a **Single Multiplatform Project** built atop [`:extensions:codeeditor`](codeeditor.md) ($\rightarrow$ [`:extensions:canvas2d`](canvas2d.md)) and `:common`. It delivers a complete AI Studio chat interface (**`AiChatContainer`**), streaming session state (**`AiChatSession`**), multi-provider backend clients (**`AiBackendType`**), reasoning effort selectors (**`ReasoningEffort`**), collapsible chain-of-thought accordions (**`AiChatReasoningAccordion`**), live tool-invocation cards (**`AiChatToolCallCard`**), and an automated multi-turn function/tool executor (**`AiToolExecutor`**).
+`:extensions:aichat` is a **Single Multiplatform Project** (`src/commonMain` across all 8 platform targets) built atop [`:extensions:codeeditor`](codeeditor.md) ($\rightarrow$ [`:extensions:canvas2d`](canvas2d.md)) and `:common`. It delivers a complete AI Studio chat interface (**`AiChatContainer`**), single-placement window `TitleBar` action button integration (**`bindHeaderActionsToTitleBar`**), streaming session state (**`AiChatSession`**), multi-provider backend clients (**`AiBackendType`**), reasoning effort selectors (**`ReasoningEffort`**), collapsible chain-of-thought accordions (**`AiChatReasoningAccordion`**), live tool-invocation cards (**`AiChatToolCallCard`**), and an automated multi-turn function/tool executor (**`AiToolExecutor`**).
 
 ---
 
@@ -10,12 +10,14 @@
 
 ```mermaid
 flowchart TD
-    Container["AiChatContainer / aiChat { ... }<br/>(Header Toolbar, Quick Prompt Chips, Dual Fast/Brain Composer)"]
+    Container["AiChatContainer / aiChat { ... }<br/>(Header Toolbar or Window TitleBar Actions, Quick Prompt Chips, Dual Fast/Brain Composer)"]
+    TitleBarBind["bindHeaderActionsToTitleBar(titleBar, capabilities)<br/>(Single-Placement Action Buttons via TitleCapabilities.canEmbedComponentsInTitleBar)"]
     Session["AiChatSession<br/>(Conversation History, ReasoningConfig, AiUsageMetrics)"]
     Clients["AiChatBackendClient Implementations<br/>(OpenAiCompatibleBackendClient • AnthropicBackendClient • GeminiBackendClient)"]
     ToolExec["AiToolExecutor<br/>(AiToolDefinition Schema Registry & Multi-Turn Auto-Execution)"]
     Views["Message Timeline Views<br/>(AiChatMessageView + AiChatReasoningAccordion + AiChatToolCallCard + IdeCodeEditor)"]
 
+    Container --> TitleBarBind
     Container --> Session
     Session --> Clients
     Session <-->|Auto-runs tool calls & feeds AiToolResult back| ToolExec
@@ -37,7 +39,28 @@ flowchart TD
 
 ---
 
-## 2. Gradle Plugin Configuration
+## 2. Single-Placement `TitleBar` Action Buttons (`bindHeaderActionsToTitleBar`)
+
+`AiChatContainer` provides three header action buttons (`⚙️ AI Provider`, `🧰 Tools`, and `🗑️ Clear` via `headerActionButtons: List<Button>`). When an application hosts `AiChatContainer` inside a window that has a custom `TitleBar`, calling **`bindHeaderActionsToTitleBar(titleBar, capabilities)`** inspects `capabilities.canEmbedComponentsInTitleBar`:
+
+- **When `capabilities.canEmbedComponentsInTitleBar == true`**: The action buttons (`⚙️ AI Provider`, `🧰 Tools`, `🗑️ Clear`) are removed from `AiChatContainer.headerToolbar` and embedded directly into `titleBar` (`areHeaderActionsInTitleBar == true`).
+- **When `capabilities.canEmbedComponentsInTitleBar == false`** (or after calling `unbindHeaderActionsFromTitleBar(titleBar)`): The action buttons remain in (or are restored to) `AiChatContainer.headerToolbar` (`areHeaderActionsInTitleBar == false`).
+- **Guaranteed Single Placement**: In both modes, the header action buttons are rendered **only once** — never duplicated across both the window `TitleBar` and the in-panel `headerToolbar`.
+
+```kotlin
+hostingWindow?.let { win ->
+    val titleBar = TitleBar(title = "AI Studio")
+    win.setTitleBar(titleBar)
+    aiChatContainer.bindHeaderActionsToTitleBar(
+        titleBar = titleBar,
+        capabilities = win.titleCapabilities
+    )
+}
+```
+
+---
+
+## 3. Gradle Plugin Configuration
 
 Enabling `aiChat()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) automatically configures `:extensions:aichat`, `:extensions:codeeditor`, `:extensions:canvas2d`, and (when `dsl()` is active) `:extensions:aichat:dsl`:
 
@@ -59,11 +82,11 @@ genericui {
 
 ---
 
-## 3. Core API Reference (`com.nexustools.genericui.ext.aichat`)
+## 4. Core API Reference (`com.nexustools.genericui.ext.aichat`)
 
 | Class / Interface / Enum | Package | Description & Key Members |
 | :--- | :--- | :--- |
-| `AiChatContainer` | `ext.aichat` | Complete AI Studio chat UI extending `VStack`. Key members: `session: AiChatSession`, `activeReasoningLevel: ReasoningEffort`, `welcomeMessageMarkdown: String`, `showReasoningEffortSelector: Boolean`, `selectBackend(backendType, model, apiKey, baseUrl)`, `selectReasoningEffort(effort, budgetTokens)`, `setQuickPromptChips(chips)`, `stageAttachment(attachment)`, `submitPromptAsync(promptText, effortOverride)`, `submitPrompt(promptText, onChunk): AiChatMessage`, `resetToWelcomeMessage()`, `onOpenProviderSettings`, `onOpenToolsCatalog`, `onPromptExecutedCallback`. |
+| `AiChatContainer` | `ext.aichat` | Complete AI Studio chat UI extending `VStack`. Key members: `session: AiChatSession`, `activeReasoningLevel: ReasoningEffort`, `welcomeMessageMarkdown: String`, `showReasoningEffortSelector: Boolean`, `headerActionButtons: List<Button>`, `boundHeaderTitleBar: TitleBar?`, `areHeaderActionsInTitleBar: Boolean`, `bindHeaderActionsToTitleBar(titleBar: TitleBar, capabilities: TitleCapabilities = TitleCapabilities()): Boolean`, `unbindHeaderActionsFromTitleBar(titleBar: TitleBar? = boundHeaderTitleBar)`, `selectBackend(backendType, model, apiKey, baseUrl)`, `selectReasoningEffort(effort, budgetTokens)`, `setQuickPromptChips(chips)`, `stageAttachment(attachment)`, `submitPromptAsync(promptText, effortOverride)`, `submitPrompt(promptText, onChunk): AiChatMessage`, `resetToWelcomeMessage()`, `onOpenProviderSettings`, `onOpenToolsCatalog`, `onPromptExecutedCallback`. |
 | `AiChatSession` | `ext.aichat` | Stateful multi-turn conversation & tool orchestration session: `config: AiBackendConfig`, `toolExecutor: AiToolExecutor`, `messages: List<AiChatMessage>`, `cumulativeUsage: AiUsageMetrics`, `isStreaming: Boolean`, `switchBackend(backendType, model, apiKey, baseUrl)`, `setReasoningEffort(effort, budgetTokens)`, `sendUserMessage(text, attachments, onChunk): AiChatMessage`, `cancelStreaming()`, `clearHistory()`. |
 | `AiBackendConfig` | `ext.aichat` | Immutable connection & generation settings: `backendType: AiBackendType`, `baseUrl: String`, `model: String`, `apiKey: String`, `systemPrompt: String`, `temperature: Double`, `maxTokens: Int`, `reasoningConfig: ReasoningConfig`. |
 | `ReasoningEffort` / `ReasoningConfig` | `ext.aichat` | Enum controlling extended thinking / chain-of-thought budget: `NONE`, `LOW`, `MEDIUM`, `HIGH`, `MAX`, paired with `ReasoningConfig(effort, budgetTokens)`. |
@@ -77,11 +100,13 @@ genericui {
 
 ---
 
-## 4. Imperative Kotlin Examples
+## 5. Imperative Kotlin Examples
 
-### Example 1: Configuring `AiChatSession`, Registering Suspending Tools, & Mounting `AiChatContainer`
+### Example 1: Configuring `AiChatSession`, Registering Suspending Tools, & Binding `TitleBar` Actions
 
 ```kotlin
+import com.nexustools.genericui.component.navigation.TitleBar
+import com.nexustools.genericui.core.Window
 import com.nexustools.genericui.ext.aichat.AiBackendConfig
 import com.nexustools.genericui.ext.aichat.AiBackendType
 import com.nexustools.genericui.ext.aichat.AiChatContainer
@@ -90,7 +115,7 @@ import com.nexustools.genericui.ext.aichat.AiQuickPromptChip
 import com.nexustools.genericui.ext.aichat.ReasoningConfig
 import com.nexustools.genericui.ext.aichat.ReasoningEffort
 
-fun createSceneAssistantChat(): AiChatContainer {
+fun createSceneAssistantChat(hostingWindow: Window? = null): AiChatContainer {
     val session = AiChatSession(
         config = AiBackendConfig(
             backendType = AiBackendType.ANTHROPIC,
@@ -139,13 +164,20 @@ fun createSceneAssistantChat(): AiChatContainer {
         resetToWelcomeMessage()
     }
 
+    // Bind header action buttons (⚙️ AI Provider, 🧰 Tools, 🗑️ Clear) into the Window TitleBar when supported
+    hostingWindow?.let { win ->
+        val titleBar = TitleBar(title = "GenericUI AI Studio")
+        win.setTitleBar(titleBar)
+        container.bindHeaderActionsToTitleBar(titleBar, win.titleCapabilities)
+    }
+
     return container
 }
 ```
 
 ---
 
-## 5. Declarative `:extensions:aichat:dsl` Examples
+## 6. Declarative `:extensions:aichat:dsl` Examples
 
 When `dsl()` and `aiChat()` are enabled, configure the entire AI provider, reasoning budget, quick prompt chips, and suspending tool handlers declaratively using `aiChat { ... }`:
 
@@ -205,7 +237,7 @@ val aiStudioDrawer = buildDiv(classes = "h-100") {
 
 ---
 
-## 6. Related Extensions & Cross-References
+## 7. Related Extensions & Cross-References
 
 - **Related Extensions**:
   - [`:extensions:codeeditor` (`codeeditor.md`)](codeeditor.md) — Powers syntax-highlighted code blocks and diffs inside `AiChatMessageView`.

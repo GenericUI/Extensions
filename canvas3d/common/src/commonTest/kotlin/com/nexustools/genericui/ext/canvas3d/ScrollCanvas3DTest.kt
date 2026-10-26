@@ -2,9 +2,12 @@ package com.nexustools.genericui.ext.canvas3d
 
 import com.nexustools.genericui.event.WheelEvent
 import com.nexustools.genericui.ext.gpu.GLContext
+import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -87,5 +90,48 @@ class ScrollCanvas3DTest {
         assertSame(scrollVk.rightScrollBar, scrollVk.children[1])
         assertSame(scrollVk.bottomScrollBar, scrollVk.children[2])
         assertNotNull(scrollVk.getContext())
+    }
+
+    @Test
+    fun testCanvas3DAndScrollCanvas3DOverlayHostsExcludeScrollbarsAndHaveNoDefaultOverlay() {
+        val glCanvas = GLCanvasExt(width = 800, height = 600)
+        val glHost = glCanvas.withOverlay()
+        assertNull(glHost.activeOverlay)
+        assertSame(glCanvas, glHost.glCanvas)
+        assertEquals(800, glHost.overlayRoot.widthPx)
+        assertEquals(600, glHost.overlayRoot.heightPx)
+
+        val vkCanvas = VKCanvasExt(width = 1024, height = 768)
+        val vkOverlay = object : AbstractOverlay("test-vk-overlay") {}
+        val vkHost = vkCanvas.attachOverlay(vkOverlay)
+        assertSame(vkOverlay, vkHost.activeOverlay)
+        assertSame(vkCanvas, vkHost.vkCanvas)
+        assertEquals(1024, vkHost.overlayRoot.widthPx)
+        assertEquals(768, vkHost.overlayRoot.heightPx)
+
+        val scrollGl = ScrollGLCanvas(
+            viewportWidth = 640,
+            viewportHeight = 480,
+            contentWidth = 2560,
+            contentHeight = 1920
+        )
+        val scrollHost = scrollGl.withOverlay()
+        assertNull(scrollHost.activeOverlay)
+        assertFalse(scrollHost.overlayCoversScrollbars)
+        assertEquals(640, scrollHost.overlayRoot.widthPx)
+        assertEquals(480, scrollHost.overlayRoot.heightPx)
+        assertEquals("true", scrollHost.overlayRoot.getAttribute("data-excludes-scrollbars"))
+
+        val scrollOverlay = object : AbstractOverlay("scroll-3d-overlay") {}
+        scrollHost.attachOverlay(scrollOverlay)
+        assertSame(scrollOverlay, scrollHost.activeOverlay)
+        assertEquals(640, scrollOverlay.widthPx)
+        assertEquals(480, scrollOverlay.heightPx)
+
+        scrollGl.setViewportSize(960, 540)
+        assertEquals(960, scrollHost.overlayRoot.widthPx)
+        assertEquals(540, scrollHost.overlayRoot.heightPx)
+        assertEquals(960, scrollOverlay.widthPx)
+        assertEquals(540, scrollOverlay.heightPx)
     }
 }

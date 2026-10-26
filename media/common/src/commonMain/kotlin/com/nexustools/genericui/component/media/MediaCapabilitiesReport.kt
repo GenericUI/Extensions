@@ -9,7 +9,7 @@ import com.nexustools.genericui.enums.media.VideoCodec
  * Uniform cross-platform media codec, container, resolution, HDR, and surround-audio capability report
  * returned by [VideoPlayer.getMediaCapabilities].
  *
- * Allows applications such as Episode Caster to build transcoding/direct-play profiles (`clientCapabilities`)
+ * Allows applications to build transcoding/direct-play profiles (`clientCapabilities`)
  * without platform-specific codec probing logic.
  */
 data class MediaCapabilitiesReport(

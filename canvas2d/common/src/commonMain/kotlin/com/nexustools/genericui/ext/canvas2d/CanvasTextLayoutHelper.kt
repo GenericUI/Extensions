@@ -6,8 +6,7 @@ import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.style.RgbaColor
 
 /**
- * 2D canvas text layout & pagination helper (`DCGame`'s `CharGenView.fillText` and
- * `fillTextAreaWithOverflow`).
+ * 2D canvas text layout & pagination helper.
  *
  * Provides:
  * - [fillTextFitted]: Single-line text drawing that automatically shrinks `fontSizePx` (or invokes

@@ -1,14 +1,14 @@
 # `:extensions:gpu` — Unified Vulkan Primary & OpenGL ES Fallback GPU Foundation
 
-> **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
+> **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Fragments & Windows (`../../docs/fragments-and-windows.md`)**](../../docs/fragments-and-windows.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:gpu` is the foundational **Project-of-Projects** GPU compute, shader compilation, texture/buffer allocation, and double-buffered surface extension for GenericUI. It enforces a strict **Vulkan 1.2+ SPIR-V Primary + OpenGL ES 3.0+ Fallback** architecture across Desktop, Mobile, Swing, and Web, and powers [`:extensions:imageprocessing`](imageprocessing.md), [`:extensions:canvas3d`](canvas3d.md), [`:extensions:media`](media.md), [`:extensions:threejs`](threejs.md), and [`:extensions:box3d`](box3d.md).
+`:extensions:gpu` is the foundational **Multi-Module Project-of-Projects** GPU compute, shader compilation, texture/buffer allocation, VBlank synchronization (`VBlankWatcher`, `VBlankTimer`), and double-buffered surface extension for GenericUI. It enforces a strict **Vulkan 1.2+ SPIR-V Primary + OpenGL ES 3.0+ Fallback** architecture across Desktop, Mobile, Swing, and Web, and powers [`:extensions:imageprocessing`](imageprocessing.md), [`:extensions:canvas2d`](canvas2d.md), [`:extensions:canvas3d`](canvas3d.md), [`:extensions:threejs`](threejs.md), [`:extensions:box3d`](box3d.md), and [`:extensions:alien`](alien.md).
 
 ---
 
-## 1. Architecture & Platform Backend Priority
+## 1. Architecture, Submodule Layout, & Platform Backend Priority
 
-`:extensions:gpu` is structured as a multi-module **Project-of-Projects** (`:extensions:gpu:common`, `:extensions:gpu:desktop:shared`, `:extensions:gpu:desktop:swing`, `:extensions:gpu:mobile:shared`, `:extensions:gpu:mobile:android`, `:extensions:gpu:mobile:ios`, `:extensions:gpu:web`) so each platform target links only its native GPU drivers:
+`:extensions:gpu` is structured as a multi-module **Project-of-Projects** (`:extensions:gpu:common`, `:extensions:gpu:systemCommon`, `:extensions:gpu:desktop:nativeCommon`, `:extensions:gpu:desktop:swing`, `:extensions:gpu:mobile:common`, `:extensions:gpu:mobile:android`, `:extensions:gpu:mobile:ios`, `:extensions:gpu:web`) so each platform target links only its native GPU drivers:
 
 ```mermaid
 flowchart LR
@@ -24,19 +24,19 @@ flowchart LR
 
 | Target Family | Submodule | Primary GPU Pipeline (`GpuBackendType.VULKAN`) | Secondary Fallback (`GpuBackendType.OPENGL_ES`) | Backend Documentation |
 | :--- | :--- | :--- | :--- | :--- |
-| **Windows (`mingwX64`)** | `:extensions:gpu:desktop:shared` | Native `vulkan-1.dll` (`DesktopVulkanGpuContext` + `shaderc` GLSL `#version 450` $\rightarrow$ SPIR-V) | **Google ANGLE** (`libEGL.dll` + `libGLESv2.dll` over Direct3D 11 via `DesktopAngleGlesGpuContext`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
-| **macOS (`macosArm64`, `macosX64`)** | `:extensions:gpu:desktop:shared` | **MoltenVK** (`libMoltenVK.dylib` over Apple Metal) | Native Metal-backed OpenGL ES / CGL | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
-| **Linux GTK4 & Qt6 (`linuxX64`, `linuxArm64`)** | `:extensions:gpu:desktop:shared` | Native `libvulkan.so.1` (`VKContext`) | Native `libEGL.so` + `libGLESv2.so` (`GLContext`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **Windows (`mingwX64`)** | `:extensions:gpu:desktop:nativeCommon` | Native `vulkan-1.dll` (`DesktopVulkanGpuContext` + `shaderc` GLSL `#version 450` $\rightarrow$ SPIR-V) | **Google ANGLE** (`libEGL.dll` + `libGLESv2.dll` over Direct3D 11 via `DesktopAngleGlesGpuContext`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **macOS (`macosArm64`, `macosX64`)** | `:extensions:gpu:desktop:nativeCommon` | **MoltenVK** (`libMoltenVK.dylib` over Apple Metal) | Native Metal-backed OpenGL ES / CGL | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **Linux GTK4 & Qt6 (`linuxX64`, `linuxArm64`)** | `:extensions:gpu:desktop:nativeCommon` | Native `libvulkan.so.1` (`VKContext`) | Native `libEGL.so` + `libGLESv2.so` (`GLContext`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
 | **Desktop JVM (`:swing`)** | `:extensions:gpu:desktop:swing` | **LWJGL 3 Vulkan** (`org.lwjgl.vulkan` + `org.lwjgl.shaderc` via `SwingLwjglGpuContext`) | **LWJGL 3 OpenGL / GLES** (`org.lwjgl.opengl` / `org.lwjgl.opengles`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
-| **Android (`:android`)** | `:extensions:gpu:mobile:android` | Android NDK Vulkan 1.1/1.3 (`AndroidVKContextImpl`) | Android `EGL14` / `GLES30` (`AndroidGLContextImpl`) | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
-| **iOS (`:ios`)** | `:extensions:gpu:mobile:ios` | **MoltenVK** over Metal (`IosVKContextImpl`) | Apple `EAGLContext` OpenGL ES 3.0 (`IosGLContextImpl`) | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
+| **Android (`:android`)** | `:extensions:gpu:mobile:android` (+ `:mobile:common`) | Android NDK Vulkan 1.1/1.3 (`AndroidVKContextImpl`) | Android `EGL14` / `GLES30` (`AndroidGLContextImpl`) | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
+| **iOS (`:ios`)** | `:extensions:gpu:mobile:ios` (+ `:mobile:common`) | **MoltenVK** over Metal (`IosVKContextImpl`) | Apple `EAGLContext` OpenGL ES 3.0 (`IosGLContextImpl`) | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
 | **Web (`js`, `wasmJs`)** | `:extensions:gpu:web` | **WebGPU** (`navigator.gpu` via `WebVKContextImpl`) | **WebGL2** (`WebGL2RenderingContext` via `WebGLContextImpl`) | [Web Backend (`../../web/README.md`)](../../web/README.md) |
 
 ---
 
 ## 2. Gradle Plugin Configuration
 
-Enable `:extensions:gpu` via the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md):
+Enable `:extensions:gpu` via the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md). The plugin automatically links the appropriate native/JVM/Web GPU submodules and registers the backend GPU provider in each target's generated launcher:
 
 ```kotlin
 plugins {
@@ -44,16 +44,20 @@ plugins {
 }
 
 genericui {
+    app {
+        id = "com.example.gpulab"
+        name = "GPU Compute Lab"
+    }
     backends {
         allExceptSwing()
     }
     extensions {
-        gpu() // Wires :extensions:gpu:common and active platform GPU providers
+        gpu() // Wires :extensions:gpu across all configured backends automatically
     }
 }
 ```
 
-> **Note**: Enabling higher-level GPU extensions such as `imageProcessing()`, `canvas3d()`, `media()`, `threeJs()`, or `box3d()` automatically pulls in `:extensions:gpu` transitively.
+> **Note**: Enabling higher-level GPU extensions such as `imageProcessing()`, `canvas2d()`, `canvas3d()`, `threeJs()`, `box2d()`, `box3d()`, or `alien()` automatically enables `:extensions:gpu` transitively.
 
 ---
 
@@ -185,7 +189,7 @@ fun setupDoubleBufferedGpuSurface() {
 
 ## 5. Declarative `:dsl` Integration
 
-While `:extensions:gpu` is a headless/device-layer API without its own UI widgets, its `GpuDevice`, `VKCanvasConfig`, and `GLCanvasConfig` types integrate directly into [`:extensions:dsl`](dsl.md), [`:extensions:canvas3d:dsl`](canvas3d.md), and [`:extensions:media:dsl`](media.md):
+While `:extensions:gpu` is a device/context API without its own UI widgets, its `GpuDevice`, `VKCanvasConfig`, and `GLCanvasConfig` types integrate directly into [`:extensions:dsl`](dsl.md) and [`:extensions:canvas3d:dsl`](canvas3d.md):
 
 ```kotlin
 import com.nexustools.genericui.ext.canvas3d.dsl.vkCanvasExt
@@ -204,7 +208,7 @@ val gpuStatusPanel = buildDiv(classes = "p-3") {
         config = VKCanvasConfig(preferDiscreteGpu = true, srgbSwapchain = true, vsync = true),
         width = 800,
         height = 450,
-        onRender = { vkCtx, deltaMs, elapsedMs, frameIdx ->
+        onRender = { vkCtx, _, _, _ ->
             vkCtx.beginFrame()
             // Issue Vulkan draw calls synchronized to VBlank
             vkCtx.endFrameAndPresent()
@@ -218,9 +222,9 @@ val gpuStatusPanel = buildDiv(classes = "p-3") {
 ## 6. Related Extensions & Cross-References
 
 - **Consumer Extensions**:
-  - [`:extensions:imageprocessing` (`imageprocessing.md`)](imageprocessing.md) — Uses `GpuOffscreenContext` for multi-pass GPU image filters and layer compositing.
-  - [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Exposes interactive `GLCanvasExt` and `VKCanvasExt` widgets backed by `:extensions:gpu`.
-  - [`:extensions:media` (`media.md`)](media.md) — Uses `GpuOffscreenContext` and `GpuShaderProgram` for VLC video color conversion and HDR10/HLG/Dolby Vision tone-mapping.
+  - [`:extensions:imageprocessing` (`imageprocessing.md`)](imageprocessing.md) — Uses `GpuOffscreenContext` for hardware-accelerated `ImageBuffer2DContext`, multi-pass GPU image filters, and layer compositing.
+  - [`:extensions:canvas2d` (`canvas2d.md`)](canvas2d.md) — Uses `AbstractCanvas`, `VBlankWatcher`, and `ImageBuffer2DContext` for tear-free 2D rendering.
+  - [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Exposes interactive `GLCanvasExt`, `VKCanvasExt`, and `ScrollCanvas3D` widgets backed by `:extensions:gpu`.
   - [`:extensions:threejs` (`threejs.md`)](threejs.md) — Renders 3D PBR scene graphs atop `:extensions:canvas3d` and `:extensions:gpu`.
   - [`:extensions:box3d` (`box3d.md`)](box3d.md) — Uses `:extensions:threejs` and `:extensions:canvas3d` for 3D rigid-body visualization.
   - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Declarative Kotlin UI & Style DSL.

@@ -7,6 +7,7 @@ import com.nexustools.genericui.ext.alien.AlienRenderSession
 import com.nexustools.genericui.ext.alien.AlienWidgetNode
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.media.Canvas2DNativeImpl
 
 /**
  * Root host container implementation for an [com.nexustools.genericui.ext.alien.AlienContainer] or
@@ -51,6 +52,9 @@ class AlienHostCanvasContainerAlienImpl(
         canvasNativeImpl = cImpl
         if (cImpl != null) {
             cImpl.setAttribute("alienCanvas2D", "true")
+            (cImpl as? Canvas2DNativeImpl<*>)?.setOnSurfaceResizedListener { w, h ->
+                session.resizeViewport(w, h)
+            }
             hostContainerImpl.addChildNative(cImpl, -1)
         }
         session.requestLayoutAndRepaint()

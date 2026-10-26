@@ -30,6 +30,15 @@ class ImageBufferPath2D() {
     private var subpathStartX: Float = 0f
     private var subpathStartY: Float = 0f
     private var hasSubpath: Boolean = false
+    private var cachedPolylines: List<FloatArray>? = null
+    private var cachedFlatness: Float = -1f
+
+    /**
+     * When this path consists of a single axis-aligned `rect` or `roundRect` (`[x0, y0, width, height, tl, tr, br, bl]`),
+     * stores its exact geometry so `fill()` can use an analytic SDF/span fast path without polygon tessellation.
+     */
+    var singleRoundRectSpec: FloatArray? = null
+        private set
 
     constructor(other: ImageBufferPath2D) : this() {
         addPath(other)
@@ -44,6 +53,12 @@ class ImageBufferPath2D() {
 
     fun isEmpty(): Boolean = commands.isEmpty()
 
+    private fun invalidateCache() {
+        cachedPolylines = null
+        cachedFlatness = -1f
+        singleRoundRectSpec = null
+    }
+
     fun reset() {
         commands.clear()
         currentX = 0f
@@ -51,9 +66,11 @@ class ImageBufferPath2D() {
         subpathStartX = 0f
         subpathStartY = 0f
         hasSubpath = false
+        invalidateCache()
     }
 
     fun moveTo(x: Float, y: Float) {
+        invalidateCache()
         commands.add(PathCommand(ImageBufferPathCommandType.MOVE_TO, floatArrayOf(x, y)))
         currentX = x
         currentY = y
@@ -67,6 +84,7 @@ class ImageBufferPath2D() {
             moveTo(x, y)
             return
         }
+        invalidateCache()
         commands.add(PathCommand(ImageBufferPathCommandType.LINE_TO, floatArrayOf(x, y)))
         currentX = x
         currentY = y
@@ -76,6 +94,7 @@ class ImageBufferPath2D() {
         if (!hasSubpath) {
             moveTo(cpx, cpy)
         }
+        invalidateCache()
         commands.add(PathCommand(ImageBufferPathCommandType.QUADRATIC_TO, floatArrayOf(cpx, cpy, x, y)))
         currentX = x
         currentY = y
@@ -85,6 +104,7 @@ class ImageBufferPath2D() {
         if (!hasSubpath) {
             moveTo(cp1x, cp1y)
         }
+        invalidateCache()
         commands.add(PathCommand(ImageBufferPathCommandType.BEZIER_TO, floatArrayOf(cp1x, cp1y, cp2x, cp2y, x, y)))
         currentX = x
         currentY = y
@@ -92,17 +112,31 @@ class ImageBufferPath2D() {
 
     fun closePath() {
         if (!hasSubpath) return
+        invalidateCache()
         commands.add(PathCommand(ImageBufferPathCommandType.CLOSE))
         currentX = subpathStartX
         currentY = subpathStartY
     }
 
     fun rect(x: Float, y: Float, width: Float, height: Float) {
+        val wasEmpty = commands.isEmpty()
         moveTo(x, y)
         lineTo(x + width, y)
         lineTo(x + width, y + height)
         lineTo(x, y + height)
         closePath()
+        if (wasEmpty) {
+            singleRoundRectSpec = floatArrayOf(
+                min(x, x + width),
+                min(y, y + height),
+                abs(width),
+                abs(height),
+                0f,
+                0f,
+                0f,
+                0f
+            )
+        }
     }
 
     fun roundRect(x: Float, y: Float, width: Float, height: Float, radius: Float) {
@@ -119,6 +153,7 @@ class ImageBufferPath2D() {
         bottomRightRadius: Float,
         bottomLeftRadius: Float
     ) {
+        val wasEmpty = commands.isEmpty()
         val w = abs(width)
         val h = abs(height)
         val x0 = min(x, x + width)
@@ -142,6 +177,9 @@ class ImageBufferPath2D() {
         lineTo(x0, y0 + tl)
         if (tl > 0f) arc(x0 + tl, y0 + tl, tl, pi, pi + halfPi, false)
         closePath()
+        if (wasEmpty) {
+            singleRoundRectSpec = floatArrayOf(x0, y0, w, h, tl, tr, br, bl)
+        }
     }
 
     fun arc(
@@ -301,13 +339,17 @@ class ImageBufferPath2D() {
      */
     fun toPolylines(flatness: Float = 0.5f): List<FloatArray> {
         if (commands.isEmpty()) return emptyList()
+        val stepScale = max(0.15f, flatness)
+        val existing = cachedPolylines
+        if (existing != null && abs(cachedFlatness - stepScale) <= 1e-4f) {
+            return existing
+        }
         val result = mutableListOf<FloatArray>()
         val currentSubpath = mutableListOf<Float>()
         var curX = 0f
         var curY = 0f
         var startX = 0f
         var startY = 0f
-        val stepScale = max(0.15f, flatness)
 
         fun flushSubpath() {
             if (currentSubpath.size >= 4) {
@@ -403,6 +445,8 @@ class ImageBufferPath2D() {
             }
         }
         flushSubpath()
+        cachedPolylines = result
+        cachedFlatness = stepScale
         return result
     }
 

@@ -1,6 +1,5 @@
 package com.nexustools.genericui.ext.dsl
 
-import com.nexustools.genericui.component.content.CurrencyPurseBar
 import com.nexustools.genericui.component.content.HorizontalCarouselSelector
 import com.nexustools.genericui.component.content.ImageView
 import com.nexustools.genericui.component.content.MasterDetailStepSelect
@@ -161,22 +160,6 @@ inline fun AbstractContainer.horizontalCarouselSelector(
     id: String? = null,
     block: (@GenericUiDslMarker HorizontalCarouselSelector).() -> Unit = {}
 ): HorizontalCarouselSelector = mountDslComponent(this, HorizontalCarouselSelector(), classes, id, block)
-
-/**
- * In-place [CurrencyPurseBar] builder (`Gold`, `Silver`, `Copper`).
- */
-inline fun AbstractContainer.currencyPurseBar(
-    initialPurseGold: Double = 0.0,
-    classes: String? = null,
-    id: String? = null,
-    block: (@GenericUiDslMarker CurrencyPurseBar).() -> Unit = {}
-): CurrencyPurseBar = mountDslComponent(
-    this,
-    CurrencyPurseBar(initialPurseGold = initialPurseGold),
-    classes,
-    id,
-    block
-)
 
 /**
  * In-place [Navbar] builder.

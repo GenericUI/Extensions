@@ -2,7 +2,7 @@
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:box2d` is a **Single Multiplatform Project** providing a deterministic 2D rigid-body physics engine (`World2D`, `Body2D`, `Fixture2D`, collision shapes, constraints/joints, raycasting, and contact listeners) integrated with [`:extensions:canvas2d`](canvas2d.md) (`Canvas2DExtSurface`) and [`:extensions:canvas3d`](canvas3d.md) via `Box2DDebugDrawer`. Its companion `:extensions:box2d:dsl` module provides declarative `box2dDebugCanvas { ... }` and `world2D { ... }` builders.
+`:extensions:box2d` is a **Single Multiplatform Project** (`src/commonMain` across all 8 platform targets) providing a deterministic 2D rigid-body physics engine (`World2D`, `Body2D`, `Fixture2D`, collision shapes, constraints/joints, raycasting, and contact listeners) integrated with [`:extensions:canvas2d`](canvas2d.md) (`Canvas2DExtSurface`) and [`:extensions:canvas3d`](canvas3d.md) via `Box2DDebugDrawer`. Its companion `:extensions:box2d:dsl` module provides declarative `box2dDebugCanvas { ... }` and `world2D { ... }` builders.
 
 ---
 
@@ -26,7 +26,7 @@ flowchart LR
 
 ## 2. Gradle Plugin Configuration
 
-Enabling `box2d()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) automatically configures `:extensions:box2d`, `:extensions:canvas2d`, `:extensions:canvas3d`, and (when `dsl()` is active) `:extensions:box2d:dsl`:
+Enabling `box2d()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) automatically configures `:extensions:box2d`, `:extensions:canvas2d`, `:extensions:canvas3d`, `:extensions:overlay`, `:extensions:imageprocessing`, `:extensions:gpu`, and (when `dsl()` is active) `:extensions:box2d:dsl`, and automatically registers the underlying 2D/3D/GPU providers at startup:
 
 ```kotlin
 plugins {
@@ -76,7 +76,6 @@ import com.nexustools.genericui.ext.box2d.ContactListener2D
 import com.nexustools.genericui.ext.box2d.DistanceJoint2D
 import com.nexustools.genericui.ext.box2d.FixtureDef2D
 import com.nexustools.genericui.ext.box2d.PolygonShape2D
-import com.nexustools.genericui.ext.box2d.RevoluteJoint2D
 import com.nexustools.genericui.ext.box2d.Vec2
 import com.nexustools.genericui.ext.box2d.World2D
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtSurface
@@ -225,7 +224,7 @@ val physics2DPlayground = buildDiv(classes = "p-3") {
 ## 6. Related Extensions & Cross-References
 
 - **Related Extensions**:
-  - [`:extensions:canvas2d` (`canvas2d.md`)](canvas2d.md) — Provides `Canvas2DExtSurface` used by `Box2DDebugDrawer`.
+  - [`:extensions:canvas2d` (`canvas2d.md`)](canvas2d.md) — Provides `Canvas2DExtSurface` and `Canvas2DOverlayHost` used by `Box2DDebugDrawer`.
   - [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Hardware-accelerated 3D canvas extension.
   - [`:extensions:box3d` (`box3d.md`)](box3d.md) — Sister 3D rigid-body physics engine (`World3D`, `RigidBody3D`, Three.js transform synchronization).
   - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.

@@ -19,6 +19,8 @@ class AudioPlayer(
     var seekOffsetSeconds: Double = 0.0
         private set
 
+    private var playingFallbackState: Boolean = false
+
     var volume: Float = 1.0f
         set(value) {
             field = value.coerceIn(0f, 2f)
@@ -32,7 +34,7 @@ class AudioPlayer(
         get() = typedNative<AudioPlayerNativeImpl<*>>()?.getDurationSeconds() ?: 0.0
 
     val isPlaying: Boolean
-        get() = typedNative<AudioPlayerNativeImpl<*>>()?.isPlaying() ?: false
+        get() = typedNative<AudioPlayerNativeImpl<*>>()?.isPlaying() ?: playingFallbackState
 
     var onTimeUpdate: ((Double) -> Unit)? = null
     var onEnded: (() -> Unit)? = null
@@ -50,14 +52,18 @@ class AudioPlayer(
     }
 
     fun play() {
+        playingFallbackState = true
         typedNative<AudioPlayerNativeImpl<*>>()?.play()
     }
 
     fun pause() {
+        playingFallbackState = false
         typedNative<AudioPlayerNativeImpl<*>>()?.pause()
     }
 
     fun stop() {
+        playingFallbackState = false
+        seekOffsetSeconds = 0.0
         typedNative<AudioPlayerNativeImpl<*>>()?.stop()
     }
 

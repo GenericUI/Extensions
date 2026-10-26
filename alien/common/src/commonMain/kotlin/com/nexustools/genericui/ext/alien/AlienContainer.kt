@@ -3,8 +3,11 @@ package com.nexustools.genericui.ext.alien
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 import com.nexustools.genericui.style.css.CssStyleSheet
+import com.nexustools.genericui.style.css.PrecompiledStyleSheet
+import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 
 /**
  * Self-rendering Bootstrap 5.3 [Container] powered by `:extensions:canvas2d` and [AlienRepaintManager]
@@ -55,11 +58,31 @@ open class AlienContainer(
 
     private fun syncRootNodeState(session: AlienRenderSession) {
         session.rootNode.tagName = htmlTag
+        session.rootNode.styleSnapshot = BootstrapClassMapper.fromClassString(
+            getClass(),
+            "alien-root"
+        )
         computedStyle?.let { session.rootNode.computedStyle = it }
+    }
+
+    override fun onAttachNative(impl: NativeImpl<*>) {
+        super.onAttachNative(impl)
+        renderSession?.let {
+            syncRootNodeState(it)
+            it.requestLayoutAndRepaint()
+        }
     }
 
     override fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int) {
         super.applyStyleSheet(styleSheet, viewportWidthPx)
+        renderSession?.let {
+            syncRootNodeState(it)
+            it.requestLayoutAndRepaint()
+        }
+    }
+
+    override fun applyPrecompiledStyleSheet(precompiled: PrecompiledStyleSheet, viewportWidthPx: Int) {
+        super.applyPrecompiledStyleSheet(precompiled, viewportWidthPx)
         renderSession?.let {
             syncRootNodeState(it)
             it.requestLayoutAndRepaint()

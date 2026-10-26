@@ -8,7 +8,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":desktop:windows"))
-            api(project(":extensions:media:desktop:shared"))
+            api(project(":extensions:media:desktop:nativeCommon"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

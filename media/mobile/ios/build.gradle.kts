@@ -9,8 +9,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":mobile:ios"))
-            api(project(":extensions:media:mobile:shared"))
-            api(project(":extensions:gpu:mobile:ios"))
+            api(project(":extensions:media:mobile:common"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

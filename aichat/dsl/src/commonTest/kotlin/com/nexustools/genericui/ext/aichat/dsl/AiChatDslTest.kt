@@ -1,6 +1,7 @@
 package com.nexustools.genericui.ext.aichat.dsl
 
 import com.nexustools.genericui.ext.aichat.AiBackendType
+import com.nexustools.genericui.ext.aichat.AiChatContainer
 import com.nexustools.genericui.ext.aichat.AiChatMessage
 import com.nexustools.genericui.ext.aichat.AiMessageRole
 import com.nexustools.genericui.ext.aichat.AiToolCall
@@ -8,8 +9,13 @@ import com.nexustools.genericui.ext.aichat.AiToolCallStatus
 import com.nexustools.genericui.ext.aichat.ReasoningEffort
 import com.nexustools.genericui.ext.dsl.ColorRgba
 import com.nexustools.genericui.ext.dsl.buildDiv
+import com.nexustools.genericui.window.TitleBar
+import com.nexustools.genericui.window.TitleCapabilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AiChatDslTest {
@@ -99,5 +105,52 @@ class AiChatDslTest {
 
         chat.clearChatButton.onClick?.invoke()
         assertTrue(conversationCleared)
+    }
+
+    @Test
+    fun testBindHeaderActionsToTitleBarSinglePlacement() {
+        val chat = AiChatContainer()
+        val titleBar = TitleBar()
+
+        // Initially buttons are in headerToolbar in the body
+        assertEquals(3, chat.headerToolbar.children.size)
+        assertTrue(chat.headerToolbar.isVisible)
+        assertFalse(chat.providerConfigButton.mountedInTitleBar)
+        assertFalse(chat.mcpToolsButton.mountedInTitleBar)
+        assertFalse(chat.clearHistoryButton.mountedInTitleBar)
+
+        // Bind to TitleBar when capabilities support embedding components
+        val bound = chat.bindHeaderActionsToTitleBar(titleBar, TitleCapabilities())
+        assertTrue(bound)
+        assertTrue(chat.areHeaderActionsInTitleBar)
+        assertSame(titleBar, chat.boundHeaderTitleBar)
+        assertEquals(0, chat.headerToolbar.children.size)
+        assertFalse(chat.headerToolbar.isVisible)
+        assertEquals(3, titleBar.trailingComponents.size)
+        assertTrue(chat.providerConfigButton.mountedInTitleBar)
+        assertTrue(chat.mcpToolsButton.mountedInTitleBar)
+        assertTrue(chat.clearHistoryButton.mountedInTitleBar)
+
+        // When capabilities do not support embedding, buttons return to headerToolbar
+        val reboundUnsupported = chat.bindHeaderActionsToTitleBar(titleBar, TitleCapabilities.UNSUPPORTED)
+        assertFalse(reboundUnsupported)
+        assertFalse(chat.areHeaderActionsInTitleBar)
+        assertNull(chat.boundHeaderTitleBar)
+        assertEquals(0, titleBar.trailingComponents.size)
+        assertEquals(3, chat.headerToolbar.children.size)
+        assertTrue(chat.headerToolbar.isVisible)
+        assertFalse(chat.providerConfigButton.mountedInTitleBar)
+        assertFalse(chat.mcpToolsButton.mountedInTitleBar)
+        assertFalse(chat.clearHistoryButton.mountedInTitleBar)
+
+        // Re-bind and then unbind with no-arg unbindHeaderActionsFromTitleBar()
+        assertTrue(chat.bindHeaderActionsToTitleBar(titleBar, TitleCapabilities()))
+        assertTrue(chat.providerConfigButton.mountedInTitleBar)
+        chat.unbindHeaderActionsFromTitleBar()
+        assertFalse(chat.areHeaderActionsInTitleBar)
+        assertEquals(0, titleBar.trailingComponents.size)
+        assertEquals(3, chat.headerToolbar.children.size)
+        assertTrue(chat.headerToolbar.isVisible)
+        assertFalse(chat.providerConfigButton.mountedInTitleBar)
     }
 }

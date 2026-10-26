@@ -8,10 +8,12 @@ import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.event.WheelEvent
+import com.nexustools.genericui.ext.canvas3d.overlay.ScrollCanvas3DOverlayHost
 import com.nexustools.genericui.ext.gpu.GLCanvasConfig
 import com.nexustools.genericui.ext.gpu.GLContext
 import com.nexustools.genericui.ext.gpu.VKCanvasConfig
 import com.nexustools.genericui.ext.gpu.VKContext
+import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.nativeimpl.media.ScrollCanvas3DNativeImpl
 import kotlin.math.roundToInt
 
@@ -328,6 +330,20 @@ open class ScrollCanvas3D(
     fun requestRender() {
         viewportCanvas.requestRender()
     }
+
+    /**
+     * Wraps this [ScrollCanvas3D] in a [ScrollCanvas3DOverlayHost] with the given [overlay] attached
+     * over the viewport area only (excluding the horizontal and vertical scrollbars).
+     */
+    fun attachOverlay(overlay: AbstractOverlay): ScrollCanvas3DOverlayHost =
+        ScrollCanvas3DOverlayHost(scrollCanvas = this, initialOverlay = overlay)
+
+    /**
+     * Wraps this [ScrollCanvas3D] in a [ScrollCanvas3DOverlayHost] with an optional [overlay] (`null` by default)
+     * positioned over the viewport area only (excluding scrollbars).
+     */
+    fun withOverlay(overlay: AbstractOverlay? = null): ScrollCanvas3DOverlayHost =
+        ScrollCanvas3DOverlayHost(scrollCanvas = this, initialOverlay = overlay)
 
     /**
      * Binds a [ScrollCanvas3DNativeImpl] peer directly (used by `:web` or tests) and synchronizes

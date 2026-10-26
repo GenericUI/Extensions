@@ -35,6 +35,7 @@ kotlin {
         commonMain.dependencies {
             api(project(":common"))
             api(project(":extensions:imageprocessing:common"))
+            api(project(":extensions:overlay"))
             implementation(libs.kotlinx.coroutines.core)
         }
         commonTest.dependencies {

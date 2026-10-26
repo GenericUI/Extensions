@@ -5,9 +5,12 @@ import com.nexustools.genericui.ext.canvas3d.ScrollCanvas3D
 import com.nexustools.genericui.ext.canvas3d.ScrollGLCanvas
 import com.nexustools.genericui.ext.canvas3d.ScrollVKCanvas
 import com.nexustools.genericui.ext.canvas3d.VKCanvasExt
+import com.nexustools.genericui.ext.canvas3d.overlay.Canvas3DOverlayHost
+import com.nexustools.genericui.ext.canvas3d.overlay.ScrollCanvas3DOverlayHost
 import com.nexustools.genericui.ext.dsl.buildDiv
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class Canvas3DDslTest {
 
@@ -59,5 +62,40 @@ class Canvas3DDslTest {
         scrollGl.scrollTo(400, 600)
         assertEquals(400, lastScrollX)
         assertEquals(600, lastScrollY)
+    }
+
+    @Test
+    fun testCanvas3DOverlayHostDslBuilders() {
+        val root = buildDiv {
+            glCanvasOverlayHost(width = 800, height = 600, id = "glHost")
+            vkCanvasOverlayHost(width = 800, height = 600, id = "vkHost")
+            scrollGlCanvasOverlayHost(
+                viewportWidth = 640,
+                viewportHeight = 480,
+                contentWidth = 2560,
+                contentHeight = 1920,
+                id = "scrollGlHost"
+            )
+            scrollVkCanvasOverlayHost(
+                viewportWidth = 640,
+                viewportHeight = 480,
+                contentWidth = 2560,
+                contentHeight = 1920,
+                id = "scrollVkHost"
+            )
+        }
+        assertEquals(4, root.children.size)
+        val glHost = root.children[0] as Canvas3DOverlayHost
+        val vkHost = root.children[1] as Canvas3DOverlayHost
+        val scrollGlHost = root.children[2] as ScrollCanvas3DOverlayHost
+        val scrollVkHost = root.children[3] as ScrollCanvas3DOverlayHost
+        assertNull(glHost.activeOverlay)
+        assertNull(vkHost.activeOverlay)
+        assertNull(scrollGlHost.activeOverlay)
+        assertNull(scrollVkHost.activeOverlay)
+        assertEquals(640, scrollGlHost.overlayRoot.widthPx)
+        assertEquals(480, scrollGlHost.overlayRoot.heightPx)
+        assertEquals(640, scrollVkHost.overlayRoot.widthPx)
+        assertEquals(480, scrollVkHost.overlayRoot.heightPx)
     }
 }

@@ -9,13 +9,14 @@ import com.nexustools.genericui.ext.dsl.GenericUiDslMarker
 import com.nexustools.genericui.ext.media.AudioAnalyzerExt
 import com.nexustools.genericui.ext.media.AudioPlayerExt
 import com.nexustools.genericui.ext.media.VideoPlayerExt
+import com.nexustools.genericui.ext.media.overlay.VideoOverlayHost
+import com.nexustools.genericui.ext.overlay.AbstractOverlay
 
 /**
- * In-place [VideoPlayerExt] builder with GPU shader pipeline and `style { ... }` support.
+ * In-place [VideoPlayerExt] builder with `style { ... }` support.
  */
 fun AbstractContainer.videoPlayerExt(
     sourceUrl: String? = null,
-    preferVulkanGpuPipeline: Boolean = true,
     volume: Float = 1.0f,
     muted: Boolean = false,
     playbackSpeed: Float = 1.0f,
@@ -25,8 +26,7 @@ fun AbstractContainer.videoPlayerExt(
     block: (@GenericUiDslMarker VideoPlayerExt.() -> Unit)? = null
 ): VideoPlayerExt {
     val player = VideoPlayerExt(
-        sourceUrl = sourceUrl,
-        preferVulkanGpuPipeline = preferVulkanGpuPipeline
+        sourceUrl = sourceUrl
     )
     player.volume = volume
     player.isMuted = muted
@@ -166,4 +166,132 @@ fun AbstractContainer.audioAnalyzer(
         analyzer.block()
     }
     return analyzer
+}
+
+/**
+ * In-place [VideoOverlayHost] builder wrapping a newly created [VideoPlayerExt] and optional [overlay].
+ */
+fun AbstractContainer.videoOverlayHost(
+    sourceUrl: String? = null,
+    overlay: AbstractOverlay? = null,
+    volume: Float = 1.0f,
+    muted: Boolean = false,
+    playbackSpeed: Float = 1.0f,
+    resizeMode: VideoResizeMode = VideoResizeMode.FIT,
+    themeColorHex: String? = null,
+    id: String? = null,
+    classes: String? = null,
+    block: (@GenericUiDslMarker VideoOverlayHost.() -> Unit)? = null
+): VideoOverlayHost {
+    val player = VideoPlayerExt(sourceUrl = sourceUrl)
+    player.volume = volume
+    player.isMuted = muted
+    player.playbackSpeed = playbackSpeed
+    player.resizeMode = resizeMode
+    val host = VideoOverlayHost(videoPlayer = player, initialOverlay = overlay)
+    if (!themeColorHex.isNullOrBlank()) {
+        host.themeColorHex = themeColorHex
+    }
+    if (!classes.isNullOrBlank()) {
+        host.addClass(classes)
+    }
+    if (!id.isNullOrBlank()) {
+        host.id = id
+    }
+    if (block != null) {
+        host.block()
+    }
+    addChild(host)
+    return host
+}
+
+/**
+ * In-place [VideoOverlayHost] builder wrapping an existing [videoPlayer] and optional [overlay].
+ */
+fun AbstractContainer.videoOverlayHost(
+    videoPlayer: VideoPlayerExt,
+    overlay: AbstractOverlay? = null,
+    themeColorHex: String? = null,
+    id: String? = null,
+    classes: String? = null,
+    block: (@GenericUiDslMarker VideoOverlayHost.() -> Unit)? = null
+): VideoOverlayHost {
+    val host = VideoOverlayHost(videoPlayer = videoPlayer, initialOverlay = overlay)
+    if (!themeColorHex.isNullOrBlank()) {
+        host.themeColorHex = themeColorHex
+    }
+    if (!classes.isNullOrBlank()) {
+        host.addClass(classes)
+    }
+    if (!id.isNullOrBlank()) {
+        host.id = id
+    }
+    if (block != null) {
+        host.block()
+    }
+    addChild(host)
+    return host
+}
+
+/**
+ * Standalone [VideoOverlayHost] builder wrapping a newly created [VideoPlayerExt] and optional [overlay].
+ */
+fun videoOverlayHost(
+    sourceUrl: String? = null,
+    overlay: AbstractOverlay? = null,
+    volume: Float = 1.0f,
+    muted: Boolean = false,
+    playbackSpeed: Float = 1.0f,
+    resizeMode: VideoResizeMode = VideoResizeMode.FIT,
+    themeColorHex: String? = null,
+    id: String? = null,
+    classes: String? = null,
+    block: (@GenericUiDslMarker VideoOverlayHost.() -> Unit)? = null
+): VideoOverlayHost {
+    val player = VideoPlayerExt(sourceUrl = sourceUrl)
+    player.volume = volume
+    player.isMuted = muted
+    player.playbackSpeed = playbackSpeed
+    player.resizeMode = resizeMode
+    val host = VideoOverlayHost(videoPlayer = player, initialOverlay = overlay)
+    if (!themeColorHex.isNullOrBlank()) {
+        host.themeColorHex = themeColorHex
+    }
+    if (!classes.isNullOrBlank()) {
+        host.addClass(classes)
+    }
+    if (!id.isNullOrBlank()) {
+        host.id = id
+    }
+    if (block != null) {
+        host.block()
+    }
+    return host
+}
+
+/**
+ * Standalone [VideoOverlayHost] builder wrapping an existing [videoPlayer] and optional [overlay].
+ */
+fun videoOverlayHost(
+    videoPlayer: VideoPlayerExt,
+    overlay: AbstractOverlay? = null,
+    themeColorHex: String? = null,
+    id: String? = null,
+    classes: String? = null,
+    block: (@GenericUiDslMarker VideoOverlayHost.() -> Unit)? = null
+): VideoOverlayHost {
+    val host = VideoOverlayHost(videoPlayer = videoPlayer, initialOverlay = overlay)
+    if (!themeColorHex.isNullOrBlank()) {
+        host.themeColorHex = themeColorHex
+    }
+    if (!classes.isNullOrBlank()) {
+        host.addClass(classes)
+    }
+    if (!id.isNullOrBlank()) {
+        host.id = id
+    }
+    if (block != null) {
+        host.block()
+    }
+    return host
 }

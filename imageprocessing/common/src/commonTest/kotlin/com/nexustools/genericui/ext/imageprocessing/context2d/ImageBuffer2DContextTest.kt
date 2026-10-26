@@ -47,9 +47,9 @@ class ImageBuffer2DContextTest {
             addColorStop(0.5f, RgbaColor.GREEN)
             addColorStop(1f, RgbaColor.RED)
         }
-        assertEquals(255, conic.sampleAt(80f, 50f).r)
+        assertEquals(RgbaColor.RED.r, conic.sampleAt(80f, 50f).r)
 
-        // 3. ImageBufferPath2D & hit testing (isPointInPath, isPointInStroke)
+        // 3. ImageBufferPath2D & hit testing (isPointInPath, isPointInStroke) + scanline fill
         val path = ImageBufferPath2D().apply {
             roundRect(20f, 30f, 60f, 40f, 8f)
         }
@@ -57,6 +57,9 @@ class ImageBuffer2DContextTest {
         assertFalse(ctx.isPointInPath(path, 5f, 5f, ImageBufferFillRule.NONZERO))
         ctx.lineWidth = 4f
         assertTrue(ctx.isPointInStroke(path, 20f, 50f))
+        ctx.setFillColor(RgbaColor(0, 200, 100, 255))
+        ctx.fill(path)
+        assertEquals(200, buffer.getPixel(50, 50).g)
 
         // 4. ScalableVectorFontEngine & ImageBufferTextMetrics
         ctx.setFont(

@@ -2,6 +2,7 @@ package com.nexustools.genericui.ext.alien
 
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.geometry.Rect
+import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.transition.CssTransform2D
 import kotlin.math.max
 import kotlin.math.min
@@ -105,12 +106,13 @@ class AlienRepaintManager(
 
         // Clear region and paint default body background unless root specifies a custom background
         ctx.clearRect(region.x.toFloat(), region.y.toFloat(), region.width.toFloat(), region.height.toFloat())
-        val baseBg = if (rootStyle.backgroundColor.a > 0) {
-            rootStyle.backgroundColor
-        } else if (rootStyle.darkTheme) {
-            AlienBootstrapThemeTokens.BODY_BG_DARK
-        } else {
-            AlienBootstrapThemeTokens.BODY_BG_LIGHT
+        val baseBg = when {
+            rootStyle.backgroundColor.a > 0 -> rootStyle.backgroundColor
+            rootNode.componentClassPrefix == "alien-root" ||
+                rootNode.tagName.equals("genericui:root", ignoreCase = true) ||
+                !rootStyle.backgroundImageUrl.isNullOrBlank() -> RgbaColor.BLACK
+            rootStyle.darkTheme -> AlienBootstrapThemeTokens.BODY_BG_DARK
+            else -> AlienBootstrapThemeTokens.BODY_BG_LIGHT
         }
         ctx.setFillColor(baseBg)
         ctx.fillRect(region.x.toFloat(), region.y.toFloat(), region.width.toFloat(), region.height.toFloat())

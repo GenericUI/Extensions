@@ -80,12 +80,15 @@ interface ImageBuffer2DContext {
     var globalAlpha: Float
     var globalCompositeOperation: ImageBufferCompositeOperation
 
-    fun setGlobalAlpha(alpha: Float) {
-        globalAlpha = alpha.coerceIn(0f, 1f)
+    fun setGlobalAlpha(alpha: Float, clamp: Boolean = true) {
+        globalAlpha = if (clamp) alpha.coerceIn(0f, 1f) else alpha
     }
 
-    fun setGlobalCompositeOperation(operation: ImageBufferCompositeOperation) {
+    fun setGlobalCompositeOperation(operation: ImageBufferCompositeOperation, resetAlpha: Boolean = false) {
         globalCompositeOperation = operation
+        if (resetAlpha) {
+            globalAlpha = 1f
+        }
     }
 
     fun setGlobalCompositeOperation(mode: String) {
@@ -191,28 +194,32 @@ interface ImageBuffer2DContext {
     var miterLimit: Float
     var lineDashOffset: Float
 
-    fun setLineWidth(width: Float) {
-        lineWidth = width.coerceAtLeast(0.001f)
+    fun setLineWidth(width: Float, minWidth: Float = 0.001f) {
+        lineWidth = width.coerceAtLeast(minWidth)
     }
 
-    fun setLineCap(cap: ImageBufferLineCap) {
+    fun setLineCap(cap: ImageBufferLineCap, resetDash: Boolean = false) {
         lineCap = cap
+        if (resetDash) {
+            lineDashOffset = 0f
+        }
     }
 
     fun setLineCap(cap: String) {
         lineCap = ImageBufferLineCap.fromWebValue(cap)
     }
 
-    fun setLineJoin(join: ImageBufferLineJoin) {
+    fun setLineJoin(join: ImageBufferLineJoin, miterLimitPx: Float = miterLimit) {
         lineJoin = join
+        miterLimit = miterLimitPx
     }
 
     fun setLineJoin(join: String) {
         lineJoin = ImageBufferLineJoin.fromWebValue(join)
     }
 
-    fun setMiterLimit(limit: Float) {
-        miterLimit = limit.coerceAtLeast(0.001f)
+    fun setMiterLimit(limit: Float, minLimit: Float = 0.001f) {
+        miterLimit = limit.coerceAtLeast(minLimit)
     }
 
     fun setLineDash(segments: FloatArray, offset: Float = lineDashOffset)

@@ -2,7 +2,7 @@
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:codeeditor` is a **Single Multiplatform Project** built atop [`:extensions:canvas2d`](canvas2d.md) (`Canvas2DExtSurface`) and `:common`. It provides a hardware-accelerated IDE code editor (**`IdeCodeEditor`**) and synchronized overview minimap (**`CodeMinimap`**) with multi-language lexical syntax highlighting, gutter line numbers, interactive breakpoints, `{ ... }` code folding, compiler/linter diagnostic squiggle underlines, hover diagnostic popovers, find & replace, undo/redo history, and context-aware IntelliSense autocomplete.
+`:extensions:codeeditor` is a **Single Multiplatform Project** (`src/commonMain` across all 8 platform targets) built atop [`:extensions:canvas2d`](canvas2d.md) (`Canvas2DExtSurface`) and `:common`. It provides a hardware-accelerated IDE code editor (**`IdeCodeEditor`**) and synchronized overview minimap (**`CodeMinimap`**) with multi-language lexical syntax highlighting, gutter line numbers, interactive breakpoints, `{ ... }` code folding, compiler/linter diagnostic squiggle underlines, hover diagnostic popovers, find & replace, undo/redo history, and context-aware IntelliSense autocomplete.
 
 ---
 
@@ -37,7 +37,7 @@ flowchart LR
 
 ## 2. Gradle Plugin Configuration
 
-Enabling `codeEditor()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) wires `:extensions:codeeditor`, `:extensions:canvas2d`, and (when `dsl()` is active) `:extensions:codeeditor:dsl`:
+Enabling `codeEditor()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) wires `:extensions:codeeditor`, `:extensions:canvas2d`, `:extensions:overlay`, `:extensions:imageprocessing`, `:extensions:gpu`, and (when `dsl()` is active) `:extensions:codeeditor:dsl`, and automatically registers all required providers at startup:
 
 ```kotlin
 plugins {

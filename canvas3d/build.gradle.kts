@@ -33,6 +33,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            api(project(":extensions:overlay"))
             api(project(":extensions:canvas3d:common"))
         }
     }

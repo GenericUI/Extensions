@@ -49,31 +49,31 @@ kotlin {
             }
         }
         jvmMain.dependencies {
-            api(project(":extensions:imageprocessing:sharedSystem"))
+            api(project(":extensions:imageprocessing:systemCommon"))
         }
         androidMain.dependencies {
-            api(project(":extensions:imageprocessing:sharedSystem"))
+            api(project(":extensions:imageprocessing:systemCommon"))
         }
         mingwX64Main.dependencies {
-            api(project(":extensions:imageprocessing:sharedSystem"))
+            api(project(":extensions:imageprocessing:systemCommon"))
         }
         linuxX64Main.dependencies {
-            api(project(":extensions:imageprocessing:sharedSystem"))
+            api(project(":extensions:imageprocessing:systemCommon"))
         }
         linuxArm64Main.dependencies {
-            api(project(":extensions:imageprocessing:sharedSystem"))
+            api(project(":extensions:imageprocessing:systemCommon"))
         }
         macosArm64Main.dependencies {
-            api(project(":extensions:imageprocessing:sharedSystem"))
+            api(project(":extensions:imageprocessing:systemCommon"))
         }
         macosX64Main.dependencies {
-            api(project(":extensions:imageprocessing:sharedSystem"))
+            api(project(":extensions:imageprocessing:systemCommon"))
         }
         iosArm64Main.dependencies {
-            api(project(":extensions:imageprocessing:sharedSystem"))
+            api(project(":extensions:imageprocessing:systemCommon"))
         }
         iosSimulatorArm64Main.dependencies {
-            api(project(":extensions:imageprocessing:sharedSystem"))
+            api(project(":extensions:imageprocessing:systemCommon"))
         }
     }
 }

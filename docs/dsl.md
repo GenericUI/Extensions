@@ -2,11 +2,11 @@
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:dsl` is a **Single Multiplatform Project** depending **exclusively on `:common`** (`api(project(":common"))`). It provides a `kotlinx.html`-inspired in-place component builder DSL (`@GenericUiDslMarker`, `buildDiv`, `buildContainer`, `Container.build`, `div`, `row`, `col`, `hstack`, `vstack`, `flexBox`, `h1`..`h6`, `p`, `span`, `button`, `textInput`, `select { option(...) }`, `table { tr { th(...); td(...) } }`, `lazyList`, `lazyGrid`, `treeView`), inline `style { ... }` blocks with **`LinearGradient`** and **`RadialGradient`**, and first-class Model-View-Controller (**`MvcModel`**, **`MvcView<M>`**, **`MvcController<M, V>`**) reactive state binding.
+`:extensions:dsl` is a **Single Multiplatform Project** (`src/commonMain` across all 8 platform targets) depending **exclusively on `:common`** (`api(project(":common"))`). It provides a `kotlinx.html`-inspired in-place component builder DSL (`@GenericUiDslMarker`, `buildDiv`, `buildContainer`, `Container.build`, `div`, `row`, `col`, `hstack`, `vstack`, `flexBox`, `h1`..`h6`, `p`, `span`, `button`, `textInput`, `select { option(...) }`, `table { tr { th(...); td(...) } }`, `lazyList`, `lazyGrid`, `treeView`), inline `style { ... }` blocks with **`LinearGradient`** and **`RadialGradient`**, and first-class Model-View-Controller (**`MvcModel`**, **`MvcView<M>`**, **`MvcController<M, V>`**) reactive state binding.
 
 ---
 
-## 1. Modular `:dsl` Architecture & Automatic Gradle Wiring
+## 1. Modular `:dsl` Architecture & Automatic Gradle Wiring (12 Companion `:dsl` Submodules)
 
 To keep `:extensions:dsl` lightweight and free of unwanted transitive dependencies, `:extensions:dsl` **strictly never depends on other extensions**. Instead, each component-providing extension ships its own dedicated `:extensions:<ext>:dsl` submodule:
 
@@ -15,26 +15,32 @@ flowchart TD
     BaseDsl[":extensions:dsl<br/>(@GenericUiDslMarker, Container/Action/Form/Typography/Lazy Builders, MVC)"]
     Common[":common<br/>(Core Widgets, Fragments, Style Engine, LinearGradient, RadialGradient)"]
 
-    C2DDsl[":extensions:canvas2d:dsl<br/>(canvas2DExt, curveEditorExt)"]
-    C3DDsl[":extensions:canvas3d:dsl<br/>(glCanvasExt, vkCanvasExt)"]
-    MediaDsl[":extensions:media:dsl<br/>(videoPlayerExt, audioPlayerExt, audioAnalyzerExt)"]
+    OverlayDsl[":extensions:overlay:dsl<br/>(overlayHostBox, presetOverlay, trackSeekBar, sliderSeekBar, ...)"]
+    C2DDsl[":extensions:canvas2d:dsl<br/>(canvas2DExt, canvas2DOverlayHost, scrollCanvas2DOverlayHost, curveEditorExt)"]
+    C3DDsl[":extensions:canvas3d:dsl<br/>(glCanvasExt, vkCanvasExt, canvas3DOverlayHost, scrollCanvas3DOverlayHost)"]
+    MediaDsl[":extensions:media:dsl<br/>(videoPlayerExt, videoOverlayHost, audioPlayerExt, audioAnalyzerExt)"]
+    MediaControlsDsl[":extensions:mediacontrols:dsl<br/>(mediaControlsSession, metadata, buttons, onEvent)"]
     WebViewDsl[":extensions:webview:dsl<br/>(webViewExt, webView)"]
     CodeDsl[":extensions:codeeditor:dsl<br/>(codeEditor, ideCodeEditor, codeMinimap)"]
     AiDsl[":extensions:aichat:dsl<br/>(aiChat, aiChatMessageView, aiChatToolCallCard)"]
     ThreeDsl[":extensions:threejs:dsl<br/>(threeJsGlCanvas, threeJsVkCanvas, scene)"]
     Box2DDsl[":extensions:box2d:dsl<br/>(box2dDebugCanvas, world2D)"]
     Box3DDsl[":extensions:box3d:dsl<br/>(box3dDebugCanvas, world3D)"]
+    AlienDsl[":extensions:alien:dsl<br/>(alienLaunchButton, alienInstallProgressBar, alienAppHeader)"]
 
     BaseDsl --> Common
+    OverlayDsl --> BaseDsl
     C2DDsl --> BaseDsl
     C3DDsl --> BaseDsl
     MediaDsl --> BaseDsl
+    MediaControlsDsl --> BaseDsl
     WebViewDsl --> BaseDsl
     CodeDsl --> BaseDsl
     AiDsl --> BaseDsl
     ThreeDsl --> BaseDsl
     Box2DDsl --> BaseDsl
     Box3DDsl --> BaseDsl
+    AlienDsl --> BaseDsl
 ```
 
 ### Automatic `:extensions:<ext>:dsl` Activation in `genericui { extensions { ... } }`
@@ -50,31 +56,37 @@ genericui {
         allExceptSwing()
     }
     extensions {
-        dsl()        // Enables :extensions:dsl
-        canvas2d()   // Automatically adds :extensions:canvas2d AND :extensions:canvas2d:dsl
-        canvas3d()   // Automatically adds :extensions:canvas3d AND :extensions:canvas3d:dsl
-        media()      // Automatically adds :extensions:media AND :extensions:media:dsl
-        webView()    // Automatically adds :extensions:webview AND :extensions:webview:dsl
-        codeEditor() // Automatically adds :extensions:codeeditor AND :extensions:codeeditor:dsl
-        aiChat()     // Automatically adds :extensions:aichat AND :extensions:aichat:dsl
-        threeJs()    // Automatically adds :extensions:threejs AND :extensions:threejs:dsl
-        box2d()      // Automatically adds :extensions:box2d AND :extensions:box2d:dsl
-        box3d()      // Automatically adds :extensions:box3d AND :extensions:box3d:dsl
+        dsl()           // Enables :extensions:dsl
+        overlay()       // Automatically adds :extensions:overlay AND :extensions:overlay:dsl
+        canvas2d()      // Automatically adds :extensions:canvas2d AND :extensions:canvas2d:dsl
+        canvas3d()      // Automatically adds :extensions:canvas3d AND :extensions:canvas3d:dsl
+        media()         // Automatically adds :extensions:media AND :extensions:media:dsl
+        mediaControls() // Automatically adds :extensions:mediacontrols AND :extensions:mediacontrols:dsl
+        webView()       // Automatically adds :extensions:webview AND :extensions:webview:dsl
+        codeEditor()    // Automatically adds :extensions:codeeditor AND :extensions:codeeditor:dsl
+        aiChat()        // Automatically adds :extensions:aichat AND :extensions:aichat:dsl
+        threeJs()       // Automatically adds :extensions:threejs AND :extensions:threejs:dsl
+        box2d()         // Automatically adds :extensions:box2d AND :extensions:box2d:dsl
+        box3d()         // Automatically adds :extensions:box3d AND :extensions:box3d:dsl
+        alien()         // Automatically adds :extensions:alien AND :extensions:alien:dsl
     }
 }
 ```
 
 | Extension `:dsl` Submodule | Package | Builders Provided | Dedicated Guide |
 | :--- | :--- | :--- | :--- |
-| **`:extensions:canvas2d:dsl`** | `com.nexustools.genericui.ext.canvas2d.dsl` | `canvas2DExt`, `canvas2D`, `curveEditorExt`, `curveEditor` | [`canvas2d.md`](canvas2d.md) |
-| **`:extensions:canvas3d:dsl`** | `com.nexustools.genericui.ext.canvas3d.dsl` | `glCanvasExt`, `glCanvas`, `vkCanvasExt`, `vkCanvas` | [`canvas3d.md`](canvas3d.md) |
-| **`:extensions:media:dsl`** | `com.nexustools.genericui.ext.media.dsl` | `videoPlayerExt`, `videoPlayer`, `audioPlayerExt`, `audioPlayer`, `audioAnalyzerExt`, `audioAnalyzer` | [`media.md`](media.md) |
+| **`:extensions:overlay:dsl`** | `com.nexustools.genericui.ext.overlay.dsl` | `overlayHostBox`, `presetOverlay`, `customOverlay`, `gradientScrim`, `metadataHeader`, `overlayBadgeStrip`, `centerTransportCluster`, `trackSeekBar`, `sliderSeekBar`, `volumeControl`, `subtitleCueView`, `overlayPopoverPanel`, `overlayModalDialog`, `overlayCurtain` | [`overlay.md`](overlay.md) |
+| **`:extensions:canvas2d:dsl`** | `com.nexustools.genericui.ext.canvas2d.dsl` | `canvas2DExt`, `canvas2D`, `canvas2DOverlayHost`, `scrollCanvas2DOverlayHost`, `curveEditorExt`, `curveEditor` | [`canvas2d.md`](canvas2d.md) |
+| **`:extensions:canvas3d:dsl`** | `com.nexustools.genericui.ext.canvas3d.dsl` | `glCanvasExt`, `glCanvas`, `vkCanvasExt`, `vkCanvas`, `canvas3DOverlayHost`, `glCanvasOverlayHost`, `vkCanvasOverlayHost`, `scrollCanvas3DOverlayHost` | [`canvas3d.md`](canvas3d.md) |
+| **`:extensions:media:dsl`** | `com.nexustools.genericui.ext.media.dsl` | `videoPlayerExt`, `videoPlayer`, `videoOverlayHost`, `audioPlayerExt`, `audioPlayer`, `audioAnalyzerExt`, `audioAnalyzer` | [`media.md`](media.md) |
+| **`:extensions:mediacontrols:dsl`** | `com.nexustools.genericui.ext.mediacontrols.dsl` | `mediaControlsSession`, `metadata`, `playbackStatus`, `buttons`, `onEvent`, `onPlay`, `onPause`, `onTogglePlayPause`, `onStop`, `onNextTrack`, `onPreviousTrack`, `onSeekForward`, `onSeekBackward`, `onSeekTo` | [`mediacontrols.md`](mediacontrols.md) |
 | **`:extensions:webview:dsl`** | `com.nexustools.genericui.ext.webview.dsl` | `webViewExt`, `webView` | [`webview.md`](webview.md) |
 | **`:extensions:codeeditor:dsl`** | `com.nexustools.genericui.ext.codeeditor.dsl` | `codeEditor`, `ideCodeEditor`, `codeMinimap` | [`codeeditor.md`](codeeditor.md) |
 | **`:extensions:aichat:dsl`** | `com.nexustools.genericui.ext.aichat.dsl` | `aiChat`, `aiChatContainer`, `aiChatMessageView`, `aiChatToolCallCard`, `aiChatReasoningAccordion` | [`aichat.md`](aichat.md) |
 | **`:extensions:threejs:dsl`** | `com.nexustools.genericui.ext.threejs.dsl` | `threeJsGlCanvas`, `threeJsVkCanvas`, `scene`, `Scene.mesh`, `Scene.perspectiveCamera` | [`threejs.md`](threejs.md) |
 | **`:extensions:box2d:dsl`** | `com.nexustools.genericui.ext.box2d.dsl` | `box2dDebugCanvas`, `world2D` (`body`, `staticBody`, `dynamicBody`, `kinematicBody`, `boxFixture`, `circleFixture`, `edgeFixture`) | [`box2d.md`](box2d.md) |
 | **`:extensions:box3d:dsl`** | `com.nexustools.genericui.ext.box3d.dsl` | `box3dDebugCanvas`, `world3D` (`rigidBody`, `dynamicRigidBody`, `staticRigidBody`, `kinematicRigidBody`, `boxCollider`, `sphereCollider`, `capsuleCollider`) | [`box3d.md`](box3d.md) |
+| **`:extensions:alien:dsl`** | `com.nexustools.genericui.ext.alien.dsl` | `alienLaunchButton`, `alienInstallProgressBar`, `alienAppHeader` | [`alien.md`](alien.md) |
 
 ---
 
@@ -86,7 +98,7 @@ genericui {
 | **Layout & Containers (`DslContainerBuilders.kt`)** | `div`, `container`, `section`, `header`, `footer`, `main`, `nav`, `article`, `aside`, `form`, `box`, `row`, `col(classes, span, weight)` / `column`, `hstack`, `vstack`, `flexBox(direction, justify, align)`, `scrollView`, `stepScrollView`, `hr` / `divider`, `spacer(widthPx, heightPx)` / `br`, `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`. |
 | **Actions & Forms (`DslActionAndFormBuilders.kt`)** | `ColorRgba(r, g, b, a)`, `button(text, icon, tooltipText, type, size, outline, onClick)`, `iconButton`, `buttonGroup`, `dropdownButton`, `textInput` / `textField` / `input`, `passwordInput` / `passwordField`, `numberInput` / `numberField`, `textArea`, `searchInput` / `searchField`, `select { option(value, label, selected) }`, `checkBox`, `switch`, `radioGroup { radioButton(...) }`, `rangeSlider`, `compoundUnitInput`, `formGroup`, `inputGroup`. |
 | **Typography (`DslTypographyBuilders.kt`)** | `heading(level, text)`, `h1`, `h2`, `h3`, `h4`, `h5`, `h6`, `p` / `paragraph`, `span`, `label`, `sup`, `sub`, `small`, `strong` / `b`, `em` / `i`, `a(text, href, onClick)`, `badge(text, type, pill)`, `codeBlock` / `pre` / `code`, `blockquote`, `markdownView`, `+"inline text"`. |
-| **Content, Surfaces, & Feedback (`DslContentAndSurfaceBuilders.kt`)** | `card(title)`, `collapsiblePanel(title, expanded)`, `ul` / `listGroup`, `li` / `listGroupItem`, `img` / `imageView(src, alt, objectFit)`, `dataTable`, `masterDetailStepSelect`, `horizontalCarouselSelector`, `currencyPurseBar`, `navbar`, `alert`, `progressBar`, `spinner`. |
+| **Content, Surfaces, & Feedback (`DslContentAndSurfaceBuilders.kt`)** | `card(title)`, `collapsiblePanel(title, expanded)`, `ul` / `listGroup`, `li` / `listGroupItem`, `img` / `imageView(src, alt, objectFit)`, `dataTable`, `masterDetailStepSelect`, `horizontalCarouselSelector`, `navbar`, `alert`, `progressBar`, `spinner`. |
 | **Virtualized Lazy Views (`DslLazyBuilders.kt`)** | `lazyList(orientation, estimatedItemExtentPx, overscanItems)`, `lazyGrid(columns, estimatedRowHeightPx, overscanRows)`, `treeView<T>(estimatedRowHeightPx, overscanRows)`. |
 | **MVC Architecture (`MvcModel`, `MvcView`, `MvcController`)** | `MvcModel` (`addChangeListener`, `notifyModelChanged`), `MvcView<M>` (`model`, `autoRefreshOnModelChange`, `abstract fun Container.render()`, `refreshView()`, `bindModel(newModel)`), `MvcController<M, V>` (`attach()`, `detach()`, `updateModel { ... }`). |
 
@@ -99,11 +111,8 @@ genericui {
 Every GenericUI component supports inline `style { ... }` configuration, including multi-stop **`LinearGradient`**, **`RadialGradient`**, and pseudo-class states (`hover`, `active`, `focus`, `disabled`):
 
 ```kotlin
-import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
-import com.nexustools.genericui.enums.bootstrap.FlexDirection
-import com.nexustools.genericui.enums.bootstrap.JustifyContent
 import com.nexustools.genericui.ext.dsl.*
 import com.nexustools.genericui.style.GradientStop
 import com.nexustools.genericui.style.LinearGradient
@@ -258,16 +267,19 @@ class CounterController(
 
 ## 4. Related Extensions & Cross-References
 
-- **All Companion Extension `:dsl` Guides**:
+- **All 12 Companion Extension `:dsl` Guides**:
+  - [`:extensions:overlay` & `:extensions:overlay:dsl` (`overlay.md`)](overlay.md)
   - [`:extensions:canvas2d` & `:extensions:canvas2d:dsl` (`canvas2d.md`)](canvas2d.md)
   - [`:extensions:canvas3d` & `:extensions:canvas3d:dsl` (`canvas3d.md`)](canvas3d.md)
   - [`:extensions:media` & `:extensions:media:dsl` (`media.md`)](media.md)
+  - [`:extensions:mediacontrols` & `:extensions:mediacontrols:dsl` (`mediacontrols.md`)](mediacontrols.md)
   - [`:extensions:webview` & `:extensions:webview:dsl` (`webview.md`)](webview.md)
   - [`:extensions:codeeditor` & `:extensions:codeeditor:dsl` (`codeeditor.md`)](codeeditor.md)
   - [`:extensions:aichat` & `:extensions:aichat:dsl` (`aichat.md`)](aichat.md)
   - [`:extensions:threejs` & `:extensions:threejs:dsl` (`threejs.md`)](threejs.md)
   - [`:extensions:box2d` & `:extensions:box2d:dsl` (`box2d.md`)](box2d.md)
   - [`:extensions:box3d` & `:extensions:box3d:dsl` (`box3d.md`)](box3d.md)
+  - [`:extensions:alien` & `:extensions:alien:dsl` (`alien.md`)](alien.md)
   - [`:extensions:gpu` (`gpu.md`)](gpu.md) · [`:extensions:imageprocessing` (`imageprocessing.md`)](imageprocessing.md)
 - **Root & Backend Documentation**:
   - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Source Sets (`../../docs/sourcesets.md`)](../../docs/sourcesets.md) · [Backends (`../../docs/backends.md`)](../../docs/backends.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)
