@@ -126,7 +126,8 @@ open class TrackSeekBar(
     private fun applyThemeColor() {
         val resolvedColor = GradientScrim.parseOverlayColor(effectiveThemeColorHex) ?: RgbaColor.PRIMARY_BLUE
         progressBar.customBackgroundColor = resolvedColor
-        tint = resolvedColor
+        getStyle().setAccentColor(resolvedColor)
+        getStyle().setBackgroundColor(resolvedColor)
     }
 
     private fun updateTrackHeightForInteractiveState() {

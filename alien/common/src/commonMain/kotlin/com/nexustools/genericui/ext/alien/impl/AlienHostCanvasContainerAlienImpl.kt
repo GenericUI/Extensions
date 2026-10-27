@@ -42,6 +42,9 @@ class AlienHostCanvasContainerAlienImpl(
     init {
         session.rootNode.ownerImpl = this
         session.rootNode.tagName = alienRoot.htmlTag
+        if (!alienRoot.getStyle().isEmpty()) {
+            session.rootNode.inlineComponentStyle = alienRoot.getStyle()
+        }
         alienRoot.computedStyle?.let { session.rootNode.computedStyle = it }
         hostContainerImpl.setAttribute("alienHostContainer", "true")
 

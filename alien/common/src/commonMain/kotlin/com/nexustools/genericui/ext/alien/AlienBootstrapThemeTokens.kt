@@ -108,6 +108,7 @@ object AlienBootstrapThemeTokens {
     )
 
     fun baseColorForType(type: BootstrapType): RgbaColor = when (type) {
+        BootstrapType.NONE -> RgbaColor.TRANSPARENT
         BootstrapType.PRIMARY -> PRIMARY
         BootstrapType.SECONDARY -> SECONDARY
         BootstrapType.SUCCESS -> SUCCESS
@@ -120,6 +121,7 @@ object AlienBootstrapThemeTokens {
     }
 
     fun hoverColorForType(type: BootstrapType): RgbaColor = when (type) {
+        BootstrapType.NONE -> RgbaColor.TRANSPARENT
         BootstrapType.PRIMARY -> PRIMARY_HOVER
         BootstrapType.SECONDARY -> SECONDARY_HOVER
         BootstrapType.SUCCESS -> SUCCESS_HOVER
@@ -132,6 +134,7 @@ object AlienBootstrapThemeTokens {
     }
 
     fun activeColorForType(type: BootstrapType): RgbaColor = when (type) {
+        BootstrapType.NONE -> RgbaColor.TRANSPARENT
         BootstrapType.PRIMARY -> PRIMARY_ACTIVE
         BootstrapType.SECONDARY -> SECONDARY_ACTIVE
         BootstrapType.SUCCESS -> SUCCESS_ACTIVE
@@ -144,13 +147,14 @@ object AlienBootstrapThemeTokens {
     }
 
     fun foregroundColorForType(type: BootstrapType): RgbaColor = when (type) {
+        BootstrapType.NONE -> BODY_COLOR_LIGHT
         BootstrapType.WARNING, BootstrapType.INFO, BootstrapType.LIGHT -> BODY_COLOR_LIGHT
         BootstrapType.LINK -> PRIMARY
         else -> RgbaColor.WHITE
     }
 
     fun focusRingColorForType(type: BootstrapType?): RgbaColor {
-        val base = type?.let { baseColorForType(it) } ?: PRIMARY
+        val base = type?.takeIf { it.isSemantic }?.let { baseColorForType(it) } ?: PRIMARY
         return if (base.a == 0) FOCUS_RING_PRIMARY else base.withAlpha(0.25f)
     }
 

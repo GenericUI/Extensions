@@ -183,7 +183,7 @@ class AlienLayoutEngine {
         val contentH = (assignedBounds.height - style.padding.top - style.padding.bottom).coerceAtLeast(0)
 
         val isHorizontal = isHorizontalContainer(node, style)
-        val gapPx = resolveGapPx(node)
+        val gapPx = resolveGapPx(node, isHorizontal, style)
 
         if (isHorizontal) {
             arrangeHorizontal(node, style, assignedBounds, contentX, contentY, contentW, contentH, gapPx, updateTracker)
@@ -210,7 +210,7 @@ class AlienLayoutEngine {
         }
 
         val isHorizontal = isHorizontalContainer(node, style)
-        val gapPx = resolveGapPx(node)
+        val gapPx = resolveGapPx(node, isHorizontal, style)
         var accumW = 0
         var accumH = 0
 
@@ -629,22 +629,32 @@ class AlienLayoutEngine {
         }
 
         // Standard HStack / Flex-Row
-        val totalChildrenW = flowChildren.sumOf {
-            val m = it.resolveVisualStyle().margin
-            it.measuredSize.width + m.left + m.right
+        val totalFlexGrow = flowChildren.sumOf { it.resolveVisualStyle().flexGrow.toDouble() }.toFloat()
+        val fixedChildrenW = flowChildren.sumOf { c ->
+            val cs = c.resolveVisualStyle()
+            val w = if (totalFlexGrow > 0f && cs.flexGrow > 0f) 0 else c.measuredSize.width
+            w + cs.margin.left + cs.margin.right
         } + gapPx * (flowChildren.size - 1).coerceAtLeast(0)
+        val remainingFlexW = (contentW - fixedChildrenW).coerceAtLeast(0)
 
-        var cursorX = when (node.styleSnapshot.justifyContent) {
+        val totalChildrenW = if (totalFlexGrow > 0f) contentW else fixedChildrenW
+
+        var cursorX = when (style.justifyContent) {
             JustifyContent.CENTER -> contentX + ((contentW - totalChildrenW) / 2).coerceAtLeast(0)
             JustifyContent.END -> contentX + (contentW - totalChildrenW).coerceAtLeast(0)
             else -> contentX
         }
 
         for (child in flowChildren) {
-            val m = child.resolveVisualStyle().margin
+            val cs = child.resolveVisualStyle()
+            val m = cs.margin
             val childX = cursorX + m.left
             val childY = contentY + m.top
-            val childW = child.measuredSize.width.coerceAtLeast(1)
+            val childW = if (totalFlexGrow > 0f && cs.flexGrow > 0f) {
+                ((remainingFlexW * (cs.flexGrow / totalFlexGrow)).roundToInt()).coerceAtLeast(child.measuredSize.width.coerceAtLeast(1))
+            } else {
+                child.measuredSize.width.coerceAtLeast(1)
+            }
             val childH = max(child.measuredSize.height, 1)
             arrangeNode(child, Rect(childX, childY, childW, childH), updateTracker)
             cursorX = childX + childW + m.right + gapPx
@@ -669,7 +679,13 @@ class AlienLayoutEngine {
         val prefix = node.componentClassPrefix.lowercase()
         val classes = node.styleSnapshot.customClasses
         val rawFlexDir = node.computedStyle?.rawDeclarations?.get("flex-direction")?.lowercase()
-        if (rawFlexDir == "column" || rawFlexDir == "column-reverse" || "flex-column" in classes) {
+        if (rawFlexDir == "column" || rawFlexDir == "column-reverse" ||
+            "flex-column" in classes ||
+            node.styleSnapshot.flexDirection == FlexDirection.COLUMN ||
+            node.styleSnapshot.flexDirection == FlexDirection.COLUMN_REVERSE ||
+            node.inlineComponentStyle?.getFlexDirection() == FlexDirection.COLUMN ||
+            node.inlineComponentStyle?.getFlexDirection() == FlexDirection.COLUMN_REVERSE
+        ) {
             return false
         }
         if (prefix == "split-pane") {
@@ -681,10 +697,14 @@ class AlienLayoutEngine {
         if ("hstack" in classes || "row" in classes || "flex-row" in classes || "btn-group" in classes || rawFlexDir == "row") {
             return true
         }
-        if (node.styleSnapshot.flexDirection == FlexDirection.ROW || node.styleSnapshot.flexDirection == FlexDirection.ROW_REVERSE) {
+        if (node.styleSnapshot.flexDirection == FlexDirection.ROW ||
+            node.styleSnapshot.flexDirection == FlexDirection.ROW_REVERSE ||
+            node.inlineComponentStyle?.getFlexDirection() == FlexDirection.ROW ||
+            node.inlineComponentStyle?.getFlexDirection() == FlexDirection.ROW_REVERSE
+        ) {
             return true
         }
-        if ((node.styleSnapshot.display == DisplayMode.FLEX || style.display == "flex") &&
+        if ((node.styleSnapshot.display == DisplayMode.FLEX || style.display == "flex" || style.display == "inline-flex") &&
             node.styleSnapshot.flexDirection == null && prefix != "vstack"
         ) {
             return true
@@ -705,12 +725,19 @@ class AlienLayoutEngine {
         if (style.display == "inline-block" || style.display == "inline" || style.floatMode != "none") return false
         val prefix = child.componentClassPrefix.lowercase()
         if (prefix == "btn" || prefix == "badge" || prefix == "spinner-border" || prefix == "form-check" || child.tagName == "img") {
-            return style.display == "block" || "w-100" in child.styleSnapshot.customClasses
+            return style.display == "block" || "w-100" in child.styleSnapshot.customClasses || child.styleSnapshot.width != null
         }
         return true
     }
 
-    private fun resolveGapPx(node: AlienWidgetNode): Int {
+    private fun resolveGapPx(
+        node: AlienWidgetNode,
+        isHorizontal: Boolean = false,
+        style: AlienResolvedVisualStyle = node.resolveVisualStyle()
+    ): Int {
+        val directionalGap = if (isHorizontal) style.columnGapPx else style.rowGapPx
+        if (directionalGap > 0f) return directionalGap.roundToInt()
+        if (style.gapPx > 0f) return style.gapPx.roundToInt()
         for (cls in node.styleSnapshot.customClasses) {
             if (cls.startsWith("gap-")) {
                 val token = cls.removePrefix("gap-")

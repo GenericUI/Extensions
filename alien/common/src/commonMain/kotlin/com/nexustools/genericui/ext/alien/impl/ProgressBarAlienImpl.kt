@@ -36,8 +36,12 @@ class ProgressBarAlienImpl(
             } else {
                 AlienBootstrapThemeTokens.SECONDARY_BG_LIGHT
             }
-            val barType = node.styleSnapshot.type ?: BootstrapType.PRIMARY
-            val fillColor = AlienBootstrapThemeTokens.baseColorForType(barType)
+            val barType = node.styleSnapshot.type?.takeIf { it.isSemantic }
+            val fillColor = if (barType != null) {
+                AlienBootstrapThemeTokens.baseColorForType(barType)
+            } else {
+                style.accentColor
+            }
             val r = 6f
 
             ctx.save()

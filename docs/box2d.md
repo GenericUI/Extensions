@@ -211,8 +211,9 @@ val physics2DPlayground = buildDiv(classes = "p-3") {
         }
     }.apply {
         style {
-            borderRadiusPx = 10f
-            borderWidthPx = 1f
+            borderRadius = com.nexustools.genericui.style.css.CssCornerRadii.px(10f)
+            borderWidth = com.nexustools.genericui.style.css.CssEdgeLengths.px(1f)
+            borderStyle = com.nexustools.genericui.enums.css.CssBorderStyle.SOLID
             borderColor = ColorRgba(71, 85, 105, 1.0)
         }
     }

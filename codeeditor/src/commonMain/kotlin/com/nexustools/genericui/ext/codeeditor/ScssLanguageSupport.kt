@@ -34,8 +34,6 @@ object ScssLanguageSupport {
         "max-width",
         "max-height",
         "opacity",
-        "tint",
-        "-genericui-tint",
         "accent-color",
         "transform",
         "transition",

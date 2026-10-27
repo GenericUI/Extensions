@@ -4,6 +4,7 @@ import com.nexustools.genericui.component.media.Canvas2D
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.ext.alien.impl.AlienUnderlayExtensionSlotNode
 import com.nexustools.genericui.geometry.Rect
+import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 
 /**
  * Active rendering, layout, animation, and underlay-compositing session for a root [AlienContainer]
@@ -52,6 +53,20 @@ class AlienRenderSession(
     val repaintManager: AlienRepaintManager = AlienRepaintManager()
     val eventDispatcher: AlienEventDispatcher = AlienEventDispatcher(this)
     val alienFactory: AlienFactory = AlienFactory(hostFactory = hostFactory, session = this)
+
+    val styleSheets: MutableList<PrecompiledStyleSheet> = mutableListOf(AlienPrecompiledBootstrapStyleSheet)
+
+    var insertApplicationStyleSheets: Int = 1
+
+    val hasBootstrapStyleSheet: Boolean
+        get() = styleSheets.any {
+            it === AlienPrecompiledBootstrapStyleSheet ||
+                it.cssResourcePath.equals(AlienPrecompiledBootstrapStyleSheet.cssResourcePath, ignoreCase = true) ||
+                it.name.equals(AlienPrecompiledBootstrapStyleSheet.name, ignoreCase = true)
+        }
+
+    val customStyleSheets: List<PrecompiledStyleSheet>
+        get() = styleSheets.filter { it !== AlienPrecompiledBootstrapStyleSheet }
 
     private val _underlaySlots = mutableListOf<AlienUnderlayExtensionSlotNode>()
     val underlaySlots: List<AlienUnderlayExtensionSlotNode>

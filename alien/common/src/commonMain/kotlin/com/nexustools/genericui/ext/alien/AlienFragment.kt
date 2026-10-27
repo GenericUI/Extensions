@@ -5,9 +5,9 @@ import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
+import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
-import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 
 /**
  * Self-rendering Bootstrap 5.3 [Fragment] powered by `:extensions:canvas2d` and [AlienRepaintManager]
@@ -21,14 +21,126 @@ import com.nexustools.genericui.style.mapper.BootstrapClassMapper
  *   and the `Canvas2D` cuts a transparent hole with mouse/pointer passthrough or draws higher-Z Alien
  *   components on top of them.
  */
-abstract class AlienFragment : Fragment() {
+abstract class AlienFragment : Fragment(), IAlien {
 
     var renderSession: AlienRenderSession? = null
         private set
 
+    private val activeStyleSheets: MutableList<PrecompiledStyleSheet> =
+        mutableListOf(AlienPrecompiledBootstrapStyleSheet)
+
+    override var insertApplicationStyleSheets: Int = 1
+        set(value) {
+            if (field != value) {
+                field = value
+                renderSession?.let {
+                    syncRootNodeState(it)
+                    it.requestLayoutAndRepaint()
+                }
+            }
+        }
+
     init {
         htmlTag = "genericui:alien-fragment"
+        AlienPrecompiledBootstrapStyleSheet.ensureRegistered()
     }
+
+    override fun addStyleSheet(styleSheetPath: String) {
+        val resolved = AlienPrecompiledBootstrapStyleSheet.resolveSheetByPath(styleSheetPath) ?: return
+        addStyleSheet(resolved)
+    }
+
+    override fun addStyleSheet(styleSheetResourceId: ResourceID) {
+        val resolved = AlienPrecompiledBootstrapStyleSheet.resolveSheetByResourceId(styleSheetResourceId) ?: return
+        addStyleSheet(resolved)
+    }
+
+    override fun addStyleSheet(styleSheet: PrecompiledStyleSheet) {
+        if (activeStyleSheets.none { it === styleSheet || it.name == styleSheet.name }) {
+            if (styleSheet === AlienPrecompiledBootstrapStyleSheet ||
+                styleSheet.name.equals(AlienPrecompiledBootstrapStyleSheet.name, ignoreCase = true)
+            ) {
+                activeStyleSheets.add(0, styleSheet)
+            } else {
+                activeStyleSheets.add(styleSheet)
+            }
+            renderSession?.let {
+                syncRootNodeState(it)
+                it.requestLayoutAndRepaint()
+            }
+        }
+    }
+
+    override fun addStyleSheet(styleSheet: CssStyleSheet) {
+        if (activeStyleSheets.none { it.styleSheet === styleSheet }) {
+            activeStyleSheets.add(AlienPrecompiledBootstrapStyleSheet.wrapCssStyleSheet(styleSheet))
+            renderSession?.let {
+                syncRootNodeState(it)
+                it.requestLayoutAndRepaint()
+            }
+        }
+    }
+
+    override fun removeStyleSheet(styleSheetPath: String): Boolean {
+        val removed = activeStyleSheets.removeAll {
+            AlienPrecompiledBootstrapStyleSheet.matchesPath(it, styleSheetPath)
+        }
+        if (removed) {
+            renderSession?.let {
+                syncRootNodeState(it)
+                it.requestLayoutAndRepaint()
+            }
+        }
+        return removed
+    }
+
+    override fun removeStyleSheet(styleSheetResourceId: ResourceID): Boolean {
+        val removed = activeStyleSheets.removeAll {
+            AlienPrecompiledBootstrapStyleSheet.matchesResourceId(it, styleSheetResourceId)
+        }
+        if (removed) {
+            renderSession?.let {
+                syncRootNodeState(it)
+                it.requestLayoutAndRepaint()
+            }
+        }
+        return removed
+    }
+
+    override fun removeStyleSheet(styleSheet: PrecompiledStyleSheet): Boolean {
+        val removed = activeStyleSheets.removeAll { it === styleSheet || it.name == styleSheet.name }
+        if (removed) {
+            renderSession?.let {
+                syncRootNodeState(it)
+                it.requestLayoutAndRepaint()
+            }
+        }
+        return removed
+    }
+
+    override fun removeStyleSheet(styleSheet: CssStyleSheet): Boolean {
+        val removed = activeStyleSheets.removeAll { it.styleSheet === styleSheet }
+        if (removed) {
+            renderSession?.let {
+                syncRootNodeState(it)
+                it.requestLayoutAndRepaint()
+            }
+        }
+        return removed
+    }
+
+    override fun hasStyleSheet(styleSheetPath: String): Boolean =
+        activeStyleSheets.any { AlienPrecompiledBootstrapStyleSheet.matchesPath(it, styleSheetPath) }
+
+    override fun hasStyleSheet(styleSheetResourceId: ResourceID): Boolean =
+        activeStyleSheets.any { AlienPrecompiledBootstrapStyleSheet.matchesResourceId(it, styleSheetResourceId) }
+
+    override fun hasStyleSheet(styleSheet: PrecompiledStyleSheet): Boolean =
+        activeStyleSheets.any { it === styleSheet || it.name == styleSheet.name }
+
+    override fun getStyleSheets(): List<PrecompiledStyleSheet> = activeStyleSheets.toList()
+
+    override fun getStyleSheetPaths(): List<String> = activeStyleSheets.map { it.cssResourcePath }
 
     fun getOrCreateRenderSession(): AlienRenderSession? {
         if (AlienExtension.platformBridge.isWebPassThrough) return null
@@ -55,12 +167,23 @@ abstract class AlienFragment : Fragment() {
     }
 
     private fun syncRootNodeState(session: AlienRenderSession) {
+        session.insertApplicationStyleSheets = insertApplicationStyleSheets
+        session.styleSheets.clear()
+        session.styleSheets.addAll(activeStyleSheets)
         session.rootNode.tagName = htmlTag
-        session.rootNode.styleSnapshot = BootstrapClassMapper.fromClassString(
-            getClass(),
-            "alien-root"
+        val snap = getBootstrap().toStyleSnapshot()
+        session.rootNode.styleSnapshot = snap.copy(
+            componentPrefix = "alien-root",
+            customClasses = LinkedHashSet(getClasses())
         )
-        computedStyle?.let { session.rootNode.computedStyle = it }
+        if (!getStyle().isEmpty()) {
+            session.rootNode.inlineComponentStyle = getStyle()
+        }
+        if (insertApplicationStyleSheets < 0) {
+            session.rootNode.computedStyle = null
+        } else {
+            computedStyle?.let { session.rootNode.computedStyle = it }
+        }
     }
 
     override fun onAttachNative(impl: NativeImpl<*>) {
@@ -72,7 +195,9 @@ abstract class AlienFragment : Fragment() {
     }
 
     override fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int) {
-        super.applyStyleSheet(styleSheet, viewportWidthPx)
+        if (insertApplicationStyleSheets >= 0 || activeStyleSheets.any { it.styleSheet === styleSheet }) {
+            super.applyStyleSheet(styleSheet, viewportWidthPx)
+        }
         renderSession?.let {
             syncRootNodeState(it)
             it.requestLayoutAndRepaint()
@@ -80,7 +205,9 @@ abstract class AlienFragment : Fragment() {
     }
 
     override fun applyPrecompiledStyleSheet(precompiled: PrecompiledStyleSheet, viewportWidthPx: Int) {
-        super.applyPrecompiledStyleSheet(precompiled, viewportWidthPx)
+        if (insertApplicationStyleSheets >= 0 || hasStyleSheet(precompiled)) {
+            super.applyPrecompiledStyleSheet(precompiled, viewportWidthPx)
+        }
         renderSession?.let {
             syncRootNodeState(it)
             it.requestLayoutAndRepaint()
@@ -136,7 +263,7 @@ abstract class AlienFragment : Fragment() {
     /**
      * Triggers an immediate animation/layout/dirty-region repaint pass on System targets.
      */
-    fun repaintAlien(deltaMs: Float = 16.67f) {
+    override fun repaintAlien(deltaMs: Float) {
         if (nativeImpl == null && !AlienExtension.platformBridge.isWebPassThrough && resolveActiveFactory() != null) {
             runCatching { ensureNativeImpl() }
         }

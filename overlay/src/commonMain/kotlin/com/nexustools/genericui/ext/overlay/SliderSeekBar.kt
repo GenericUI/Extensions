@@ -105,8 +105,10 @@ open class SliderSeekBar(
 
     private fun applyThemeColor() {
         val resolvedColor = GradientScrim.parseOverlayColor(effectiveThemeColorHex) ?: RgbaColor.PRIMARY_BLUE
-        tint = resolvedColor
-        slider.tint = resolvedColor
+        getStyle().setAccentColor(resolvedColor)
+        getStyle().setBackgroundColor(resolvedColor)
+        slider.getStyle().setAccentColor(resolvedColor)
+        slider.getStyle().setBackgroundColor(resolvedColor)
     }
 
     fun clampSeekTarget(targetSec: Double, durationSec: Double = currentState.durationSec): Double {

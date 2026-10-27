@@ -1,7 +1,11 @@
 package com.nexustools.genericui.ext.alien
 
+import com.nexustools.genericui.enums.bootstrap.*
+import com.nexustools.genericui.enums.css.*
+import com.nexustools.genericui.enums.ui.ObjectFit
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.*
 import com.nexustools.genericui.style.gradient.Gradient
 import com.nexustools.genericui.style.transition.CssTransform2D
 
@@ -10,33 +14,46 @@ import com.nexustools.genericui.style.transition.CssTransform2D
  * 1. Inherited CSS custom properties (`--bs-*`) and inherited typography/color/shadow properties,
  * 2. Browser-identical Bootstrap 5.3 component defaults (`btn`, `form-control`, `card`, `alert`, `badge`, `nav-tabs`, etc.),
  * 3. `BootstrapStyleSnapshot` enums (`BootstrapType`, `BootstrapSize`, `BorderRadiusStyle`, `ShadowElevation`, etc.),
- * 4. Custom CSS/SASS `ComputedStyle` rules and interactive `:hover` / `:focus` / `:active` / `:disabled` states, and
+ * 4. Custom CSS/SASS `ComputedStyle` rules, inline `ComponentStyle`, and interactive `:hover` / `:focus` / `:active` / `:disabled` states, and
  * 5. Active CSS transition/keyframe interpolations (`AlienTransitionAnimator`).
  */
 data class AlienResolvedVisualStyle(
     val backgroundColor: RgbaColor = RgbaColor.TRANSPARENT,
     val backgroundGradient: Gradient? = null,
+    val backgroundImage: CssBackgroundImage? = null,
     var backgroundImageUrl: String? = null,
     var backgroundRepeat: String = "repeat",
     var backgroundPosition: String = "center",
     var backgroundSize: String = "auto",
+    val backgroundClip: CssBackgroundClip = CssBackgroundClip.BORDER_BOX,
+    val backgroundOrigin: CssBackgroundOrigin = CssBackgroundOrigin.PADDING_BOX,
+    val backgroundAttachment: CssBackgroundAttachment = CssBackgroundAttachment.SCROLL,
     val textColor: RgbaColor = AlienBootstrapThemeTokens.BODY_COLOR_LIGHT,
+    val accentColor: RgbaColor = AlienBootstrapThemeTokens.PRIMARY,
     val borderColor: RgbaColor = RgbaColor.TRANSPARENT,
     val borderWidthPx: Float = 0f,
     val borderStyle: String = "solid",
     val borderRadiusPx: Float = 0f,
     val borderRadiusPercent: Float? = null,
+    val cornerRadii: CssCornerRadii? = null,
     val fontSizePx: Float = AlienBootstrapThemeTokens.BASE_FONT_SIZE_PX,
     val fontFamily: String = AlienBootstrapThemeTokens.DEFAULT_FONT_FAMILY,
     val fontWeight: Int = 400,
     val italic: Boolean = false,
+    val lineHeightPx: Float? = null,
+    val letterSpacingPx: Float = 0f,
     val textAlign: String = "left",
+    val textDecoration: CssTextDecoration = CssTextDecoration.NONE,
     val textTransform: String = "none",
     val textOverflow: String = "clip",
     val whiteSpace: String = "normal",
+    val wordBreak: CssWordBreak = CssWordBreak.NORMAL,
+    val verticalAlign: CssVerticalAlign = CssVerticalAlign.BASELINE,
     val opacity: Float = 1.0f,
     val boxShadowCss: String? = null,
+    val boxShadowList: CssShadowList? = null,
     val textShadowCss: String? = null,
+    val textShadow: CssShadow? = null,
     val focusRingColor: RgbaColor? = null,
     val focusRingSpreadPx: Float = 0f,
     val padding: EdgeInsets = EdgeInsets.ZERO,
@@ -44,6 +61,7 @@ data class AlienResolvedVisualStyle(
     val marginLeftAuto: Boolean = false,
     val marginRightAuto: Boolean = false,
     val display: String = "block",
+    val visible: Boolean = true,
     val position: String = "static",
     val leftCss: String? = null,
     val topCss: String? = null,
@@ -55,10 +73,31 @@ data class AlienResolvedVisualStyle(
     val minHeightCss: String? = null,
     val maxWidthCss: String? = null,
     val maxHeightCss: String? = null,
+    val boxSizing: CssBoxSizing = CssBoxSizing.BORDER_BOX,
     val aspectRatio: Float? = null,
+    val objectFit: ObjectFit = ObjectFit.FILL,
+    val overflow: OverflowBehavior = OverflowBehavior.VISIBLE,
+    val overflowX: OverflowBehavior = OverflowBehavior.VISIBLE,
+    val overflowY: OverflowBehavior = OverflowBehavior.VISIBLE,
+    val flexDirection: FlexDirection = FlexDirection.ROW,
+    val flexWrap: FlexWrap = FlexWrap.NOWRAP,
+    val justifyContent: JustifyContent = JustifyContent.START,
+    val alignItems: AlignItems = AlignItems.STRETCH,
+    val alignSelf: AlignSelf = AlignSelf.AUTO,
+    val alignContent: CssAlignContent = CssAlignContent.STRETCH,
     val flexGrow: Float = 0f,
+    val flexShrink: Float = 1f,
+    val flexBasisCss: String? = null,
+    val gapPx: Float = 0f,
+    val rowGapPx: Float = 0f,
+    val columnGapPx: Float = 0f,
     val floatMode: String = "none",
+    val clearMode: String = "none",
+    val cursor: CssCursorValue = CssCursor.DEFAULT,
+    val userSelect: CssUserSelect = CssUserSelect.AUTO,
     val transform2D: CssTransform2D = CssTransform2D.IDENTITY,
+    val filter: CssFilter? = null,
+    val backdropFilter: CssFilter? = null,
     val zIndex: Int = 0,
     val pointerEventsEnabled: Boolean = true,
     val darkTheme: Boolean = false

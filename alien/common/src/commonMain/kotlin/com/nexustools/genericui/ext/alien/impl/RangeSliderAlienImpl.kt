@@ -54,12 +54,12 @@ class RangeSliderAlienImpl(
 
             // Active fill
             if (fraction > 0f) {
-                ctx.setFillColor(AlienBootstrapThemeTokens.PRIMARY.withAlpha(0.75f))
+                ctx.setFillColor(style.accentColor.withAlpha(0.75f))
                 AlienBootstrapPainter.fillRoundedRect(ctx, trackX, trackY, trackW * fraction, trackH, 4f)
             }
 
-            // Thumb (`1rem` circle `#0d6efd`)
-            ctx.setFillColor(AlienBootstrapThemeTokens.PRIMARY)
+            // Thumb (`1rem` circle `#0d6efd` or custom `accent-color`)
+            ctx.setFillColor(style.accentColor)
             AlienBootstrapPainter.fillRoundedRect(
                 ctx,
                 thumbCx - thumbR,

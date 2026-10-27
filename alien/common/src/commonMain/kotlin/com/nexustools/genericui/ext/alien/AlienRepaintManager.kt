@@ -132,7 +132,8 @@ class AlienRepaintManager(
         val style = node.resolveVisualStyle()
         if (style.display == "none") return
 
-        val effectiveOpacity = (style.opacity * inheritedOpacity).coerceIn(0f, 1f)
+        val filterOpacity = style.filter?.opacity?.coerceIn(0f, 1f) ?: 1f
+        val effectiveOpacity = (style.opacity * filterOpacity * inheritedOpacity).coerceIn(0f, 1f)
         if (effectiveOpacity <= 0.001f) return
 
         val transform = style.transform2D
@@ -188,7 +189,7 @@ class AlienRepaintManager(
             style
         }
 
-        if (rectsIntersect(node.bounds, clipRegion) || transform.scaleX != 1f || transform.scaleY != 1f) {
+        if (style.visible && (rectsIntersect(node.bounds, clipRegion) || transform.scaleX != 1f || transform.scaleY != 1f)) {
             // Paint standard Bootstrap 5.3 box surface (shadow, focus ring, background/gradient, border)
             AlienBootstrapPainter.paintBoxSurface(ctx, node.bounds, effectiveStyle)
 

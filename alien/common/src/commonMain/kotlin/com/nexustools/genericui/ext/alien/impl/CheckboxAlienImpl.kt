@@ -48,14 +48,14 @@ class CheckboxAlienImpl(
 
             ctx.save()
             val fillColor = if (node.checkedState) {
-                AlienBootstrapThemeTokens.PRIMARY
+                style.accentColor
             } else if (style.darkTheme) {
                 AlienBootstrapThemeTokens.BODY_BG_DARK
             } else {
                 AlienBootstrapThemeTokens.BODY_BG_LIGHT
             }
             val strokeColor = if (node.checkedState) {
-                AlienBootstrapThemeTokens.PRIMARY
+                style.accentColor
             } else if (style.darkTheme) {
                 AlienBootstrapThemeTokens.BORDER_COLOR_DARK
             } else {

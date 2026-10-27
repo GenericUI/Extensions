@@ -1,10 +1,12 @@
 package com.nexustools.genericui.ext.alien
 
+import com.nexustools.genericui.enums.css.CssTextDecoration
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.cache.ImageCacheManager
 import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.CssShadowList
 import com.nexustools.genericui.style.gradient.LinearGradient
 import com.nexustools.genericui.style.gradient.RadialGradient
 import kotlin.math.cos
@@ -74,10 +76,11 @@ object AlienBootstrapPainter {
         val y = bounds.y.toFloat()
         val w = bounds.width.toFloat()
         val h = bounds.height.toFloat()
-        val baseRadius = if (style.borderRadiusPercent != null) {
-            (style.borderRadiusPercent / 100f) * min(w, h)
-        } else {
-            style.borderRadiusPx
+        val baseRadius = when {
+            style.borderRadiusPercent != null -> (style.borderRadiusPercent / 100f) * min(w, h)
+            style.borderRadiusPx > 0f -> style.borderRadiusPx
+            style.cornerRadii != null -> style.cornerRadii.topLeft.resolvePx(min(w, h), 16f, style.fontSizePx) ?: 0f
+            else -> 0f
         }
         val r = min(baseRadius.coerceAtLeast(0f), min(w, h) * 0.5f)
 
@@ -93,7 +96,10 @@ object AlienBootstrapPainter {
         }
 
         // 2. Box Shadow (`shadow-sm`, `shadow`, `shadow-lg`, or custom CSS `box-shadow`)
-        if (!style.boxShadowCss.isNullOrBlank() && !style.boxShadowCss.equals("none", ignoreCase = true)) {
+        val shadowList = style.boxShadowList
+        if (shadowList != null && !shadowList.isNone && shadowList.shadows.isNotEmpty()) {
+            paintTypedBoxShadows(ctx, x, y, w, h, r, shadowList, style.fontSizePx)
+        } else if (!style.boxShadowCss.isNullOrBlank() && !style.boxShadowCss.equals("none", ignoreCase = true)) {
             paintSoftBoxShadow(ctx, x, y, w, h, r, style.boxShadowCss)
         }
 
@@ -306,7 +312,17 @@ object AlienBootstrapPainter {
         ctx.setFillColor(style.textColor)
 
         // Apply CSS `text-shadow` if specified (e.g. `0 0 2px #000`)
-        val parsedShadow = parseTextShadow(style.textShadowCss, style.fontSizePx)
+        val typedTextShadow = style.textShadow
+        val parsedShadow = if (typedTextShadow != null) {
+            ParsedTextShadow(
+                offsetX = typedTextShadow.offsetX.resolvePx(style.fontSizePx, 16f, style.fontSizePx) ?: 0f,
+                offsetY = typedTextShadow.offsetY.resolvePx(style.fontSizePx, 16f, style.fontSizePx) ?: 0f,
+                blurPx = (typedTextShadow.blurRadius.resolvePx(style.fontSizePx, 16f, style.fontSizePx) ?: 0f).coerceAtLeast(0f),
+                color = typedTextShadow.color
+            )
+        } else {
+            parseTextShadow(style.textShadowCss, style.fontSizePx)
+        }
         if (parsedShadow != null) {
             ctx.setShadow(
                 blur = parsedShadow.blurPx,
@@ -339,9 +355,11 @@ object AlienBootstrapPainter {
                 contentBounds.y + style.fontSizePx
             }
             ctx.fillText(displayLine, drawX, drawY)
+            paintTextDecorationLine(ctx, drawX, drawY, measuredW, style.fontSizePx, style.textDecoration)
         } else {
             val lines = wrapTextLines(ctx, transformed, maxW, maxLines)
-            val lineHeight = (style.fontSizePx * 1.35f).coerceAtLeast(style.fontSizePx + 2f)
+            val lineHeight = style.lineHeightPx?.coerceAtLeast(style.fontSizePx)
+                ?: (style.fontSizePx * 1.35f).coerceAtLeast(style.fontSizePx + 2f)
             val totalBlockH = lines.size * lineHeight
             var cursorY = if (verticalCenter && totalBlockH < contentBounds.height) {
                 contentBounds.y + (contentBounds.height - totalBlockH) * 0.5f + style.fontSizePx * 0.85f
@@ -356,6 +374,7 @@ object AlienBootstrapPainter {
                     else -> contentBounds.x.toFloat()
                 }
                 ctx.fillText(line, drawX, cursorY)
+                paintTextDecorationLine(ctx, drawX, cursorY, measuredW, style.fontSizePx, style.textDecoration)
                 cursorY += lineHeight
             }
         }
@@ -395,6 +414,53 @@ object AlienBootstrapPainter {
             ctx.beginPath()
             ctx.roundRect(x, y, w, h, radius)
             ctx.stroke()
+        }
+    }
+
+    private fun paintTextDecorationLine(
+        ctx: ImageBuffer2DContext,
+        drawX: Float,
+        baselineY: Float,
+        width: Float,
+        fontSizePx: Float,
+        decoration: CssTextDecoration
+    ) {
+        if (decoration == CssTextDecoration.NONE || width <= 0f) return
+        val lineY = when (decoration) {
+            CssTextDecoration.UNDERLINE -> baselineY + 2f
+            CssTextDecoration.LINE_THROUGH -> baselineY - fontSizePx * 0.3f
+            CssTextDecoration.OVERLINE -> baselineY - fontSizePx * 0.85f
+            CssTextDecoration.NONE -> return
+        }
+        ctx.fillRect(drawX, lineY, width, 1f)
+    }
+
+    private fun paintTypedBoxShadows(
+        ctx: ImageBuffer2DContext,
+        x: Float,
+        y: Float,
+        w: Float,
+        h: Float,
+        r: Float,
+        shadowList: CssShadowList,
+        fontSizePx: Float
+    ) {
+        for (shadow in shadowList.shadows) {
+            if (shadow.inset) continue
+            val ox = shadow.offsetX.resolvePx(fontSizePx, 16f, fontSizePx) ?: 0f
+            val oy = shadow.offsetY.resolvePx(fontSizePx, 16f, fontSizePx) ?: 0f
+            val blur = (shadow.blurRadius.resolvePx(fontSizePx, 16f, fontSizePx) ?: 0f).coerceAtLeast(0f)
+            val spread = shadow.spreadRadius.resolvePx(fontSizePx, 16f, fontSizePx) ?: 0f
+            val expand = spread + blur * 0.35f
+            ctx.setFillColor(shadow.color)
+            fillRoundedRect(
+                ctx,
+                x + ox - expand,
+                y + oy - expand,
+                (w + expand * 2f).coerceAtLeast(0f),
+                (h + expand * 2f).coerceAtLeast(0f),
+                (r + expand).coerceAtLeast(0f)
+            )
         }
     }
 

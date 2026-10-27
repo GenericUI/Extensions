@@ -7,8 +7,8 @@ import com.nexustools.genericui.ext.aichat.AiChatSession
 import com.nexustools.genericui.ext.aichat.AiQuickPromptChip
 import com.nexustools.genericui.ext.aichat.ReasoningEffort
 import com.nexustools.genericui.ext.dsl.GenericUiDslMarker
-import com.nexustools.genericui.style.state.ComponentRuleScope
-import com.nexustools.genericui.style.state.ComponentStyleBlock
+import com.nexustools.genericui.style.bootstrap.ComponentBootstrap
+import com.nexustools.genericui.style.css.ComponentStyle
 
 /**
  * Fluent DSL configuration scope for an [AiChatContainer] and its backing [AiChatSession].
@@ -158,18 +158,16 @@ class AiChatDslConfigScope(
     }
 
     /**
-     * Applies declarative component styles and pseudo-class states to the [AiChatContainer].
+     * Applies inline CSS component styles (`ComponentStyle`) to the [AiChatContainer].
      */
-    fun style(block: ComponentStyleBlock.() -> Unit) {
-        container.style(block)
+    fun style(block: (@GenericUiDslMarker ComponentStyle).() -> Unit) {
+        container.getStyle().block()
     }
 
     /**
-     * Applies a selector-scoped style rule to descendants of the [AiChatContainer].
+     * Applies Bootstrap 5 design-system utilities (`ComponentBootstrap`) to the [AiChatContainer].
      */
-    operator fun String.invoke(block: ComponentRuleScope.() -> Unit) {
-        with(container) {
-            this@invoke.invoke(block)
-        }
+    fun bootstrap(block: (@GenericUiDslMarker ComponentBootstrap).() -> Unit) {
+        container.getBootstrap().block()
     }
 }

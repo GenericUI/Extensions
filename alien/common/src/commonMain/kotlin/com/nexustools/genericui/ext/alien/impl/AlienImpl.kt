@@ -11,10 +11,11 @@ import com.nexustools.genericui.ext.alien.AlienWidgetNode
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
-import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.bootstrap.ComponentBootstrap
+import com.nexustools.genericui.style.css.ComponentStyle
 import com.nexustools.genericui.style.css.ComputedStyle
+import com.nexustools.genericui.style.css.CssCursorValue
 import com.nexustools.genericui.style.gradient.Gradient
-import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 import com.nexustools.genericui.style.transition.CssTransitionSpec
 
 /**
@@ -41,27 +42,53 @@ abstract class AlienImpl(
     override val nativeWidget: Any?
         get() = node
 
-    // String-based CSS Class API
+    // String-based CSS Class API (strictly isolated to customClasses; Bootstrap enum classes are invisible here)
     override fun setClass(className: String) {
-        node.styleSnapshot = BootstrapClassMapper.fromClassString(className, componentClassPrefix)
+        val tokens = className.trim()
+            .split(Regex("\\s+"))
+            .filter { it.isNotEmpty() }
+        node.styleSnapshot = node.styleSnapshot.copy(
+            customClasses = LinkedHashSet(tokens)
+        )
         node.markLayoutDirty()
+        node.invalidateBounds()
     }
 
-    override fun getClass(): String = BootstrapClassMapper.toClassString(node.styleSnapshot)
+    override fun getClass(): String =
+        node.styleSnapshot.customClasses.joinToString(" ")
+
+    override fun getClasses(): Set<String> =
+        node.styleSnapshot.customClasses.toSet()
 
     override fun addClass(className: String) {
-        val combined = (getClass() + " " + className).trim()
-        setClass(combined)
+        val tokens = className.trim()
+            .split(Regex("\\s+"))
+            .filter { it.isNotEmpty() }
+        if (tokens.isEmpty()) return
+        val updated = LinkedHashSet(node.styleSnapshot.customClasses)
+        updated.addAll(tokens)
+        node.styleSnapshot = node.styleSnapshot.copy(customClasses = updated)
+        node.markLayoutDirty()
+        node.invalidateBounds()
     }
 
     override fun removeClass(className: String) {
-        val toRemove = className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.toSet()
-        val remaining = BootstrapClassMapper.toClassTokens(node.styleSnapshot).filter { it !in toRemove }
-        setClass(remaining.joinToString(" "))
+        val toRemove = className.trim()
+            .split(Regex("\\s+"))
+            .filter { it.isNotEmpty() }
+            .toSet()
+        if (toRemove.isEmpty()) return
+        val updated = LinkedHashSet(node.styleSnapshot.customClasses)
+        updated.removeAll(toRemove)
+        node.styleSnapshot = node.styleSnapshot.copy(customClasses = updated)
+        node.markLayoutDirty()
+        node.invalidateBounds()
     }
 
-    override fun hasClass(className: String): Boolean =
-        className.trim() in BootstrapClassMapper.toClassTokens(node.styleSnapshot)
+    override fun hasClass(className: String): Boolean {
+        val trimmed = className.trim()
+        return trimmed.isNotEmpty() && trimmed in node.styleSnapshot.customClasses
+    }
 
     // Bootstrap Enum Helper API
     override fun setType(type: BootstrapType?) {
@@ -318,6 +345,7 @@ abstract class AlienImpl(
 
     override fun applyComputedStyle(style: ComputedStyle) {
         node.computedStyle = style
+        style.customCursor?.let { node.customCursor = it }
         style.transition?.let { raw ->
             node.transitionAnimator.configureTransitions(CssTransitionSpec.parseList(raw))
         }
@@ -325,12 +353,33 @@ abstract class AlienImpl(
         node.invalidateBounds()
     }
 
-    override fun setTint(tint: RgbaColor?) {
-        node.tint = tint
+    override fun applyComponentStyle(style: ComponentStyle) {
+        node.inlineComponentStyle = style
+        style.getBackgroundImage()?.gradient?.let { node.backgroundGradient = it }
+        style.getOpacity()?.let { node.opacity = it.coerceIn(0f, 1f) }
+        style.getCursor()?.let { node.customCursor = it }
+        val specs = style.getTransitions()
+        if (!specs.isNullOrEmpty()) {
+            node.transitionAnimator.configureTransitions(specs)
+        }
+        node.markLayoutDirty()
         node.invalidateBounds()
     }
 
-    override fun getTint(): RgbaColor? = node.tint
+    override fun applyComponentBootstrap(bootstrap: ComponentBootstrap) {
+        val snap = bootstrap.toStyleSnapshot()
+        node.styleSnapshot = snap.copy(
+            componentPrefix = componentClassPrefix.ifEmpty { node.styleSnapshot.componentPrefix },
+            customClasses = node.styleSnapshot.customClasses
+        )
+        node.markLayoutDirty()
+        node.invalidateBounds()
+    }
+
+    override fun setCustomCursor(cursor: CssCursorValue?) {
+        node.customCursor = cursor
+        node.invalidateBounds()
+    }
 
     override fun setBackgroundGradient(gradient: Gradient?) {
         node.backgroundGradient = gradient

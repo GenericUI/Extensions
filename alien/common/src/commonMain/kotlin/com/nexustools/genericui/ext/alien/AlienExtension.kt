@@ -5,11 +5,16 @@ import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.ext.alien.impl.AlienHostCanvasContainerAlienImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
+import com.nexustools.genericui.resources.ResourceID
 
 /**
  * Global registry and configuration entry point for `:extensions:alien`.
  */
 object AlienExtension {
+
+    val BOOTSTRAP_STYLE_SHEET_ID: ResourceID = IAlien.BOOTSTRAP_STYLE_SHEET_ID
+
+    val BOOTSTRAP_RESOURCE_ID: ResourceID = IAlien.BOOTSTRAP_RESOURCE_ID
 
     private val defaultSystemBridge: AlienPlatformBridge = object : AlienPlatformBridge {
         override val isWebPassThrough: Boolean = false

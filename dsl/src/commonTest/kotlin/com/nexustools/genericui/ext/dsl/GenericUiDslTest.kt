@@ -20,8 +20,16 @@ import com.nexustools.genericui.component.typography.Heading
 import com.nexustools.genericui.component.typography.Text
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
+import com.nexustools.genericui.enums.bootstrap.BootstrapWidth
+import com.nexustools.genericui.enums.bootstrap.DisplayMode
+import com.nexustools.genericui.enums.bootstrap.SpacingScale
+import com.nexustools.genericui.enums.css.CssCursor
+import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.CssCornerRadii
+import com.nexustools.genericui.style.css.CssLength
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -198,5 +206,57 @@ class GenericUiDslTest {
         val gridTree = root.children[4] as com.nexustools.genericui.component.lazy.LazyGridTree<*>
         assertEquals("genericui:lazygridtree", gridTree.htmlTag)
         assertEquals("inspector-tree", gridTree.id)
+    }
+
+    @Test
+    fun testDslComponentStyleAndBootstrapIntegration() {
+        val root = buildDiv(classes = "user-root") {
+            bootstrap {
+                display = DisplayMode.FLEX
+                padding = SpacingScale.S3
+                width = BootstrapWidth.W_100
+            }
+            style {
+                backgroundColor = RgbaColor.fromHex("#0f172a")
+                borderRadius = CssCornerRadii.px(8f)
+                important {
+                    width = CssLength.px(640f)
+                }
+            }
+            button("Apply", classes = "apply-action") {
+                bootstrap {
+                    type = BootstrapType.DANGER
+                    size = BootstrapSize.LG
+                    outline = true
+                    width = BootstrapWidth.W_50
+                }
+                style {
+                    cursor = CssCursor.POINTER
+                    accentColor = RgbaColor.fromHex("#38bdf8")
+                }
+            }
+        }
+
+        assertEquals(setOf("user-root"), root.getClasses())
+        assertFalse(root.hasClass("d-flex"))
+        assertFalse(root.hasClass("p-3"))
+        assertFalse(root.hasClass("w-100"))
+        assertEquals(DisplayMode.FLEX, root.getBootstrap().display)
+        assertEquals(SpacingScale.S3, root.getBootstrap().padding)
+        assertEquals(BootstrapWidth.W_100, root.getBootstrap().width)
+        assertEquals(RgbaColor.fromHex("#0f172a"), root.getStyle().backgroundColor)
+        assertEquals(640f, root.getStyle().width?.value)
+
+        val btn = assertIs<Button>(root.children[0])
+        assertEquals(setOf("apply-action"), btn.getClasses())
+        assertFalse(btn.hasClass("btn-outline-danger"))
+        assertFalse(btn.hasClass("btn-lg"))
+        assertFalse(btn.hasClass("w-50"))
+        assertEquals(BootstrapType.DANGER, btn.getBootstrap().type)
+        assertEquals(BootstrapSize.LG, btn.getBootstrap().size)
+        assertTrue(btn.getBootstrap().outline)
+        assertEquals(BootstrapWidth.W_50, btn.getBootstrap().width)
+        assertEquals(CssCursor.POINTER, btn.getStyle().cursor)
+        assertEquals(RgbaColor.fromHex("#38bdf8"), btn.getStyle().accentColor)
     }
 }

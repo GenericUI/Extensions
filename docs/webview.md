@@ -198,8 +198,9 @@ val embeddedBrowserPanel = buildDiv(classes = "p-3") {
         }
     ) {
         style {
-            borderRadiusPx = 8f
-            borderWidthPx = 1f
+            borderRadius = com.nexustools.genericui.style.css.CssCornerRadii.px(8f)
+            borderWidth = com.nexustools.genericui.style.css.CssEdgeLengths.px(1f)
+            borderStyle = com.nexustools.genericui.enums.css.CssBorderStyle.SOLID
             borderColor = ColorRgba(71, 85, 105, 1.0)
         }
     }

@@ -205,8 +205,9 @@ val physics3DViewport = buildDiv(classes = "p-3") {
         }
     }.apply {
         style {
-            borderRadiusPx = 12f
-            borderWidthPx = 1f
+            borderRadius = com.nexustools.genericui.style.css.CssCornerRadii.px(12f)
+            borderWidth = com.nexustools.genericui.style.css.CssEdgeLengths.px(1f)
+            borderStyle = com.nexustools.genericui.enums.css.CssBorderStyle.SOLID
             borderColor = ColorRgba(16, 185, 129, 0.5)
         }
     }

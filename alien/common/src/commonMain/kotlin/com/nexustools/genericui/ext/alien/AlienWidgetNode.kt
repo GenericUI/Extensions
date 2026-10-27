@@ -10,11 +10,13 @@ import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.image.ImageBuffer
-import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.ComponentStyle
 import com.nexustools.genericui.style.css.ComputedStyle
+import com.nexustools.genericui.style.css.CssCursorValue
 import com.nexustools.genericui.style.gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
 import com.nexustools.genericui.style.transition.ContainerAnimationFrameState
+import com.nexustools.genericui.style.transition.CssTransitionSpec
 
 /**
  * Retained scene-graph node (`W` in `NativeImpl<AlienWidgetNode>`) for an [AlienImpl] or
@@ -45,7 +47,9 @@ class AlienWidgetNode(
 
     // Style & State
     var styleSnapshot: BootstrapStyleSnapshot = BootstrapStyleSnapshot(componentPrefix = componentClassPrefix)
+    var inlineComponentStyle: ComponentStyle? = null
     var computedStyle: ComputedStyle? = null
+    var customCursor: CssCursorValue? = null
     var visible: Boolean = true
     var enabled: Boolean = true
     var hoveredState: Boolean = false
@@ -59,7 +63,6 @@ class AlienWidgetNode(
     var preferredSize: Size? = null
     var padding: EdgeInsets = EdgeInsets.ZERO
     var margin: EdgeInsets = EdgeInsets.ZERO
-    var tint: RgbaColor? = null
     var backgroundGradient: Gradient? = null
 
     // Layout & Bounds
@@ -77,6 +80,9 @@ class AlienWidgetNode(
 
     // Transitions, Animations & Offscreen Container Cache
     val transitionAnimator: AlienTransitionAnimator = AlienTransitionAnimator()
+    private var lastResolvedHovered: Boolean = false
+    private var lastResolvedFocused: Boolean = false
+    private var lastResolvedActive: Boolean = false
     var hasContinuousAnimation: Boolean = false
     var hardwareLayerCacheEnabled: Boolean = false
     var cachedOffscreenBuffer: ImageBuffer? = null
@@ -112,8 +118,25 @@ class AlienWidgetNode(
         }
 
     fun resolveVisualStyle(): AlienResolvedVisualStyle {
+        val inlineSpecs = inlineComponentStyle?.getTransitions().orEmpty()
+        val computedSpecs = computedStyle?.transition?.takeIf { it.isNotBlank() }?.let { CssTransitionSpec.parseList(it) }
+            ?: emptyList()
+        if (inlineSpecs.isNotEmpty()) {
+            transitionAnimator.configureTransitions(inlineSpecs)
+        } else if (computedSpecs.isNotEmpty() && !transitionAnimator.hasConfiguredTransitions) {
+            transitionAnimator.configureTransitions(computedSpecs)
+        }
+        val interactiveChanged = lastResolvedHovered != hoveredState ||
+            lastResolvedFocused != focusedState ||
+            lastResolvedActive != activePressedState
+        lastResolvedHovered = hoveredState
+        lastResolvedFocused = focusedState
+        lastResolvedActive = activePressedState
         val target = AlienCssStyleResolver.resolve(this)
-        return transitionAnimator.resolveVisualStyleForFrame(target)
+        return transitionAnimator.resolveVisualStyleForFrame(
+            targetStyle = target,
+            enableDefaultBootstrapHoverTransition = interactiveChanged
+        )
     }
 
     fun addChild(child: AlienWidgetNode, index: Int = -1) {

@@ -32,7 +32,7 @@ class AlienEventDispatcher(
             val candidate = ordered[i]
             if (candidate === session.rootNode) continue
             val style = candidate.resolveVisualStyle()
-            if (!style.pointerEventsEnabled) continue
+            if (!style.visible || !style.pointerEventsEnabled) continue
             if (candidate.bounds.contains(px, py)) {
                 return candidate
             }

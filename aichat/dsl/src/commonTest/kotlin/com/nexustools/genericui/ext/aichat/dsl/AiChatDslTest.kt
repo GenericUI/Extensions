@@ -1,5 +1,7 @@
 package com.nexustools.genericui.ext.aichat.dsl
 
+import com.nexustools.genericui.enums.bootstrap.BorderRadiusStyle
+import com.nexustools.genericui.enums.bootstrap.ShadowElevation
 import com.nexustools.genericui.ext.aichat.AiBackendType
 import com.nexustools.genericui.ext.aichat.AiChatContainer
 import com.nexustools.genericui.ext.aichat.AiChatMessage
@@ -52,7 +54,11 @@ class AiChatDslTest {
                 onOpenToolsInspector { toolsInspectorOpened = true }
                 onClearConversation { conversationCleared = true }
                 style {
-                    tint = ColorRgba(20, 30, 45, 1.0)
+                    backgroundColor = ColorRgba(20, 30, 45, 1.0)
+                }
+                bootstrap {
+                    borderRadius = BorderRadiusStyle.LARGE
+                    shadow = ShadowElevation.SMALL
                 }
             }
 
@@ -90,6 +96,10 @@ class AiChatDslTest {
         val chat = root.children[0] as com.nexustools.genericui.ext.aichat.AiChatContainer
         assertEquals("studio-ai-chat", chat.id)
         assertTrue(chat.hasClass("custom-chat"))
+        assertEquals(BorderRadiusStyle.LARGE, chat.getBootstrap().getBorderRadius())
+        assertEquals(ShadowElevation.SMALL, chat.getBootstrap().getShadow())
+        assertFalse(chat.hasClass("rounded-3"))
+        assertEquals(ColorRgba(20, 30, 45, 1.0), chat.getStyle().getBackgroundColor())
         assertEquals(AiBackendType.ANTHROPIC, chat.session.config.backendType)
         assertEquals("claude-3-7-sonnet-latest", chat.session.config.model)
         assertEquals("You are an AI Studio assistant.", chat.session.config.systemPrompt)

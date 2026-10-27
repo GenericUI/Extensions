@@ -1,19 +1,76 @@
-# `:extensions:dsl` & Extension `:dsl` Submodules — Declarative Kotlin UI, Gradients/Styles, & MVC Architecture
+# `:extensions:dsl` & Extension `:dsl` Submodules — Declarative Kotlin UI, Strictly Isolated `style { ... }` / `bootstrap { ... }` Builders, Hybrid Layout DSL, & MVC Architecture
 
-> **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
+> **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Layouts & Responsive Helpers (`../../docs/layouts-and-helpers.md`)**](../../docs/layouts-and-helpers.md) · [**Fragments & Windows (`../../docs/fragments-and-windows.md`)**](../../docs/fragments-and-windows.md) · [**Resources (`../../docs/resources.md`)**](../../docs/resources.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:dsl` is a **Single Multiplatform Project** (`src/commonMain` across all 8 platform targets) depending **exclusively on `:common`** (`api(project(":common"))`). It provides a `kotlinx.html`-inspired in-place component builder DSL (`@GenericUiDslMarker`, `buildDiv`, `buildContainer`, `Container.build`, `div`, `row`, `col`, `hstack`, `vstack`, `flexBox`, `h1`..`h6`, `p`, `span`, `button`, `textInput`, `select { option(...) }`, `table { tr { th(...); td(...) } }`, `lazyList`, `lazyGrid`, `treeView`), inline `style { ... }` blocks with **`LinearGradient`** and **`RadialGradient`**, and first-class Model-View-Controller (**`MvcModel`**, **`MvcView<M>`**, **`MvcController<M, V>`**) reactive state binding.
+`:extensions:dsl` is a **Single Multiplatform Project** (`src/commonMain` across all 8 platform targets) depending **exclusively on `:common`** (`api(project(":common"))`). It provides:
+1. **Strictly Isolated `style { ... }`, `bootstrap { ... }`, & `important { ... }` DSL Builders (`DslStyleAndBootstrapBuilders.kt`)** — `:common` exposes only `getStyle(): ComponentStyle` and `getBootstrap(): ComponentBootstrap`; all lambda DSL builders live strictly in `:extensions:dsl`.
+2. **In-Place Component Builder DSL** (`@GenericUiDslMarker`, `buildDiv`, `buildContainer`, `Container.build`, `div`, `row`, `col`, `hstack`, `vstack`, `flexBox`, `h1`..`h6`, `p`, `span`, `button`, `textInput`, `select { option(...) }`, `table { tr { th(...); td(...) } }`, `lazyList`, `lazyGrid`, `treeView`).
+3. **Hybrid Responsive Layout DSL (`HybridLayoutDsl.kt`)** — Declarative builders for `HybridColumnLayout`, `HybridSplitNavigationLayout`, `CollapsibleBottomDockLayout`, `ResponsiveMasterDetailLayout`, `AdaptiveNavigationScaffold`, and `ResponsiveBentoGridLayout`.
+4. **Model-View-Controller (`MvcModel`, `MvcView<M>`, `MvcController<M, V>`)** reactive state binding.
 
 ---
 
-## 1. Modular `:dsl` Architecture & Automatic Gradle Wiring (12 Companion `:dsl` Submodules)
+## 1. Strictly Isolated `style { ... }`, `bootstrap { ... }`, & `important { ... }` Builders (`DslStyleAndBootstrapBuilders.kt`)
+
+> [!IMPORTANT]
+> **Strict `:extensions:dsl` Boundary**:
+> `:common` never defines DSL builder lambdas (`fun style(block: ...)` or `fun bootstrap(block: ...)`). Instead, `:common` provides `component.getStyle(): ComponentStyle` and `component.getBootstrap(): ComponentBootstrap`, while `:extensions:dsl` provides the `T.style { ... }`, `T.bootstrap { ... }`, and `ComponentStyle.important { ... }` extension functions in `DslStyleAndBootstrapBuilders.kt`.
+
+### 1.1 `T.style { ... }` & `ComponentStyle.important { ... }` (Web-Constrained W3C Inline CSS)
+- Configures `component.getStyle(): ComponentStyle` with strongly-typed W3C CSS value classes and enums:
+  - **24 CSS Enums (`com.nexustools.genericui.enums.css.*`)**: `CssUnit`, `CssDisplay`, `CssVisibility`, `CssPosition`, `CssBorderStyle`, `CssBackgroundRepeat`, `CssBackgroundAttachment`, `CssBackgroundClip`, `CssBackgroundOrigin`, `CssPositionEdge`, `CssCursor`, `CssPointerEvents`, `CssUserSelect`, `CssFontStyle`, `CssTextDecoration`, `CssWhiteSpace`, `CssWordBreak`, `CssVerticalAlign`, `CssBoxSizing`, `CssFloat`, `CssClear`, `CssGenericFontFamily`, `CssAlignContent`, `CssBackgroundSizeKeyword`.
+  - **Typed CSS Value Classes (`com.nexustools.genericui.style.css.*`)**: `CssLength`, `CssEdgeLengths`, `CssCornerRadii`, `CssBackgroundImage` (plus `background = LinearGradient(...)` / `RadialGradient(...)`), `CssBackgroundSize`, `CssBackgroundPosition`, `CssShadow`, `CssShadowList`, `CssFontFamily`, `CssAspectRatio`, `CssFilter`, and **`CssCustomCursor`** (custom PNG/SVG/`ImageBuffer` cursors with `hotspotX`, `hotspotY`, and `fallback: CssCursor`).
+  - **Standard CSS `accentColor`**: Use `accentColor = RgbaColor(...)` (`setAccentColor(color, important)`) for native/custom control accent coloring (`accent-color`).
+  - **Zero Pseudo-States on Inline `ComponentStyle`**: Because HTML `element.style` on `:web` does not support pseudo-classes (`:hover`, `:focus`, `:active`, `:disabled`, `:checked`), `ComponentStyle` contains zero pseudo-state blocks; pseudo-state rules belong in `.scss` stylesheets (`R.style.<name>` / `IApplication.addStyleSheet`).
+  - **Full `!important` Support**: Every `set<Property>(value, important = true)` method supports per-property `!important`, and `important { ... }` inside `style { ... }` marks all properties assigned within its block as `!important`.
+
+### 1.2 `T.bootstrap { ... }` (Invisible Enum-Driven Bootstrap 5 Utilities)
+- Configures `component.getBootstrap(): ComponentBootstrap` right alongside `style { ... }`:
+  - **Variant & Sizing**: `type: BootstrapType?` (defaults to **`BootstrapType.NONE`** — renders authentic OS-native controls on non-web targets when `NONE`, or applies semantic coloring to native controls when set to `PRIMARY`, `DANGER`, `SUCCESS`, `WARNING`, `INFO`, `SECONDARY`, `LIGHT`, `DARK`, `LINK`), `size: BootstrapSize?`, `outline: Boolean`, `width: BootstrapWidth?` (`W_25`, `W_50`, `W_75`, `W_100`, `W_AUTO`, `MW_100`, `VW_100`, `MIN_VW_100`), `height: BootstrapHeight?` (`H_25`, `H_50`, `H_75`, `H_100`, `H_AUTO`, `MH_100`, `VH_100`, `MIN_VH_100`).
+  - **Display & Flexbox**: `display: DisplayMode?`, `flexDirection: FlexDirection?`, `flexWrap: FlexWrap?`, `justifyContent: JustifyContent?`, `alignItems: AlignItems?`, `alignSelf: AlignSelf?`, `flexGrow: BootstrapFlexGrow?`, `flexShrink: BootstrapFlexShrink?`, `flexFill: Boolean`, `gap: SpacingScale?`, `rowGap: SpacingScale?`, `columnGap: SpacingScale?`.
+  - **Directional `SpacingScale` Margins & Paddings**: `margin`, `marginTop`, `marginBottom`, `marginStart`, `marginEnd`, `marginX`, `marginY` (including `SpacingScale.AUTO`), and `padding`, `paddingTop`, `paddingBottom`, `paddingStart`, `paddingEnd`, `paddingX`, `paddingY` (`S0`..`S5`).
+  - **Colors, Borders, Shadow, & Opacity**: `backgroundType: BootstrapType?`, `textColorType: BootstrapType?`, `borderType: BootstrapType?`, `borderWidth: BootstrapBorderWidth?` (`B0`..`B5`), `borderRadius: BorderRadiusStyle?`, `shadow: ShadowElevation?`, `opacity: BootstrapOpacity?` (`O_0`, `O_25`, `O_50`, `O_75`, `O_100`).
+  - **Typography & Layout Utilities**: `textAlignment: TextAlignment?`, `fontWeight: FontWeight?`, `fontSize: BootstrapFontSize?` (`FS_1`..`FS_6`), `lineHeight: BootstrapLineHeight?`, `textTransform: TextTransform?`, `textOverflow: TextOverflow?`, `position: PositionMode?`, `overflow: OverflowBehavior?`, `floatSide: BootstrapFloat?`, `userSelect: BootstrapUserSelect?`, `pointerEvents: BootstrapPointerEvents?`, `objectFit: BootstrapObjectFit?`, `aspectRatio: BootstrapAspectRatio?`, `visibility: BootstrapVisibility?`.
+  - **100% Invisible Enum Classes**: All Bootstrap enum utilities populate `WebDomElement.enumClassList` on `:web` and execute natively on all 7 non-web backends, remaining completely invisible to `getClasses()`, `hasClass()`, `addClass()`, and `removeClass()`.
+
+```kotlin
+import com.nexustools.genericui.enums.bootstrap.*
+import com.nexustools.genericui.enums.css.*
+import com.nexustools.genericui.ext.dsl.*
+import com.nexustools.genericui.style.css.*
+
+val saveButton = buildDiv {
+    button("Save Changes") {
+        bootstrap {
+            type = BootstrapType.PRIMARY
+            size = BootstrapSize.LG
+            width = BootstrapWidth.W_100
+            paddingX = SpacingScale.S4
+            marginBottom = SpacingScale.S3
+            shadow = ShadowElevation.SM
+        }
+        style {
+            cursor = CssCursor.POINTER
+            accentColor = ColorRgba(13, 110, 253, 1.0)
+            important {
+                borderRadius = CssCornerRadii.px(10f)
+                letterSpacing = CssLength.px(0.5f)
+            }
+        }
+    }
+}
+```
+
+---
+
+## 2. Modular `:dsl` Architecture & Automatic Gradle Wiring (12 Companion `:dsl` Submodules)
 
 To keep `:extensions:dsl` lightweight and free of unwanted transitive dependencies, `:extensions:dsl` **strictly never depends on other extensions**. Instead, each component-providing extension ships its own dedicated `:extensions:<ext>:dsl` submodule:
 
 ```mermaid
 flowchart TD
-    BaseDsl[":extensions:dsl<br/>(@GenericUiDslMarker, Container/Action/Form/Typography/Lazy Builders, MVC)"]
-    Common[":common<br/>(Core Widgets, Fragments, Style Engine, LinearGradient, RadialGradient)"]
+    BaseDsl[":extensions:dsl<br/>(@GenericUiDslMarker, style/bootstrap/important, HybridLayoutDsl, Container/Action/Form/Typography/Lazy Builders, MVC)"]
+    Common[":common<br/>(Core Widgets, ComponentStyle, ComponentBootstrap, Hybrid Responsive Layouts, PrecompiledStyleSheet)"]
 
     OverlayDsl[":extensions:overlay:dsl<br/>(overlayHostBox, presetOverlay, trackSeekBar, sliderSeekBar, ...)"]
     C2DDsl[":extensions:canvas2d:dsl<br/>(canvas2DExt, canvas2DOverlayHost, scrollCanvas2DOverlayHost, curveEditorExt)"]
@@ -26,7 +83,7 @@ flowchart TD
     ThreeDsl[":extensions:threejs:dsl<br/>(threeJsGlCanvas, threeJsVkCanvas, scene)"]
     Box2DDsl[":extensions:box2d:dsl<br/>(box2dDebugCanvas, world2D)"]
     Box3DDsl[":extensions:box3d:dsl<br/>(box3dDebugCanvas, world3D)"]
-    AlienDsl[":extensions:alien:dsl<br/>(alienLaunchButton, alienInstallProgressBar, alienAppHeader)"]
+    AlienDsl[":extensions:alien:dsl<br/>(alienContainer, unalienContainer)"]
 
     BaseDsl --> Common
     OverlayDsl --> BaseDsl
@@ -75,26 +132,98 @@ genericui {
 
 | Extension `:dsl` Submodule | Package | Builders Provided | Dedicated Guide |
 | :--- | :--- | :--- | :--- |
-| **`:extensions:overlay:dsl`** | `com.nexustools.genericui.ext.overlay.dsl` | `overlayHostBox`, `presetOverlay`, `customOverlay`, `gradientScrim`, `metadataHeader`, `overlayBadgeStrip`, `centerTransportCluster`, `trackSeekBar`, `sliderSeekBar`, `volumeControl`, `subtitleCueView`, `overlayPopoverPanel`, `overlayModalDialog`, `overlayCurtain` | [`overlay.md`](overlay.md) |
+| **`:extensions:overlay:dsl`** | `com.nexustools.genericui.ext.overlay.dsl` | `overlayHostBox`, `defaultOverlayPreset`, `mobileOverlayPreset`, `webSystemOverlayPreset`, `gradientScrim`, `metadataHeader`, `overlayBadgeStrip`, `centerTransportCluster`, `trackSeekBar`, `sliderSeekBar`, `volumeControl`, `subtitleCueView`, `overlayPopoverPanel`, `overlayModalDialog`, `overlayCurtain` | [`overlay.md`](overlay.md) |
 | **`:extensions:canvas2d:dsl`** | `com.nexustools.genericui.ext.canvas2d.dsl` | `canvas2DExt`, `canvas2D`, `canvas2DOverlayHost`, `scrollCanvas2DOverlayHost`, `curveEditorExt`, `curveEditor` | [`canvas2d.md`](canvas2d.md) |
 | **`:extensions:canvas3d:dsl`** | `com.nexustools.genericui.ext.canvas3d.dsl` | `glCanvasExt`, `glCanvas`, `vkCanvasExt`, `vkCanvas`, `canvas3DOverlayHost`, `glCanvasOverlayHost`, `vkCanvasOverlayHost`, `scrollCanvas3DOverlayHost` | [`canvas3d.md`](canvas3d.md) |
 | **`:extensions:media:dsl`** | `com.nexustools.genericui.ext.media.dsl` | `videoPlayerExt`, `videoPlayer`, `videoOverlayHost`, `audioPlayerExt`, `audioPlayer`, `audioAnalyzerExt`, `audioAnalyzer` | [`media.md`](media.md) |
 | **`:extensions:mediacontrols:dsl`** | `com.nexustools.genericui.ext.mediacontrols.dsl` | `mediaControlsSession`, `metadata`, `playbackStatus`, `buttons`, `onEvent`, `onPlay`, `onPause`, `onTogglePlayPause`, `onStop`, `onNextTrack`, `onPreviousTrack`, `onSeekForward`, `onSeekBackward`, `onSeekTo` | [`mediacontrols.md`](mediacontrols.md) |
 | **`:extensions:webview:dsl`** | `com.nexustools.genericui.ext.webview.dsl` | `webViewExt`, `webView` | [`webview.md`](webview.md) |
 | **`:extensions:codeeditor:dsl`** | `com.nexustools.genericui.ext.codeeditor.dsl` | `codeEditor`, `ideCodeEditor`, `codeMinimap` | [`codeeditor.md`](codeeditor.md) |
-| **`:extensions:aichat:dsl`** | `com.nexustools.genericui.ext.aichat.dsl` | `aiChat`, `aiChatContainer`, `aiChatMessageView`, `aiChatToolCallCard`, `aiChatReasoningAccordion` | [`aichat.md`](aichat.md) |
+| **`:extensions:aichat:dsl`** | `com.nexustools.genericui.ext.aichat.dsl` | `aiChat`, `aiChatContainer`, `aiChatMessageView`, `aiChatToolCallCard`, `aiChatReasoningAccordion` (including `style { ... }` and `bootstrap { ... }` on `AiChatDslConfigScope`) | [`aichat.md`](aichat.md) |
 | **`:extensions:threejs:dsl`** | `com.nexustools.genericui.ext.threejs.dsl` | `threeJsGlCanvas`, `threeJsVkCanvas`, `scene`, `Scene.mesh`, `Scene.perspectiveCamera` | [`threejs.md`](threejs.md) |
 | **`:extensions:box2d:dsl`** | `com.nexustools.genericui.ext.box2d.dsl` | `box2dDebugCanvas`, `world2D` (`body`, `staticBody`, `dynamicBody`, `kinematicBody`, `boxFixture`, `circleFixture`, `edgeFixture`) | [`box2d.md`](box2d.md) |
 | **`:extensions:box3d:dsl`** | `com.nexustools.genericui.ext.box3d.dsl` | `box3dDebugCanvas`, `world3D` (`rigidBody`, `dynamicRigidBody`, `staticRigidBody`, `kinematicRigidBody`, `boxCollider`, `sphereCollider`, `capsuleCollider`) | [`box3d.md`](box3d.md) |
-| **`:extensions:alien:dsl`** | `com.nexustools.genericui.ext.alien.dsl` | `alienLaunchButton`, `alienInstallProgressBar`, `alienAppHeader` | [`alien.md`](alien.md) |
+| **`:extensions:alien:dsl`** | `com.nexustools.genericui.ext.alien.dsl` | `alienContainer`, `unalienContainer` | [`alien.md`](alien.md) |
 
 ---
 
-## 2. Core API Reference (`com.nexustools.genericui.ext.dsl`)
+## 3. Hybrid Responsive Layout DSL Builders (`HybridLayoutDsl.kt`)
+
+`:extensions:dsl` provides declarative DSL builders for all 6 hybrid responsive layout containers in `:common` (see [Layouts & Responsive Helpers (`../../docs/layouts-and-helpers.md`)](../../docs/layouts-and-helpers.md) for full architecture details):
+
+| Hybrid Layout DSL Builder | Child Scope Builders | Description |
+| :--- | :--- | :--- |
+| **`hybridColumnLayout(foldMode, tabPlacement, fullscreenPolicy)`** | **`column(id, title, weight, colSm, colMd, colLg, colXl, icon, compactHeightPx, compactAspectRatio, scrollableInColumnMode, scrollableInSingleMode) { ... }`** | Multi-column Bootstrap 12-grid layout on desktop/tablet/wide web that automatically folds on compact/mobile screens (`PIN_FIRST_COLUMN_TOP` or `ALL_COLUMNS_AS_TABS`) and coordinates fullscreen transitions via `HybridFullscreenPolicy`. |
+| **`hybridSplitNavigationLayout(inColumnMode)`** | **`section(id, title, icon, badge, classes) { ... }`** | Side-by-side navigation list + active section pane on wide viewports that collapses into a drill-down or tabbed navigation flow on compact viewports. |
+| **`collapsibleBottomDockLayout()`** | **`mainContent { ... }`**, **`dockContent { ... }`** | Full-bleed primary workspace container paired with a persistent, expandable bottom dock bar/sheet (e.g., mini-player, transport bar, or telemetry console). |
+| **`responsiveMasterDetailLayout()`** | **`masterPane(widthPx, colMd) { ... }`**, **`detailPane(colMd) { ... }`**, **`inspectorPane(widthPx, colXl) { ... }`** | 2-pane or 3-pane split layout on tablet/desktop that automatically switches to single-pane stack navigation with back-button support on compact screens. |
+| **`adaptiveNavigationScaffold()`** | **`destination(id, label, icon, badge, classes) { ... }`** | Adaptive app shell rendering a full navigation sidebar on desktop/wide web, a compact navigation rail on tablet, and a bottom navigation bar + drawer on phone. |
+| **`responsiveBentoGridLayout(gapPx)`** | **`bentoCard(id, title, colXs, colSm, colMd, colLg, colXl, rowSpan, minHeightPx) { ... }`** (or `bentoCard(spec) { ... }`) | Responsive 12-column Bento dashboard grid supporting per-breakpoint column spans (`colXs`..`colXl`) and multi-row spans (`rowSpan`). |
+
+```kotlin
+import com.nexustools.genericui.component.layout.HybridFoldMode
+import com.nexustools.genericui.component.layout.HybridFullscreenPolicy
+import com.nexustools.genericui.component.layout.HybridTabPlacement
+import com.nexustools.genericui.enums.bootstrap.*
+import com.nexustools.genericui.ext.dsl.*
+
+fun createAdaptiveMediaWorkspace() = buildContainer {
+    bootstrap {
+        width = BootstrapWidth.W_100
+        height = BootstrapHeight.H_100
+    }
+
+    hybridColumnLayout(
+        foldMode = HybridFoldMode.PIN_FIRST_COLUMN_TOP,
+        tabPlacement = HybridTabPlacement.TOP_TABS,
+        fullscreenPolicy = HybridFullscreenPolicy.PRIMARY_COLUMN_ON_LANDSCAPE_MOBILE
+    ) {
+        column(
+            id = "stage",
+            title = "Primary Stage",
+            colMd = 8,
+            colLg = 9,
+            compactAspectRatio = 16f / 9f
+        ) {
+            h3("Primary Stage Viewport")
+            p("Pinned at the top on mobile phones; occupies 8–9 columns on tablet/desktop.")
+        }
+
+        column(
+            id = "queue",
+            title = "Up Next",
+            icon = "🎵",
+            colMd = 4,
+            colLg = 3,
+            scrollableInColumnMode = true,
+            scrollableInSingleMode = true
+        ) {
+            h4("Playback Queue")
+        }
+
+        column(
+            id = "chapters",
+            title = "Chapters",
+            icon = "📑",
+            colMd = 12,
+            colLg = 12,
+            scrollableInSingleMode = true
+        ) {
+            h4("Chapter Markers")
+        }
+    }
+}
+```
+
+---
+
+## 4. Core API Reference (`com.nexustools.genericui.ext.dsl`)
 
 | Category | Functions / Classes |
 | :--- | :--- |
 | **DSL Marker & Entry Points** | `@GenericUiDslMarker`, `buildDiv(classes, id) { ... }: Container`, `buildContainer(classes, id) { ... }: Container`, `AbstractContainer.build(clearFirst) { ... }`, `AbstractContainer.component(child, classes, id) { ... }`. |
+| **Style & Bootstrap Builders (`DslStyleAndBootstrapBuilders.kt`)** | `T.style { ... }`, `T.bootstrap { ... }`, `ComponentStyle.important { ... }` (strictly isolated in `:extensions:dsl`). |
+| **Hybrid Responsive Layouts (`HybridLayoutDsl.kt`)** | `hybridColumnLayout` (`column`), `hybridSplitNavigationLayout` (`section`), `collapsibleBottomDockLayout` (`mainContent`, `dockContent`), `responsiveMasterDetailLayout` (`masterPane`, `detailPane`, `inspectorPane`), `adaptiveNavigationScaffold` (`destination`), `responsiveBentoGridLayout` (`bentoCard`). |
 | **Layout & Containers (`DslContainerBuilders.kt`)** | `div`, `container`, `section`, `header`, `footer`, `main`, `nav`, `article`, `aside`, `form`, `box`, `row`, `col(classes, span, weight)` / `column`, `hstack`, `vstack`, `flexBox(direction, justify, align)`, `scrollView`, `stepScrollView`, `hr` / `divider`, `spacer(widthPx, heightPx)` / `br`, `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`. |
 | **Actions & Forms (`DslActionAndFormBuilders.kt`)** | `ColorRgba(r, g, b, a)`, `button(text, icon, tooltipText, type, size, outline, onClick)`, `iconButton`, `buttonGroup`, `dropdownButton`, `textInput` / `textField` / `input`, `passwordInput` / `passwordField`, `numberInput` / `numberField`, `textArea`, `searchInput` / `searchField`, `select { option(value, label, selected) }`, `checkBox`, `switch`, `radioGroup { radioButton(...) }`, `rangeSlider`, `compoundUnitInput`, `formGroup`, `inputGroup`. |
 | **Typography (`DslTypographyBuilders.kt`)** | `heading(level, text)`, `h1`, `h2`, `h3`, `h4`, `h5`, `h6`, `p` / `paragraph`, `span`, `label`, `sup`, `sub`, `small`, `strong` / `b`, `em` / `i`, `a(text, href, onClick)`, `badge(text, type, pill)`, `codeBlock` / `pre` / `code`, `blockquote`, `markdownView`, `+"inline text"`. |
@@ -104,25 +233,33 @@ genericui {
 
 ---
 
-## 3. Declarative Kotlin UI, Gradients, & Pseudo-Class Styling Examples
+## 5. Declarative Kotlin UI, Gradients, Custom Cursors, & MVC Examples
 
-### Example 1: Building a Rich Dashboard with `LinearGradient`, `RadialGradient`, & Pseudo-Class `style { ... }` Rules
-
-Every GenericUI component supports inline `style { ... }` configuration, including multi-stop **`LinearGradient`**, **`RadialGradient`**, and pseudo-class states (`hover`, `active`, `focus`, `disabled`):
+### Example 1: Building a Rich Dashboard with `bootstrap { ... }`, `style { ... }`, `LinearGradient`, `RadialGradient`, & `CssCustomCursor`
 
 ```kotlin
-import com.nexustools.genericui.enums.bootstrap.BootstrapSize
-import com.nexustools.genericui.enums.bootstrap.BootstrapType
+import com.nexustools.genericui.enums.bootstrap.*
+import com.nexustools.genericui.enums.css.*
 import com.nexustools.genericui.ext.dsl.*
-import com.nexustools.genericui.style.GradientStop
-import com.nexustools.genericui.style.LinearGradient
-import com.nexustools.genericui.style.RadialGradient
+import com.nexustools.genericui.style.css.*
+import com.nexustools.genericui.style.gradient.GradientStop
+import com.nexustools.genericui.style.gradient.LinearGradient
+import com.nexustools.genericui.style.gradient.RadialGradient
 
-fun createHeroDashboard() = buildContainer(classes = "p-4") {
+fun createHeroDashboard() = buildContainer {
+    bootstrap {
+        padding = SpacingScale.S4
+    }
+
     // Hero banner with a 135-degree LinearGradient background
-    div(classes = "p-4 mb-4", id = "hero-banner") {
+    div(id = "hero-banner") {
+        bootstrap {
+            padding = SpacingScale.S4
+            marginBottom = SpacingScale.S4
+            shadow = ShadowElevation.LG
+        }
         style {
-            backgroundGradient = LinearGradient(
+            background = LinearGradient(
                 angleDegrees = 135f,
                 stops = listOf(
                     GradientStop(0.0f, ColorRgba(15, 23, 42, 1.0)),
@@ -130,14 +267,19 @@ fun createHeroDashboard() = buildContainer(classes = "p-4") {
                     GradientStop(1.0f, ColorRgba(14, 116, 144, 1.0))
                 )
             )
-            borderRadiusPx = 16f
-            paddingPx = 24f
+            borderRadius = CssCornerRadii.px(16f)
+            padding = CssEdgeLengths.px(24f)
         }
 
         h1("GenericUI Native-First Workspace")
-        p("Compiled natively to Win32, Cocoa, GTK4, Qt6, Android, iOS, and Web.")
+        p("Compiled natively to Win32, Cocoa, GTK4, Qt6, Swing, Android, iOS, and Web.")
 
-        hstack(classes = "gap-2 mt-3") {
+        hstack {
+            bootstrap {
+                gap = SpacingScale.S2
+                marginTop = SpacingScale.S3
+                alignItems = AlignItems.CENTER
+            }
             button(
                 text = "Launch GPU Pipeline",
                 icon = "🚀",
@@ -145,12 +287,9 @@ fun createHeroDashboard() = buildContainer(classes = "p-4") {
                 size = BootstrapSize.MD
             ) {
                 style {
-                    borderRadiusPx = 8f
-                    hover {
-                        backgroundColor = ColorRgba(37, 99, 235, 1.0)
-                    }
-                    active {
-                        backgroundColor = ColorRgba(29, 78, 216, 1.0)
+                    cursor = CssCursor.POINTER
+                    important {
+                        borderRadius = CssCornerRadii.px(8f)
                     }
                 }
             }
@@ -158,28 +297,26 @@ fun createHeroDashboard() = buildContainer(classes = "p-4") {
         }
     }
 
-    // Two-column layout with RadialGradient accent card and data table
-    row(classes = "gap-3") {
-        col(span = 5) {
-            card(title = "Spotlight Metric") {
-                style {
-                    backgroundGradient = RadialGradient(
-                        centerXRatio = 0.5f,
-                        centerYRatio = 0.3f,
-                        radiusRatio = 0.85f,
-                        stops = listOf(
-                            GradientStop(0.0f, ColorRgba(56, 189, 248, 0.28)),
-                            GradientStop(1.0f, ColorRgba(15, 23, 42, 0.95))
-                        )
+    // Responsive Bento Grid below the hero banner
+    responsiveBentoGridLayout(gapPx = 16) {
+        bentoCard(id = "fps", title = "Spotlight Metric", colMd = 5, colLg = 4) {
+            style {
+                background = RadialGradient(
+                    centerXRatio = 0.5f,
+                    centerYRatio = 0.3f,
+                    radiusRatio = 0.85f,
+                    stops = listOf(
+                        GradientStop(0.0f, ColorRgba(56, 189, 248, 0.28)),
+                        GradientStop(1.0f, ColorRgba(15, 23, 42, 0.95))
                     )
-                    borderRadiusPx = 12f
-                }
-                h2("120 FPS")
-                small("Hardware VBlank Synchronized")
+                )
+                borderRadius = CssCornerRadii.px(12f)
             }
+            h2("120 FPS")
+            small("Hardware VBlank Synchronized")
         }
 
-        col(span = 7) {
+        bentoCard(id = "extensions", title = "Active Extensions", colMd = 7, colLg = 8) {
             table(classes = "table-striped") {
                 thead {
                     tr {
@@ -211,6 +348,7 @@ fun createHeroDashboard() = buildContainer(classes = "p-4") {
 ```kotlin
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
+import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.ext.dsl.*
 
 // 1. Model extending MvcModel
@@ -220,16 +358,23 @@ class CounterModel(
 ) : MvcModel()
 
 // 2. View implementing Container.render() using in-place DSL builders
-class CounterView(model: CounterModel) : MvcView<CounterModel>(model, classPrefix = "p-4") {
+class CounterView(model: CounterModel) : MvcView<CounterModel>(model) {
     var onIncrementClicked: (() -> Unit)? = null
     var onResetClicked: (() -> Unit)? = null
 
     override fun Container.render() {
+        bootstrap {
+            padding = SpacingScale.S4
+        }
         card(title = "Reactive MVC Counter") {
             h2("Count: ${model.count}")
             p("Step Size: +${model.stepSize}")
 
-            hstack(classes = "gap-2 mt-2") {
+            hstack {
+                bootstrap {
+                    gap = SpacingScale.S2
+                    marginTop = SpacingScale.S2
+                }
                 button(
                     text = "+${model.stepSize}",
                     type = BootstrapType.PRIMARY,
@@ -265,7 +410,7 @@ class CounterController(
 
 ---
 
-## 4. Related Extensions & Cross-References
+## 6. Related Extensions & Cross-References
 
 - **All 12 Companion Extension `:dsl` Guides**:
   - [`:extensions:overlay` & `:extensions:overlay:dsl` (`overlay.md`)](overlay.md)
@@ -282,5 +427,5 @@ class CounterController(
   - [`:extensions:alien` & `:extensions:alien:dsl` (`alien.md`)](alien.md)
   - [`:extensions:gpu` (`gpu.md`)](gpu.md) · [`:extensions:imageprocessing` (`imageprocessing.md`)](imageprocessing.md)
 - **Root & Backend Documentation**:
-  - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Source Sets (`../../docs/sourcesets.md`)](../../docs/sourcesets.md) · [Backends (`../../docs/backends.md`)](../../docs/backends.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)
+  - [GenericUI Root (`../../README.md`)](../../README.md) · [Layouts & Responsive Helpers (`../../docs/layouts-and-helpers.md`)](../../docs/layouts-and-helpers.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Resources (`../../docs/resources.md`)](../../docs/resources.md) · [Source Sets (`../../docs/sourcesets.md`)](../../docs/sourcesets.md) · [Backends (`../../docs/backends.md`)](../../docs/backends.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)
   - [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) · [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) · [Web Backend (`../../web/README.md`)](../../web/README.md)

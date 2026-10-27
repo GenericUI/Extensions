@@ -182,11 +182,14 @@ fun createSceneAssistantChat(hostingWindow: Window? = null): AiChatContainer {
 When `dsl()` and `aiChat()` are enabled, configure the entire AI provider, reasoning budget, quick prompt chips, and suspending tool handlers declaratively using `aiChat { ... }`:
 
 ```kotlin
+import com.nexustools.genericui.enums.css.CssBorderStyle
 import com.nexustools.genericui.ext.aichat.AiBackendType
 import com.nexustools.genericui.ext.aichat.ReasoningEffort
 import com.nexustools.genericui.ext.aichat.dsl.aiChat
 import com.nexustools.genericui.ext.dsl.ColorRgba
 import com.nexustools.genericui.ext.dsl.buildDiv
+import com.nexustools.genericui.style.css.CssCornerRadii
+import com.nexustools.genericui.style.css.CssEdgeLengths
 
 val aiStudioDrawer = buildDiv(classes = "h-100") {
     aiChat(width = 440, height = 840, id = "studio-ai-chat") {
@@ -227,8 +230,9 @@ val aiStudioDrawer = buildDiv(classes = "h-100") {
 
         style {
             backgroundColor = ColorRgba(15, 23, 42, 1.0)
-            borderRadiusPx = 10f
-            borderWidthPx = 1f
+            borderRadius = CssCornerRadii.px(10f)
+            borderWidth = CssEdgeLengths.px(1f)
+            borderStyle = CssBorderStyle.SOLID
             borderColor = ColorRgba(51, 65, 85, 1.0)
         }
     }
