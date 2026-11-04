@@ -1,5 +1,6 @@
 package com.nexustools.genericui.ext.canvas2d
 
+import com.nexustools.genericui.component.media.Canvas2D
 import com.nexustools.genericui.event.WheelEvent
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.style.color.RgbaColor
@@ -101,7 +102,7 @@ class ScrollCanvas2DTest {
 
     @Test
     fun testCanvas2DAndScrollCanvas2DOverlayHostsExcludeScrollbarsAndHaveNoDefaultOverlay() {
-        val surface = Canvas2DExtSurface(width = 640, height = 360)
+        val surface = Canvas2D(width = 640, height = 360)
         val surfaceHost = surface.withOverlay()
         assertNull(surfaceHost.activeOverlay)
         assertSame(surface, surfaceHost.canvas)

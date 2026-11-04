@@ -41,12 +41,6 @@ class WebScrollCanvas2DImpl(
     val contentSizerDiv: WebDomElement = WebDomElement("div")
 
     /**
-     * Alias for [contentSizerDiv].
-     */
-    val spacerDiv: WebDomElement
-        get() = contentSizerDiv
-
-    /**
      * Viewport-sized HTML `<canvas>` positioned overtop [contentSizerDiv] with
      * `position: absolute; left: 0; top: 0; width: 0; height: 0;`.
      */

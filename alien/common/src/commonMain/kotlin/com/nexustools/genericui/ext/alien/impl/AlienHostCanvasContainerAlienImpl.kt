@@ -1,17 +1,18 @@
 package com.nexustools.genericui.ext.alien.impl
 
+import com.nexustools.genericui.component.fragment.IFragment
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.ext.alien.AlienRenderSession
-import com.nexustools.genericui.ext.alien.AlienWidgetNode
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.media.Canvas2DNativeImpl
 
 /**
- * Root host container implementation for an [com.nexustools.genericui.ext.alien.AlienContainer] or
- * [com.nexustools.genericui.ext.alien.AlienFragment] on System targets (`:desktop`, `:mobile`, `:swing`).
+ * Root host container implementation for an [com.nexustools.genericui.ext.alien.AlienContainer],
+ * [com.nexustools.genericui.ext.alien.AlienFragment], [com.nexustools.genericui.ext.alien.AlienScrollFragment],
+ * or [com.nexustools.genericui.ext.alien.AlienFragmentHostFragment] on System targets (`:desktop`, `:mobile`, `:swing`).
  *
  * Manages the two-layer hardware stack inside the host OS container (`hostContainerImpl`):
  * 1. **Underlay Layer (Below `Canvas2D`)**: Any [AlienUnderlayExtensionSlotNode]s (`UnalienContainer`
@@ -48,19 +49,7 @@ class AlienHostCanvasContainerAlienImpl(
         alienRoot.computedStyle?.let { session.rootNode.computedStyle = it }
         hostContainerImpl.setAttribute("alienHostContainer", "true")
 
-        // Attach the top-layer Canvas2D native widget (wired to session.canvas2D) to the host container
-        val cImpl = runCatching {
-            session.canvas2D.ensureNativeImpl()
-        }.getOrNull()
-        canvasNativeImpl = cImpl
-        if (cImpl != null) {
-            cImpl.setAttribute("alienCanvas2D", "true")
-            (cImpl as? Canvas2DNativeImpl<*>)?.setOnSurfaceResizedListener { w, h ->
-                session.resizeViewport(w, h)
-            }
-            hostContainerImpl.addChildNative(cImpl, -1)
-        }
-        session.requestLayoutAndRepaint()
+        attachHostCanvasIfNeeded()
 
         // Attach any existing or newly registered underlay slots BELOW the Canvas2D (index 0)
         for (slot in session.underlaySlots) {
@@ -72,6 +61,31 @@ class AlienHostCanvasContainerAlienImpl(
         session.onUnderlaySlotUnregistered = { slot ->
             hostContainerImpl.removeChildNative(slot.wrappedNativeImpl)
         }
+    }
+
+    fun attachHostCanvasIfNeeded() {
+        if (canvasNativeImpl == null) {
+            val cImpl = runCatching {
+                session.canvas2D.ensureNativeImpl()
+            }.getOrNull()
+            canvasNativeImpl = cImpl
+            if (cImpl != null) {
+                cImpl.setAttribute("alienCanvas2D", "true")
+                (cImpl as? Canvas2DNativeImpl<*>)?.setOnSurfaceResizedListener { w, h ->
+                    session.resizeViewport(w, h)
+                    (alienRoot as? IFragment)?.onResize(w, h)
+                    session.requestLayoutAndRepaint()
+                }
+                hostContainerImpl.addChildNative(cImpl, -1)
+            }
+        }
+        val initialW = alienRoot.widthPx ?: session.viewportWidth
+        val initialH = alienRoot.heightPx ?: session.viewportHeight
+        if (initialW > 0 && initialH > 0) {
+            session.resizeViewport(initialW, initialH)
+            (alienRoot as? IFragment)?.onResize(initialW, initialH)
+        }
+        session.requestLayoutAndRepaint()
     }
 
     override fun setPreferredSize(size: Size?) {

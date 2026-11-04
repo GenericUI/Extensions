@@ -2,6 +2,7 @@ package com.nexustools.genericui.ext.alien.impl
 
 import com.nexustools.genericui.enums.ui.ObjectFit
 import com.nexustools.genericui.ext.alien.AlienBootstrapPainter
+import com.nexustools.genericui.ext.alien.AlienCssStyleResolver
 import com.nexustools.genericui.ext.alien.AlienRenderSession
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.image.ImageBuffer
@@ -16,7 +17,7 @@ import kotlin.math.roundToInt
  *
  * Automatically resolves and caches URLs, `data:` URIs, compiled `Resources.getDrawable(...)` assets,
  * and local resource files (`"logo.png?2"`, `"src/commonMain/resources/..."`) via [ImageCacheManager],
- * measures using the decoded [ImageBuffer] dimensions and CSS `width` / `max-width` / `aspect-ratio`,
+ * measures using the decoded [ImageBuffer] dimensions and CSS `width` / `height` / `max-width` / `max-height` / `aspect-ratio`,
  * and renders the image onto the `ImageBuffer2DContext` surface.
  */
 class ImageAlienImpl(
@@ -35,28 +36,103 @@ class ImageAlienImpl(
     private var onErrorListener: (() -> Unit)? = null
 
     init {
-        node.customMeasure = { availW, _, style ->
+        node.customMeasure = { availW, availH, style ->
             val explicitPref = node.preferredSize
-            if (explicitPref != null && explicitPref.width > 0 && explicitPref.height > 0) {
-                explicitPref
-            } else {
-                val buf = decodedBuffer ?: sourceUrlValue?.let { tryLoadImageBuffer(it) }
-                val intrinsicW = buf?.width?.takeIf { it > 1 } ?: 320
-                val intrinsicH = buf?.height?.takeIf { it > 1 } ?: 120
-                val ratio = style.aspectRatio
-                    ?: if (intrinsicW > 0 && intrinsicH > 0) intrinsicW.toFloat() / intrinsicH.toFloat() else (928f / 270f)
+            val buf = decodedBuffer ?: sourceUrlValue?.let { ensureImageLoaded(it) }
+            val intrinsicW = buf?.width?.takeIf { it > 1 }
+                ?: node.intrinsicWidth.roundToInt().takeIf { it > 1 }
+                ?: 320
+            val intrinsicH = buf?.height?.takeIf { it > 1 }
+                ?: node.intrinsicHeight.roundToInt().takeIf { it > 1 }
+                ?: 120
+            val ratio = style.aspectRatio
+                ?: if (intrinsicW > 0 && intrinsicH > 0) intrinsicW.toFloat() / intrinsicH.toFloat() else (928f / 270f)
 
-                val targetW = when {
-                    availW > 0 && (style.widthCss == "100%" || "img-fluid" in node.styleSnapshot.customClasses || node.componentClassPrefix == "img-fluid") ->
-                        if (buf != null && style.widthCss == null) min(availW, intrinsicW) else availW
-                    else -> intrinsicW
-                }.coerceAtLeast(1)
-                val targetH = if (ratio > 0f) (targetW / ratio).roundToInt().coerceAtLeast(1) else intrinsicH
-                Size(targetW, targetH)
+            val isShrinkCross = node.attributes["data-stack-shrink-cross"] == "true"
+            val parentIsHorizontal = node.parent?.let { p ->
+                val pClasses = p.styleSnapshot.customClasses
+                val pPrefix = p.componentClassPrefix.lowercase()
+                pPrefix == "hstack" || pPrefix == "row" || "hstack" in pClasses || "row" in pClasses || "flex-row" in pClasses
+            } == true
+
+            val rawWidthCss = style.widthCss?.trim()?.takeUnless {
+                it.equals("auto", ignoreCase = true) || (isShrinkCross && !parentIsHorizontal && (it == "0" || it == "0px"))
             }
+            val rawHeightCss = style.heightCss?.trim()?.takeUnless {
+                it.equals("auto", ignoreCase = true) || (isShrinkCross && parentIsHorizontal && (it == "0" || it == "0px"))
+            }
+
+            val cssW = rawWidthCss?.let {
+                AlienCssStyleResolver.parseLengthPx(it, style.fontSizePx, availW.toFloat())?.roundToInt()
+            }?.takeIf { it > 0 } ?: explicitPref?.width?.takeIf { it > 0 }
+
+            val cssH = rawHeightCss?.let {
+                AlienCssStyleResolver.parseLengthPx(it, style.fontSizePx, availH.toFloat())?.roundToInt()
+            }?.takeIf { it > 0 } ?: explicitPref?.height?.takeIf { it > 0 }
+
+            val maxW = style.maxWidthCss?.trim()?.takeUnless {
+                it.equals("none", ignoreCase = true) || (isShrinkCross && !parentIsHorizontal && it == "100%")
+            }?.let {
+                AlienCssStyleResolver.parseLengthPx(it, style.fontSizePx, availW.toFloat())?.roundToInt()
+            }?.takeIf { it > 0 }
+
+            val maxH = style.maxHeightCss?.trim()?.takeUnless {
+                it.equals("none", ignoreCase = true) || (isShrinkCross && parentIsHorizontal && it == "100%")
+            }?.let {
+                AlienCssStyleResolver.parseLengthPx(it, style.fontSizePx, availH.toFloat())?.roundToInt()
+            }?.takeIf { it > 0 }
+
+            var targetW: Int
+            var targetH: Int
+
+            when {
+                cssW != null && cssH != null -> {
+                    targetW = cssW
+                    targetH = cssH
+                }
+                cssH != null -> {
+                    targetH = cssH
+                    targetW = if (ratio > 0f) (targetH * ratio).roundToInt().coerceAtLeast(1) else intrinsicW
+                }
+                cssW != null -> {
+                    targetW = cssW
+                    targetH = if (ratio > 0f) (targetW / ratio).roundToInt().coerceAtLeast(1) else intrinsicH
+                }
+                isShrinkCross && parentIsHorizontal && availH > 0 -> {
+                    targetH = availH
+                    targetW = if (ratio > 0f) (targetH * ratio).roundToInt().coerceAtLeast(1) else intrinsicW
+                }
+                isShrinkCross && !parentIsHorizontal && availW > 0 -> {
+                    targetW = availW
+                    targetH = if (ratio > 0f) (targetW / ratio).roundToInt().coerceAtLeast(1) else intrinsicH
+                }
+                availW > 0 && ("img-fluid" in node.styleSnapshot.customClasses || node.componentClassPrefix == "img-fluid") -> {
+                    targetW = if (buf != null) min(availW, intrinsicW) else availW
+                    targetH = if (ratio > 0f) (targetW / ratio).roundToInt().coerceAtLeast(1) else intrinsicH
+                }
+                else -> {
+                    targetW = intrinsicW
+                    targetH = intrinsicH
+                }
+            }
+
+            if (maxW != null && targetW > maxW) {
+                targetW = maxW
+                if (cssH == null && ratio > 0f) {
+                    targetH = (targetW / ratio).roundToInt().coerceAtLeast(1)
+                }
+            }
+            if (maxH != null && targetH > maxH) {
+                targetH = maxH
+                if (cssW == null && ratio > 0f) {
+                    targetW = (targetH * ratio).roundToInt().coerceAtLeast(1)
+                }
+            }
+
+            Size(targetW.coerceAtLeast(1), targetH.coerceAtLeast(1))
         }
         node.customPaint = { ctx, bounds, style ->
-            val buf = decodedBuffer ?: sourceUrlValue?.let { tryLoadImageBuffer(it) }
+            val buf = decodedBuffer ?: sourceUrlValue?.let { ensureImageLoaded(it) }
             if (buf != null && buf.width > 0 && buf.height > 0 && bounds.width > 0 && bounds.height > 0) {
                 ctx.save()
                 ctx.setGlobalAlpha(style.opacity.coerceIn(0f, 1f))
@@ -109,13 +185,22 @@ class ImageAlienImpl(
         }
     }
 
-    private fun tryLoadImageBuffer(url: String): ImageBuffer? {
-        if (url.isBlank()) return null
+    fun ensureImageLoaded(url: String? = sourceUrlValue): ImageBuffer? {
+        if (url.isNullOrBlank()) return null
         val loaded = runCatching {
             ImageCacheManager.loadCachedOrFetch(url)
         }.getOrNull()
         if (loaded != null && loaded.width > 1 && loaded.height > 1) {
+            val prev = decodedBuffer
             decodedBuffer = loaded
+            val sizeChanged = prev == null || prev.width != loaded.width || prev.height != loaded.height
+            node.intrinsicWidth = loaded.width.toFloat()
+            node.intrinsicHeight = loaded.height.toFloat()
+            if (sizeChanged) {
+                node.markMeasureDirty()
+                node.session?.repaintManager?.markDirty(node.bounds)
+                node.invalidateBounds()
+            }
             return loaded
         }
         return null
@@ -126,14 +211,14 @@ class ImageAlienImpl(
             sourceUrlValue = url
             decodedBuffer = null
             if (!url.isNullOrBlank()) {
-                val buf = tryLoadImageBuffer(url)
+                val buf = ensureImageLoaded(url)
                 if (buf != null) {
                     onLoadListener?.invoke()
                 } else {
                     onErrorListener?.invoke()
                 }
             }
-            node.markLayoutDirty()
+            node.markMeasureDirty()
             node.invalidateBounds()
         }
     }

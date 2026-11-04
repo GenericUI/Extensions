@@ -14,8 +14,9 @@ import com.nexustools.genericui.component.htmlcompat.Td
 import com.nexustools.genericui.component.htmlcompat.Th
 import com.nexustools.genericui.component.htmlcompat.Tr
 import com.nexustools.genericui.component.htmlcompat.Ul
+import com.nexustools.genericui.component.layout.Column
+import com.nexustools.genericui.component.layout.ColumnContainer
 import com.nexustools.genericui.component.layout.Container
-import com.nexustools.genericui.component.layout.Row
 import com.nexustools.genericui.component.typography.Heading
 import com.nexustools.genericui.component.typography.Text
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
@@ -49,8 +50,8 @@ class GenericUiDslTest {
                 h1("${model.characterName} (Lv. ${model.level})", classes = "title")
                 p("Alignment: ${model.alignment}", classes = "subtitle")
             }
-            row(classes = "controls-row") {
-                col(span = 6) {
+            columnLayout(classes = "controls-row") {
+                column(span = 6) {
                     button("Level Up", type = BootstrapType.SUCCESS, onClick = { onLevelUpClicked?.invoke() })
                 }
             }
@@ -80,8 +81,8 @@ class GenericUiDslTest {
                 +"Create Your Character"
             }
             p("Select your character's alignment and attributes.", classes = "lead")
-            row(classes = "g-3") {
-                col(span = 6, classes = "left-col") {
+            columnLayout(gutter = SpacingScale.S3) {
+                column(span = 6, classes = "left-col") {
                     label("Alignment:")
                     select(id = "alignment-select", onSelectionChanged = { selectedAlignment = it }) {
                         option("LG", "Lawful Good")
@@ -89,7 +90,7 @@ class GenericUiDslTest {
                         option("CG", "Chaotic Good")
                     }
                 }
-                col(span = 6, classes = "right-col") {
+                column(span = 6, classes = "right-col") {
                     button(
                         type = BootstrapType.PRIMARY,
                         size = BootstrapSize.LG,
@@ -132,14 +133,14 @@ class GenericUiDslTest {
         assertEquals("p", paragraph.htmlTag)
         assertEquals("Select your character's alignment and attributes.", paragraph.text)
 
-        val row = root.children[2] as Row
+        val row = root.children[2] as ColumnContainer
         assertEquals(2, row.children.size)
-        val leftCol = row.children[0] as Container
+        val leftCol = row.children[0] as Column
         val select = leftCol.children[1] as Select
         assertEquals(3, select.options.size)
         assertEquals("LN", select.selectedValue)
 
-        val rightCol = row.children[1] as Container
+        val rightCol = row.children[1] as Column
         val btn = rightCol.children[0] as Button
         assertEquals("button", btn.htmlTag)
         assertEquals("Continue", btn.text)

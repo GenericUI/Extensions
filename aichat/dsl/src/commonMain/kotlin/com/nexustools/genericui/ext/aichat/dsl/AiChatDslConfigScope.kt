@@ -79,15 +79,12 @@ class AiChatDslConfigScope(
         reasoningEffort: ReasoningEffort? = null
     ) {
         val displayLabel = if (!icon.isNullOrBlank()) "$icon $label" else label
-        val tooltipSuffix = reasoningEffort?.takeIf { it != ReasoningEffort.NONE }
-            ?.let { " [${it.displayName}]" }
-            .orEmpty()
         val updated = container.getQuickPromptChips().toMutableList()
         updated.add(
             AiQuickPromptChip(
                 label = displayLabel,
                 prompt = prompt,
-                tooltip = "$id$tooltipSuffix: $prompt"
+                tooltip = null
             )
         )
         container.setQuickPromptChips(updated)
@@ -99,7 +96,7 @@ class AiChatDslConfigScope(
     fun quickPrompt(
         label: String,
         prompt: String,
-        tooltip: String = prompt
+        tooltip: String? = null
     ) {
         val updated = container.getQuickPromptChips().toMutableList()
         updated.add(AiQuickPromptChip(label = label, prompt = prompt, tooltip = tooltip))

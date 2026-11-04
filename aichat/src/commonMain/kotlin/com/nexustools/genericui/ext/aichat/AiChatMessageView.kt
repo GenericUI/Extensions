@@ -63,9 +63,6 @@ class AiChatMessageView(
         }
         setBorderType(roleBorder)
 
-        val modelSuffix = updated.modelId?.let { " ($it)" }.orEmpty()
-        headerBar.tooltipText = "${updated.role.name}$modelSuffix"
-
         if (updated.hasReasoning) {
             reasoningAccordion.isVisible = true
             reasoningAccordion.updateReasoning(updated.reasoningContent, updated.isStreaming)
@@ -77,12 +74,7 @@ class AiChatMessageView(
         rebuildToolCards(updated)
 
         val usage = updated.usage
-        if (usage != null) {
-            footerBar.isVisible = true
-            footerBar.tooltipText = "Tokens: ${usage.totalTokens} (in: ${usage.promptTokens}, out: ${usage.completionTokens}, reasoning: ${usage.reasoningTokens}) • Est: $${formatUsd(usage.estimatedCostUsd)}"
-        } else {
-            footerBar.isVisible = false
-        }
+        footerBar.isVisible = usage != null
     }
 
     private fun rebuildContentBlocks(markdown: String) {
@@ -95,9 +87,7 @@ class AiChatMessageView(
             if (match.range.first > lastIndex) {
                 val prose = markdown.substring(lastIndex, match.range.first).trim()
                 if (prose.isNotEmpty()) {
-                    val proseBlock = Container("ai-chat-markdown-prose").apply {
-                        tooltipText = prose
-                    }
+                    val proseBlock = Container("ai-chat-markdown-prose")
                     contentBlocksContainer.addChild(proseBlock)
                 }
             }
@@ -119,9 +109,7 @@ class AiChatMessageView(
         if (lastIndex < markdown.length) {
             val remainingProse = markdown.substring(lastIndex).trim()
             if (remainingProse.isNotEmpty()) {
-                val proseBlock = Container("ai-chat-markdown-prose").apply {
-                    tooltipText = remainingProse
-                }
+                val proseBlock = Container("ai-chat-markdown-prose")
                 contentBlocksContainer.addChild(proseBlock)
             }
         }

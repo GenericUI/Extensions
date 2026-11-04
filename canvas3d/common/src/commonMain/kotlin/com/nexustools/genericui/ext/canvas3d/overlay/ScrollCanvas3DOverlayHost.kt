@@ -88,14 +88,9 @@ open class ScrollCanvas3DOverlayHost(
         overlayRoot.positionMode = PositionMode.ABSOLUTE
         overlayRoot.topOffset = "0px"
         overlayRoot.leftOffset = "0px"
-        overlayRoot.widthPx = safeW
-        overlayRoot.heightPx = safeH
         overlayRoot.setAttribute("data-overlay-region", "viewport-only")
         overlayRoot.setAttribute("data-excludes-scrollbars", "true")
-        activeOverlay?.let { overlay ->
-            overlay.widthPx = safeW
-            overlay.heightPx = safeH
-        }
+        syncWithTargetResize(safeW, safeH)
     }
 
     /**

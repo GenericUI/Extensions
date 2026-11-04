@@ -1,8 +1,13 @@
 package com.nexustools.genericui.ext.alien
 
+import com.nexustools.genericui.enums.bootstrap.OverflowBehavior
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.event.WheelEvent
+import com.nexustools.genericui.style.transition.CssTransform2D
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * Reverse Z-order hit-testing, interactive pseudo-state (`:hover`, `:focus`, `:active`) management,
@@ -21,23 +26,102 @@ class AlienEventDispatcher(
         private set
 
     /**
-     * Finds the topmost visible, pointer-enabled [AlienWidgetNode] at `(x, y)` in reverse paint order.
+     * Maximum pointer travel distance (in pixels) between `pointerDown` and `pointerUp` before a
+     * release is treated as a drag gesture rather than a click (`onClick` / `dispatchClickBubble`).
+     */
+    var dragClickSuppressionThresholdPx: Float = 6f
+
+    private var pointerDownX: Float = 0f
+    private var pointerDownY: Float = 0f
+    private var hasActivePointerDown: Boolean = false
+    private var pointerDraggedBeyondThreshold: Boolean = false
+
+    /**
+     * Finds the topmost visible, pointer-enabled [AlienWidgetNode] at `(x, y)` in reverse paint order,
+     * applying inverse `transform2D` (`scale`, `rotate`, `translate`) and `overflow: hidden` clipping
+     * at each level of the hierarchy.
      */
     fun hitTest(x: Float, y: Float): AlienWidgetNode? {
-        val px = x.toInt()
-        val py = y.toInt()
-        val ordered = mutableListOf<AlienWidgetNode>()
-        collectVisiblePaintOrder(session.rootNode, ordered)
-        for (i in ordered.indices.reversed()) {
-            val candidate = ordered[i]
-            if (candidate === session.rootNode) continue
-            val style = candidate.resolveVisualStyle()
-            if (!style.visible || !style.pointerEventsEnabled) continue
-            if (candidate.bounds.contains(px, py)) {
-                return candidate
+        return hitTestNode(session.rootNode, x, y)
+    }
+
+    private fun hitTestNode(node: AlienWidgetNode, parentX: Float, parentY: Float): AlienWidgetNode? {
+        if (!node.visible) return null
+        val style = node.resolveVisualStyle()
+        if (style.display == "none" || style.opacity <= 0.001f) return null
+
+        val transform = style.transform2D
+        if (transform.scaleX == 0f || transform.scaleY == 0f) return null
+
+        val (localX, localY) = inverseTransformPoint(node, style, transform, parentX, parentY)
+
+        val clipsX = style.overflow == OverflowBehavior.HIDDEN || style.overflowX == OverflowBehavior.HIDDEN
+        val clipsY = style.overflow == OverflowBehavior.HIDDEN || style.overflowY == OverflowBehavior.HIDDEN
+        if (clipsX && (localX < node.bounds.x || localX >= node.bounds.right)) {
+            return null
+        }
+        if (clipsY && (localY < node.bounds.y || localY >= node.bounds.bottom)) {
+            return null
+        }
+
+        if (node.children.isNotEmpty()) {
+            val sortedChildren = node.children
+                .filter { it.visible }
+                .sortedBy { it.resolveVisualStyle().zIndex }
+            for (i in sortedChildren.indices.reversed()) {
+                val hitChild = hitTestNode(sortedChildren[i], localX, localY)
+                if (hitChild != null) return hitChild
             }
         }
-        return if (session.rootNode.bounds.contains(px, py)) session.rootNode else null
+
+        if (style.visible && style.pointerEventsEnabled && node.bounds.contains(localX.toInt(), localY.toInt())) {
+            return node
+        }
+        return null
+    }
+
+    private fun inverseTransformPoint(
+        node: AlienWidgetNode,
+        style: AlienResolvedVisualStyle,
+        transform: CssTransform2D,
+        px: Float,
+        py: Float
+    ): Pair<Float, Float> {
+        if (transform == CssTransform2D.IDENTITY) return px to py
+        val isPositioned = style.position == "absolute" || style.position == "fixed"
+        val (dx, dy) = if (isPositioned) {
+            0f to 0f
+        } else {
+            transform.resolveTranslationPx(node.bounds.width, node.bounds.height)
+        }
+        if (dx == 0f && dy == 0f && transform.rotateDeg == 0f && transform.scaleX == 1f && transform.scaleY == 1f) {
+            return px to py
+        }
+
+        val cx = node.bounds.x + node.bounds.width * 0.5f
+        val cy = node.bounds.y + node.bounds.height * 0.5f
+
+        var rx = px - (cx + dx)
+        var ry = py - (cy + dy)
+
+        if (transform.rotateDeg != 0f) {
+            val rad = -transform.rotateDeg * (3.1415927f / 180f)
+            val cosA = cos(rad)
+            val sinA = sin(rad)
+            val nx = rx * cosA - ry * sinA
+            val ny = rx * sinA + ry * cosA
+            rx = nx
+            ry = ny
+        }
+
+        if (transform.scaleX != 1f && transform.scaleX != 0f) {
+            rx /= transform.scaleX
+        }
+        if (transform.scaleY != 1f && transform.scaleY != 0f) {
+            ry /= transform.scaleY
+        }
+
+        return (rx + cx) to (ry + cy)
     }
 
     /**
@@ -60,6 +144,14 @@ class AlienEventDispatcher(
     }
 
     fun dispatchPointerMove(event: PointerEvent): Boolean {
+        if (hasActivePointerDown && !pointerDraggedBeyondThreshold) {
+            val dx = event.x - pointerDownX
+            val dy = event.y - pointerDownY
+            if (sqrt(dx * dx + dy * dy) > dragClickSuppressionThresholdPx) {
+                pointerDraggedBeyondThreshold = true
+            }
+        }
+
         val hit = hitTest(event.x, event.y)
         if (hit !== hoveredNode) {
             val prev = hoveredNode
@@ -93,6 +185,11 @@ class AlienEventDispatcher(
     }
 
     fun dispatchPointerDown(event: PointerEvent): Boolean {
+        pointerDownX = event.x
+        pointerDownY = event.y
+        hasActivePointerDown = true
+        pointerDraggedBeyondThreshold = false
+
         val hit = hitTest(event.x, event.y)
 
         if (hit !== focusedNode) {
@@ -138,6 +235,16 @@ class AlienEventDispatcher(
     }
 
     fun dispatchPointerUp(event: PointerEvent): Boolean {
+        val wasDragged = if (hasActivePointerDown) {
+            val dx = event.x - pointerDownX
+            val dy = event.y - pointerDownY
+            pointerDraggedBeyondThreshold || sqrt(dx * dx + dy * dy) > dragClickSuppressionThresholdPx
+        } else {
+            false
+        }
+        hasActivePointerDown = false
+        pointerDraggedBeyondThreshold = false
+
         val hit = hitTest(event.x, event.y)
         val pressed = activePressedNode
         if (pressed != null) {
@@ -149,7 +256,7 @@ class AlienEventDispatcher(
         if (hit != null && hit.isUnderlayExtensionSlot) {
             val localEvent = toLocalPointerEvent(event, hit)
             hit.onPointerUp?.invoke(localEvent)
-            if (pressed === hit) {
+            if (!wasDragged && pressed === hit) {
                 hit.onClick?.invoke()
             }
             session.repaintIfDirty()
@@ -165,7 +272,7 @@ class AlienEventDispatcher(
             cur = cur.parent
         }
 
-        if (hit != null && hit.enabled && (pressed === hit || isDescendantOf(hit, pressed))) {
+        if (!wasDragged && hit != null && hit.enabled && (pressed === hit || isDescendantOf(hit, pressed))) {
             dispatchClickBubble(hit, event.clickCount)
         }
 
@@ -273,22 +380,4 @@ class AlienEventDispatcher(
             x = event.x - slotNode.bounds.x,
             y = event.y - slotNode.bounds.y
         )
-
-    private fun collectVisiblePaintOrder(node: AlienWidgetNode, out: MutableList<AlienWidgetNode>) {
-        if (!node.visible) return
-        val style = node.resolveVisualStyle()
-        if (style.display == "none" || style.opacity <= 0.001f ||
-            style.transform2D.scaleX == 0f || style.transform2D.scaleY == 0f
-        ) {
-            return
-        }
-        out.add(node)
-        if (node.children.isEmpty()) return
-        val sortedChildren = node.children
-            .filter { it.visible }
-            .sortedBy { it.resolveVisualStyle().zIndex }
-        for (child in sortedChildren) {
-            collectVisiblePaintOrder(child, out)
-        }
-    }
 }

@@ -1,11 +1,12 @@
 package com.nexustools.genericui.ext.canvas2d
 
 import com.nexustools.genericui.component.layout.VStack
+import com.nexustools.genericui.component.media.Canvas2D
 import com.nexustools.genericui.enums.bootstrap.TextAlignment
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.image.ImageBuffer
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Multi-page high-resolution printable 2D canvas document (default A4 `2480 x 3508`
@@ -22,14 +23,14 @@ open class PrintableCanvasDocument(
     val pageHeightPx: Int = 3508
 ) : VStack() {
 
-    private val _pages = mutableListOf<Canvas2DExtSurface>()
-    val pages: List<Canvas2DExtSurface>
+    private val _pages = mutableListOf<Canvas2D>()
+    val pages: List<Canvas2D>
         get() = _pages
 
     var printCount: Int = 0
         private set
 
-    var onPrintRequested: ((List<Canvas2DExtSurface>) -> Unit)? = null
+    var onPrintRequested: ((List<Canvas2D>) -> Unit)? = null
 
     init {
         addClass("printable-canvas-document")
@@ -41,14 +42,14 @@ open class PrintableCanvasDocument(
     }
 
     /**
-     * Appends a new [Canvas2DExtSurface] page (`pageWidthPx x pageHeightPx`), optionally drawing
+     * Appends a new [Canvas2D] page (`pageWidthPx x pageHeightPx`), optionally drawing
      * [backgroundImage] and invoking [renderBlock] on its [ImageBuffer2DContext].
      */
     fun createPage(
         backgroundImage: ImageBuffer? = null,
         renderBlock: ((ImageBuffer2DContext) -> Unit)? = null
-    ): Canvas2DExtSurface {
-        val surface = Canvas2DExtSurface(pageWidthPx, pageHeightPx).apply {
+    ): Canvas2D {
+        val surface = Canvas2D(pageWidthPx, pageHeightPx).apply {
             addClass("d-block w-100 printable-page")
         }
         val ctx = surface.resolveRenderingContext()
@@ -75,9 +76,9 @@ open class PrintableCanvasDocument(
         fontSizePx: Float = 36f,
         maxContinuationPages: Int = 16,
         perPageHeaderRender: ((ImageBuffer2DContext, Int) -> Unit)? = null
-    ): List<Canvas2DExtSurface> {
+    ): List<Canvas2D> {
         var remaining = initialOverflowText
-        val created = mutableListOf<Canvas2DExtSurface>()
+        val created = mutableListOf<Canvas2D>()
         var pageIdx = 0
         while (remaining.isNotEmpty() && pageIdx < maxContinuationPages) {
             val currentIdx = pageIdx++
@@ -106,7 +107,7 @@ open class PrintableCanvasDocument(
         columns: Int = 2,
         rows: Int = 2,
         fontFamily: String = "serif"
-    ): List<Canvas2DExtSurface> {
+    ): List<Canvas2D> {
         if (cards.isEmpty()) return emptyList()
         val safeCols = columns.coerceAtLeast(1)
         val safeRows = rows.coerceAtLeast(1)
@@ -115,7 +116,7 @@ open class PrintableCanvasDocument(
         val cellH = pageHeightPx / safeRows
 
         val expandedQueue = ArrayDeque<CanvasHandoutCardSpec>(cards)
-        val createdPages = mutableListOf<Canvas2DExtSurface>()
+        val createdPages = mutableListOf<Canvas2D>()
 
         while (expandedQueue.isNotEmpty()) {
             val page = createPage { ctx ->

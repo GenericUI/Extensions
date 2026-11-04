@@ -1,13 +1,14 @@
 package com.nexustools.genericui.ext.alien
 
 import com.nexustools.genericui.component.layout.Container
-import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
+import kotlin.reflect.KClass
 
 /**
  * Self-rendering Bootstrap 5.3 [Container] powered by `:extensions:canvas2d` and [AlienRepaintManager]
@@ -25,21 +26,23 @@ open class AlienContainer(
     classPrefix: String = "container"
 ) : Container(classPrefix), IAlien {
 
-    var renderSession: AlienRenderSession? = null
-        private set
+    private var _alienImplProvider: AlienImplProvider? = null
+    protected open val alienImplProvider: AlienImplProvider
+        get() = _alienImplProvider ?: AlienImplProvider(this).also { _alienImplProvider = it }
 
-    private val activeStyleSheets: MutableList<PrecompiledStyleSheet> =
-        mutableListOf(AlienPrecompiledBootstrapStyleSheet)
+    override val isAlienModeActive: Boolean
+        get() = alienImplProvider.isAlienModeActive
 
-    override var insertApplicationStyleSheets: Int = 1
+    override val renderSession: AlienRenderSession?
+        get() = alienImplProvider.renderSession
+
+    override val alienSession: AlienRenderSession?
+        get() = alienImplProvider.alienSession
+
+    override var insertApplicationStyleSheets: Int
+        get() = alienImplProvider.insertApplicationStyleSheets
         set(value) {
-            if (field != value) {
-                field = value
-                renderSession?.let {
-                    syncRootNodeState(it)
-                    it.requestLayoutAndRepaint()
-                }
-            }
+            alienImplProvider.insertApplicationStyleSheets = value
         }
 
     init {
@@ -47,210 +50,89 @@ open class AlienContainer(
         AlienPrecompiledBootstrapStyleSheet.ensureRegistered()
     }
 
-    override fun addStyleSheet(styleSheetPath: String) {
-        val resolved = AlienPrecompiledBootstrapStyleSheet.resolveSheetByPath(styleSheetPath) ?: return
-        addStyleSheet(resolved)
-    }
+    override fun addStyleSheet(styleSheetPath: String) =
+        alienImplProvider.addStyleSheet(styleSheetPath)
 
-    override fun addStyleSheet(styleSheetResourceId: ResourceID) {
-        val resolved = AlienPrecompiledBootstrapStyleSheet.resolveSheetByResourceId(styleSheetResourceId) ?: return
-        addStyleSheet(resolved)
-    }
+    override fun addStyleSheet(styleSheetResourceId: ResourceID) =
+        alienImplProvider.addStyleSheet(styleSheetResourceId)
 
-    override fun addStyleSheet(styleSheet: PrecompiledStyleSheet) {
-        if (activeStyleSheets.none { it === styleSheet || it.name == styleSheet.name }) {
-            if (styleSheet === AlienPrecompiledBootstrapStyleSheet ||
-                styleSheet.name.equals(AlienPrecompiledBootstrapStyleSheet.name, ignoreCase = true)
-            ) {
-                activeStyleSheets.add(0, styleSheet)
-            } else {
-                activeStyleSheets.add(styleSheet)
-            }
-            renderSession?.let {
-                syncRootNodeState(it)
-                it.requestLayoutAndRepaint()
-            }
-        }
-    }
+    override fun addStyleSheet(styleSheet: PrecompiledStyleSheet) =
+        alienImplProvider.addStyleSheet(styleSheet)
 
-    override fun addStyleSheet(styleSheet: CssStyleSheet) {
-        if (activeStyleSheets.none { it.styleSheet === styleSheet }) {
-            activeStyleSheets.add(AlienPrecompiledBootstrapStyleSheet.wrapCssStyleSheet(styleSheet))
-            renderSession?.let {
-                syncRootNodeState(it)
-                it.requestLayoutAndRepaint()
-            }
-        }
-    }
+    override fun addStyleSheet(styleSheet: CssStyleSheet) =
+        alienImplProvider.addStyleSheet(styleSheet)
 
-    override fun removeStyleSheet(styleSheetPath: String): Boolean {
-        val removed = activeStyleSheets.removeAll {
-            AlienPrecompiledBootstrapStyleSheet.matchesPath(it, styleSheetPath)
-        }
-        if (removed) {
-            renderSession?.let {
-                syncRootNodeState(it)
-                it.requestLayoutAndRepaint()
-            }
-        }
-        return removed
-    }
+    override fun removeStyleSheet(styleSheetPath: String): Boolean =
+        alienImplProvider.removeStyleSheet(styleSheetPath)
 
-    override fun removeStyleSheet(styleSheetResourceId: ResourceID): Boolean {
-        val removed = activeStyleSheets.removeAll {
-            AlienPrecompiledBootstrapStyleSheet.matchesResourceId(it, styleSheetResourceId)
-        }
-        if (removed) {
-            renderSession?.let {
-                syncRootNodeState(it)
-                it.requestLayoutAndRepaint()
-            }
-        }
-        return removed
-    }
+    override fun removeStyleSheet(styleSheetResourceId: ResourceID): Boolean =
+        alienImplProvider.removeStyleSheet(styleSheetResourceId)
 
-    override fun removeStyleSheet(styleSheet: PrecompiledStyleSheet): Boolean {
-        val removed = activeStyleSheets.removeAll { it === styleSheet || it.name == styleSheet.name }
-        if (removed) {
-            renderSession?.let {
-                syncRootNodeState(it)
-                it.requestLayoutAndRepaint()
-            }
-        }
-        return removed
-    }
+    override fun removeStyleSheet(styleSheet: PrecompiledStyleSheet): Boolean =
+        alienImplProvider.removeStyleSheet(styleSheet)
 
-    override fun removeStyleSheet(styleSheet: CssStyleSheet): Boolean {
-        val removed = activeStyleSheets.removeAll { it.styleSheet === styleSheet }
-        if (removed) {
-            renderSession?.let {
-                syncRootNodeState(it)
-                it.requestLayoutAndRepaint()
-            }
-        }
-        return removed
-    }
+    override fun removeStyleSheet(styleSheet: CssStyleSheet): Boolean =
+        alienImplProvider.removeStyleSheet(styleSheet)
 
     override fun hasStyleSheet(styleSheetPath: String): Boolean =
-        activeStyleSheets.any { AlienPrecompiledBootstrapStyleSheet.matchesPath(it, styleSheetPath) }
+        alienImplProvider.hasStyleSheet(styleSheetPath)
 
     override fun hasStyleSheet(styleSheetResourceId: ResourceID): Boolean =
-        activeStyleSheets.any { AlienPrecompiledBootstrapStyleSheet.matchesResourceId(it, styleSheetResourceId) }
+        alienImplProvider.hasStyleSheet(styleSheetResourceId)
 
     override fun hasStyleSheet(styleSheet: PrecompiledStyleSheet): Boolean =
-        activeStyleSheets.any { it === styleSheet || it.name == styleSheet.name }
+        alienImplProvider.hasStyleSheet(styleSheet)
 
-    override fun getStyleSheets(): List<PrecompiledStyleSheet> = activeStyleSheets.toList()
+    override fun hasStyleSheet(styleSheet: CssStyleSheet): Boolean =
+        alienImplProvider.hasStyleSheet(styleSheet)
 
-    override fun getStyleSheetPaths(): List<String> = activeStyleSheets.map { it.cssResourcePath }
+    override fun getStyleSheets(): List<PrecompiledStyleSheet> =
+        alienImplProvider.getStyleSheets()
 
-    fun getOrCreateRenderSession(): AlienRenderSession? {
-        if (AlienExtension.platformBridge.isWebPassThrough) return null
-        val parentFactory = resolveActiveFactory()
-        if (parentFactory is AlienFactory && parentFactory.session != null) {
-            return parentFactory.session
-        }
-        val existing = renderSession
-        if (existing != null) {
-            syncRootNodeState(existing)
-            return existing
-        }
-        val hostFactory = AlienFactory.unwrapHostFactory(parentFactory ?: GenericUI.activeFactory) ?: return null
-        val w = (widthPx ?: 800).coerceAtLeast(1)
-        val h = (heightPx ?: 600).coerceAtLeast(1)
-        return AlienRenderSession(
-            hostFactory = hostFactory,
-            initialWidth = w,
-            initialHeight = h
-        ).also {
-            syncRootNodeState(it)
-            renderSession = it
-        }
-    }
+    override fun getStyleSheetPaths(): List<String> =
+        alienImplProvider.getStyleSheetPaths()
 
-    private fun syncRootNodeState(session: AlienRenderSession) {
-        session.insertApplicationStyleSheets = insertApplicationStyleSheets
-        session.styleSheets.clear()
-        session.styleSheets.addAll(activeStyleSheets)
-        session.rootNode.tagName = htmlTag
-        val snap = getBootstrap().toStyleSnapshot()
-        session.rootNode.styleSnapshot = snap.copy(
-            componentPrefix = "alien-root",
-            customClasses = LinkedHashSet(getClasses())
-        )
-        if (!getStyle().isEmpty()) {
-            session.rootNode.inlineComponentStyle = getStyle()
-        }
-        if (insertApplicationStyleSheets < 0) {
-            session.rootNode.computedStyle = null
-        } else {
-            computedStyle?.let { session.rootNode.computedStyle = it }
-        }
-    }
+    override fun getOrCreateRenderSession(): AlienRenderSession? =
+        alienImplProvider.getOrCreateRenderSession()
 
-    override fun onAttachNative(impl: NativeImpl<*>) {
-        super.onAttachNative(impl)
-        renderSession?.let {
-            syncRootNodeState(it)
-            it.requestLayoutAndRepaint()
+    override fun resizeAlienViewport(width: Int, height: Int) =
+        alienImplProvider.resizeAlienViewport(width, height)
+
+    override fun repaintAlien(deltaMs: Float) =
+        alienImplProvider.repaintAlien(deltaMs)
+
+    override fun requestAlienRepaint() =
+        alienImplProvider.requestAlienRepaint()
+
+    override fun <T : NativeImpl<*>> registerAlienComponentImpl(
+        componentClass: KClass<*>,
+        creator: (AbstractComponent) -> T
+    ) = alienImplProvider.registerAlienComponentImpl(componentClass, creator)
+
+    protected override fun onAttachNative(impl: NativeImpl<*>) {
+        alienImplProvider.onAttachNative(impl) {
+            super.onAttachNative(it)
         }
     }
 
     override fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int) {
-        if (insertApplicationStyleSheets >= 0 || activeStyleSheets.any { it.styleSheet === styleSheet }) {
-            super.applyStyleSheet(styleSheet, viewportWidthPx)
-        }
-        renderSession?.let {
-            syncRootNodeState(it)
-            it.requestLayoutAndRepaint()
+        alienImplProvider.applyStyleSheet(styleSheet, viewportWidthPx) { sheet, width ->
+            super.applyStyleSheet(sheet, width)
         }
     }
 
     override fun applyPrecompiledStyleSheet(precompiled: PrecompiledStyleSheet, viewportWidthPx: Int) {
-        if (insertApplicationStyleSheets >= 0 || hasStyleSheet(precompiled)) {
-            super.applyPrecompiledStyleSheet(precompiled, viewportWidthPx)
-        }
-        renderSession?.let {
-            syncRootNodeState(it)
-            it.requestLayoutAndRepaint()
+        alienImplProvider.applyPrecompiledStyleSheet(precompiled, viewportWidthPx) { sheet, width ->
+            super.applyPrecompiledStyleSheet(sheet, width)
         }
     }
 
-    override fun resolveActiveFactory(): NativeFactory? {
-        if (!isVisible) return null
-        return super.resolveActiveFactory() ?: GenericUI.activeFactory
-    }
+    override fun resolveActiveFactory(): NativeFactory? =
+        alienImplProvider.resolveActiveFactory { super.resolveActiveFactory() }
 
-    override fun resolveChildFactory(): NativeFactory? {
-        val parentFactory = resolveActiveFactory()
-        return AlienExtension.platformBridge.resolveChildFactory(
-            alienRoot = this,
-            parentFactory = parentFactory,
-            sessionProvider = { getOrCreateRenderSession() }
-        )
-    }
+    override fun resolveChildFactory(): NativeFactory? =
+        alienImplProvider.resolveChildFactory { super.resolveChildFactory() }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> {
-        if (AlienExtension.platformBridge.isWebPassThrough) {
-            return super.createNativeImpl(factory)
-        }
-        return AlienExtension.platformBridge.createAlienRootContainerImpl(
-            alienRoot = this,
-            hostFactory = factory,
-            sessionProvider = {
-                getOrCreateRenderSession() ?: AlienRenderSession(
-                    hostFactory = AlienFactory.unwrapHostFactory(factory) ?: factory,
-                    initialWidth = (widthPx ?: 800).coerceAtLeast(1),
-                    initialHeight = (heightPx ?: 600).coerceAtLeast(1)
-                ).also { renderSession = it }
-            }
-        )
-    }
-
-    /**
-     * Triggers an immediate animation/layout/dirty-region repaint pass on System targets.
-     */
-    override fun repaintAlien(deltaMs: Float) {
-        getOrCreateRenderSession()?.repaintIfDirty(deltaMs)
-    }
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+        alienImplProvider.createNativeImpl(factory) { super.createNativeImpl(it) }
 }

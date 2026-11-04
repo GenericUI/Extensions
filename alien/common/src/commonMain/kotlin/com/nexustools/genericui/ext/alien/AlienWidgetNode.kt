@@ -13,7 +13,7 @@ import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.style.css.ComponentStyle
 import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssCursorValue
-import com.nexustools.genericui.style.gradient.Gradient
+import com.nexustools.genericui.style.gradient.Gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
 import com.nexustools.genericui.style.transition.ContainerAnimationFrameState
 import com.nexustools.genericui.style.transition.CssTransitionSpec
@@ -185,6 +185,19 @@ class AlienWidgetNode(
     fun markLayoutDirty() {
         layoutDirty = true
         parent?.layoutDirty = true
+        session?.requestLayoutAndRepaint(bounds)
+    }
+
+    /**
+     * Marks this node and its ancestor chain dirty for measurement and layout (e.g., when an image
+     * finishes decoding or intrinsic content dimensions change), scheduling a full layout + repaint pass.
+     */
+    fun markMeasureDirty() {
+        var cur: AlienWidgetNode? = this
+        while (cur != null) {
+            cur.layoutDirty = true
+            cur = cur.parent
+        }
         session?.requestLayoutAndRepaint(bounds)
     }
 

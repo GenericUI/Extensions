@@ -1,5 +1,7 @@
 package com.nexustools.genericui.ext.gpu
 
+import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.PixelFormat
 

@@ -89,7 +89,6 @@ class AiChatToolCallCard(
             AiToolCallStatus.PENDING -> BootstrapType.SECONDARY
         }
         setBorderType(border)
-        headerRow.tooltipText = summaryLabel
     }
 
     companion object {

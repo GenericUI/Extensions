@@ -15,7 +15,7 @@ object WebViewExtension {
     var activeEngineType: WebViewEngineType = WebViewEngineType.CHROMIUM_NJS_JIT_DESKTOP
         private set
 
-    var nativeImplFactory: ((WebViewConfig) -> WebViewNativeImpl<*>)? = null
+    internal var nativeImplFactory: ((WebViewConfig) -> WebViewNativeImpl<*>)? = null
         private set
 
     fun registerProvider(

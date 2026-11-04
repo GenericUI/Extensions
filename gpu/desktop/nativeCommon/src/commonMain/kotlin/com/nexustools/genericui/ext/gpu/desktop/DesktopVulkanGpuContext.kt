@@ -1,8 +1,9 @@
 package com.nexustools.genericui.ext.gpu.desktop
 
+import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.desktop.canvas.DesktopVKContextImpl
 import com.nexustools.genericui.enums.media.ShaderType
-import com.nexustools.genericui.ext.gpu.GLContext
 import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.gpu.GpuBuffer
 import com.nexustools.genericui.ext.gpu.GpuBufferUsage
@@ -10,7 +11,6 @@ import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
 import com.nexustools.genericui.ext.gpu.GpuShaderProgram
 import com.nexustools.genericui.ext.gpu.GpuShaderStage
 import com.nexustools.genericui.ext.gpu.GpuTexture
-import com.nexustools.genericui.ext.gpu.VKContext
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.PixelFormat
 

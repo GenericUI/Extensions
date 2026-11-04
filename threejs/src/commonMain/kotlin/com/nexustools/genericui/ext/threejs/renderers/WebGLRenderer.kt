@@ -1,18 +1,16 @@
 package com.nexustools.genericui.ext.threejs.renderers
 
+import com.nexustools.genericui.component.media.GLBuffer
 import com.nexustools.genericui.component.media.GLCanvas
+import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.GLFramebuffer
+import com.nexustools.genericui.component.media.GLProgram
+import com.nexustools.genericui.component.media.GLTexture
 import com.nexustools.genericui.component.media.VBlankSubscription
 import com.nexustools.genericui.component.media.VKCanvas
+import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.enums.media.ShaderType
 import com.nexustools.genericui.ext.canvas3d.Canvas3DExtension
-import com.nexustools.genericui.ext.canvas3d.GLCanvasExt
-import com.nexustools.genericui.ext.canvas3d.VKCanvasExt
-import com.nexustools.genericui.ext.gpu.GLBuffer
-import com.nexustools.genericui.ext.gpu.GLContext
-import com.nexustools.genericui.ext.gpu.GLFramebuffer
-import com.nexustools.genericui.ext.gpu.GLProgram
-import com.nexustools.genericui.ext.gpu.GLTexture
-import com.nexustools.genericui.ext.gpu.VKContext
 import com.nexustools.genericui.ext.threejs.cameras.Camera
 import com.nexustools.genericui.ext.threejs.core.BufferGeometry
 import com.nexustools.genericui.ext.threejs.core.Object3D
@@ -42,7 +40,7 @@ import com.nexustools.genericui.ext.threejs.textures.Texture
 import com.nexustools.genericui.style.color.RgbaColor
 
 /**
- * Hardware-accelerated Three.js 3D Renderer backed by `:extensions:canvas3d` ([GLCanvasExt] / [VKCanvasExt])
+ * Hardware-accelerated Three.js 3D Renderer backed by `:extensions:canvas3d` ([GLCanvas] / [VKCanvas])
  * and `:extensions:gpu` ([GLContext] / [VKContext]).
  *
  * Supports OpenGL ES 3.0 (including Google ANGLE on Windows) via [GLCanvas] as well as Vulkan 1.3 via [VKCanvas],
@@ -50,7 +48,7 @@ import com.nexustools.genericui.style.color.RgbaColor
  */
 class WebGLRenderer(
     val config: WebGLRendererConfig = WebGLRendererConfig(),
-    val glCanvas: GLCanvas = GLCanvasExt(width = 800, height = 600),
+    val glCanvas: GLCanvas = GLCanvas(width = 800, height = 600),
     val vkCanvas: VKCanvas? = null
 ) {
     val info: WebGLRenderInfo = WebGLRenderInfo()
@@ -197,7 +195,7 @@ class WebGLRenderer(
     }
 
     fun render(scene: Scene, camera: Camera) {
-        info.resetFrameStats()
+        info.resetFrameCounters()
         info.frame++
 
         if (scene.autoUpdate) {
@@ -471,14 +469,14 @@ class WebGLRenderer(
             }
             val vs = gl.createShader(ShaderType.VERTEX, vertexSource)
             val fs = gl.createShader(ShaderType.FRAGMENT, fragmentSource)
-            info.programs++
+            info.programsCount++
             gl.createProgram(vs, fs)
         }
     }
 
     private fun ensureGeometryBuffers(gl: GLContext, geometry: BufferGeometry): Map<String, GLBuffer> {
         return vertexBufferCache.getOrPut(geometry.id) {
-            info.geometries++
+            info.geometriesCount++
             val map = mutableMapOf<String, GLBuffer>()
             for ((name, attr) in geometry.attributes) {
                 val buf = gl.createBuffer()
@@ -506,7 +504,7 @@ class WebGLRenderer(
         }
         val glTex = existing ?: gl.createTexture().also {
             textureCache[texture.id] = it
-            info.textures++
+            info.texturesCount++
         }
         gl.bindTexture(GLContext.GL_TEXTURE_2D, glTex)
         val img = texture.image
@@ -529,11 +527,9 @@ class WebGLRenderer(
 
     private fun resolveGlContext(): GLContext {
         activeGlContext?.let { return it }
-        if (glCanvas is GLCanvasExt) {
-            glCanvas.gpuContext.glContext?.let {
-                activeGlContext = it
-                return it
-            }
+        glCanvas.gpuContext.glContext?.let {
+            activeGlContext = it
+            return it
         }
         val created = Canvas3DExtension.createGLContext(width = width, height = height)
         activeGlContext = created

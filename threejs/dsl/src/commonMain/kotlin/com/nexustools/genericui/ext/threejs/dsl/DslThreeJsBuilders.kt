@@ -1,8 +1,8 @@
 package com.nexustools.genericui.ext.threejs.dsl
 
+import com.nexustools.genericui.component.media.GLCanvas
+import com.nexustools.genericui.component.media.VKCanvas
 import com.nexustools.genericui.core.AbstractContainer
-import com.nexustools.genericui.ext.canvas3d.GLCanvasExt
-import com.nexustools.genericui.ext.canvas3d.VKCanvasExt
 import com.nexustools.genericui.ext.dsl.GenericUiDslMarker
 import com.nexustools.genericui.ext.threejs.cameras.PerspectiveCamera
 import com.nexustools.genericui.ext.threejs.core.BufferGeometry
@@ -15,7 +15,7 @@ import com.nexustools.genericui.ext.threejs.renderers.WebGLRendererConfig
 import com.nexustools.genericui.ext.threejs.scenes.Scene
 
 /**
- * In-place Three.js OpenGL ES 3D canvas builder backed by [GLCanvasExt] and [WebGLRenderer].
+ * In-place Three.js OpenGL ES 3D canvas builder backed by [GLCanvas] and [WebGLRenderer].
  */
 fun AbstractContainer.threeJsGlCanvas(
     width: Int = 800,
@@ -24,8 +24,8 @@ fun AbstractContainer.threeJsGlCanvas(
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker ThreeSceneDslScope.() -> Unit)? = null
-): GLCanvasExt {
-    val glCanvas = GLCanvasExt(width = width, height = height)
+): GLCanvas {
+    val glCanvas = GLCanvas(width = width, height = height)
     if (!classes.isNullOrBlank()) {
         glCanvas.addClass(classes)
     }
@@ -53,7 +53,7 @@ fun AbstractContainer.threeJsGlCanvas(
 }
 
 /**
- * In-place Three.js Vulkan 3D canvas builder backed by [VKCanvasExt] and [WebGLRenderer].
+ * In-place Three.js Vulkan 3D canvas builder backed by [VKCanvas] and [WebGLRenderer].
  */
 fun AbstractContainer.threeJsVkCanvas(
     width: Int = 800,
@@ -62,8 +62,8 @@ fun AbstractContainer.threeJsVkCanvas(
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker ThreeSceneDslScope.() -> Unit)? = null
-): VKCanvasExt {
-    val vkCanvas = VKCanvasExt(width = width, height = height)
+): VKCanvas {
+    val vkCanvas = VKCanvas(width = width, height = height)
     if (!classes.isNullOrBlank()) {
         vkCanvas.addClass(classes)
     }
@@ -72,7 +72,7 @@ fun AbstractContainer.threeJsVkCanvas(
     }
     val renderer = WebGLRenderer(
         config = config,
-        glCanvas = GLCanvasExt(width = width, height = height),
+        glCanvas = GLCanvas(width = width, height = height),
         vkCanvas = vkCanvas
     )
     val defaultAspect = width.coerceAtLeast(1).toFloat() / height.coerceAtLeast(1).toFloat()

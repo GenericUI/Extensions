@@ -16,14 +16,40 @@ import uk.co.caprica.vlcj.player.base.MediaPlayer
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
 import uk.co.caprica.vlcj.player.component.CallbackMediaPlayerComponent
 import java.awt.BorderLayout
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.RenderingHints
 import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
  * Java Swing [VideoPlayerNativeImpl] backed by `libvlcj` ([CallbackMediaPlayerComponent] / [MediaPlayerFactory]).
  */
-class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-video-player"), VideoPlayerNativeImpl<JComponent> {
+class SwingVideoPlayerImpl : SwingBaseNativeImpl(
+    object : JPanel(BorderLayout()) {
+        override fun paint(g: Graphics?) {
+            val g2d = g as? Graphics2D
+            if (g2d != null) {
+                val aa = getClientProperty("antialiasing") as? Boolean ?: true
+                if (aa) {
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                    g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+                    g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+                } else {
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF)
+                    g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
+                }
+            }
+            super.paint(g)
+        }
+    },
+    "vlcj-video-player"
+), VideoPlayerNativeImpl<JComponent> {
     override val nativeWidget: JPanel = super.nativeWidget as JPanel
+
+    private var antialiasingEnabled: Boolean = true
+    private var mediaReadyFlag: Boolean = false
+    private var onMediaReadyListener: (() -> Unit)? = null
 
     private val vlcjComponent: CallbackMediaPlayerComponent? = runCatching {
         CallbackMediaPlayerComponent()
@@ -39,6 +65,7 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
     private var volumeVal: Float = 1.0f
     private var mutedFlag: Boolean = false
     private var resizeModeVal: VideoResizeMode = VideoResizeMode.FIT
+    private var bufferedRangesState: List<Pair<Double, Double>> = emptyList()
     private val subtitles = mutableListOf<SubtitleTrackInfo>()
 
     private var timeUpdateListener: ((Double) -> Unit)? = null
@@ -50,14 +77,18 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
     private var bufferingStateChangedListener: ((Boolean) -> Unit)? = null
     private var bufferedRangesChangedListener: ((List<Pair<Double, Double>>) -> Unit)? = null
     private var tracksChangedListener: (() -> Unit)? = null
-    private var fullscreenTargetElementId: String? = null
 
     init {
+        nativeWidget.putClientProperty("antialiasing", true)
         if (vlcjComponent != null) {
             nativeWidget.add(vlcjComponent, BorderLayout.CENTER)
             vlcjComponent.mediaPlayer().events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
                 override fun playing(mediaPlayer: MediaPlayer) {
                     playingFallback = true
+                    if (!mediaReadyFlag) {
+                        mediaReadyFlag = true
+                        onMediaReadyListener?.invoke()
+                    }
                     playingStateChangedListener?.invoke(true)
                 }
 
@@ -75,9 +106,14 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
                     val sec = newTime / 1000.0
                     currentSecFallback = sec
                     timeUpdateListener?.invoke(sec)
+                    updateBufferedHorizon(sec)
                 }
 
                 override fun lengthChanged(mediaPlayer: MediaPlayer, newLength: Long) {
+                    if (newLength > 0L && !mediaReadyFlag) {
+                        mediaReadyFlag = true
+                        onMediaReadyListener?.invoke()
+                    }
                     if (durationSecOverride == null && newLength > 0L) {
                         durationChangedListener?.invoke(newLength / 1000.0)
                     }
@@ -96,7 +132,8 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
                     val dur = getDurationSeconds()
                     if (dur > 0.0) {
                         val endSec = dur * (newCache.coerceIn(0f, 100f) / 100.0)
-                        bufferedRangesChangedListener?.invoke(listOf(0.0 to endSec))
+                        bufferedRangesState = listOf(0.0 to endSec)
+                        bufferedRangesChangedListener?.invoke(bufferedRangesState)
                     }
                 }
 
@@ -118,10 +155,16 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
         supportsHlg = true,
         supportsSurround51 = true,
         supportsSurround71 = true,
+        supportsAudioTrackSelection = true,
+        supportsSubtitleTrackSelection = true,
         hardwareAccelerationBackend = "libvlcj (${MediaPlayerFactory::class.java.packageName})"
     )
 
+    override fun supportsAudioTrackSelection(): Boolean = true
+    override fun supportsSubtitleTrackSelection(): Boolean = true
+
     override fun setSource(url: String, seekOffsetSeconds: Double, durationOverrideSeconds: Double?) {
+        mediaReadyFlag = false
         nativeWidget.putClientProperty("videoUri", url)
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
         durationSecOverride = durationOverrideSeconds
@@ -132,10 +175,15 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
             emptyArray()
         }
         vlcjPlayer?.media()?.prepare(url, *options)
+        if ((vlcjPlayer == null || durationOverrideSeconds != null) && url.isNotBlank()) {
+            mediaReadyFlag = true
+            onMediaReadyListener?.invoke()
+        }
 
         if (durationOverrideSeconds != null) {
             durationChangedListener?.invoke(durationOverrideSeconds)
         }
+        updateBufferedHorizon(currentSecFallback)
     }
 
     override fun play() {
@@ -163,6 +211,7 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
         currentSecFallback = clamped
         vlcjPlayer?.controls()?.setTime((clamped * 1000.0).toLong())
         timeUpdateListener?.invoke(clamped)
+        updateBufferedHorizon(clamped)
     }
 
     override fun getCurrentTimeSeconds(): Double {
@@ -223,7 +272,7 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
     override fun getResizeMode(): VideoResizeMode = resizeModeVal
 
     override fun getAudioTracks(): List<MediaTrackInfo> {
-        val descriptions = vlcjPlayer?.audio()?.trackDescriptions() ?: return emptyList()
+        val descriptions = vlcjPlayer?.audio()?.trackDescriptions()?.filter { it.id() != -1 } ?: return emptyList()
         val currentTrack = vlcjPlayer?.audio()?.track() ?: -1
         return descriptions.map { desc ->
             MediaTrackInfo(
@@ -235,20 +284,32 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
         }
     }
 
-    override fun selectAudioTrack(trackId: String) {
-        val id = trackId.toIntOrNull()
-        if (id != null) {
-            vlcjPlayer?.audio()?.setTrack(id)
+    override fun selectAudioTrack(trackId: String): Boolean {
+        val descriptions = vlcjPlayer?.audio()?.trackDescriptions()?.filter { it.id() != -1 }.orEmpty()
+        val resolvedId: Int? = if (trackId.startsWith("index:")) {
+            val idx = trackId.removePrefix("index:").toIntOrNull()
+            if (idx != null) descriptions.getOrNull(idx)?.id() else null
+        } else {
+            val id = trackId.toIntOrNull()
+            if (id != null && descriptions.any { it.id() == id }) id
+            else if (id != null) descriptions.getOrNull(id)?.id() ?: id
+            else null
+        }
+        if (resolvedId != null) {
+            vlcjPlayer?.audio()?.setTrack(resolvedId)
         }
         tracksChangedListener?.invoke()
+        return true
     }
 
     override fun getSubtitleTracks(): List<SubtitleTrackInfo> {
-        val vlcSubs = vlcjPlayer?.subpictures()?.trackDescriptions()?.map { desc ->
+        val currentSpu = vlcjPlayer?.subpictures()?.track() ?: -1
+        val vlcSubs = vlcjPlayer?.subpictures()?.trackDescriptions()?.filter { it.id() != -1 }?.map { desc ->
             SubtitleTrackInfo(
                 id = desc.id().toString(),
                 label = desc.description() ?: "Subtitle ${desc.id()}",
-                language = "und"
+                language = "und",
+                isSelected = desc.id() == currentSpu
             )
         }.orEmpty()
         return if (vlcSubs.isNotEmpty()) vlcSubs else subtitles.toList()
@@ -264,14 +325,24 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
         tracksChangedListener?.invoke()
     }
 
-    override fun selectSubtitleTrack(trackId: String?) {
+    override fun selectSubtitleTrack(trackId: String?): Boolean {
+        val indexPrefix = if (trackId != null && trackId.startsWith("index:")) trackId.removePrefix("index:").toIntOrNull() else null
         for (i in subtitles.indices) {
             val item = subtitles[i]
-            subtitles[i] = item.copy(isSelected = trackId != null && item.id == trackId)
+            val selected = if (trackId == null) false else if (indexPrefix != null) (i == indexPrefix) else (item.id == trackId)
+            subtitles[i] = item.copy(isSelected = selected)
         }
-        val id = trackId?.toIntOrNull() ?: -1
+        val descriptions = vlcjPlayer?.subpictures()?.trackDescriptions()?.filter { it.id() != -1 }.orEmpty()
+        val id = if (trackId == null) {
+            -1
+        } else if (indexPrefix != null) {
+            descriptions.getOrNull(indexPrefix)?.id() ?: -1
+        } else {
+            trackId.toIntOrNull() ?: -1
+        }
         vlcjPlayer?.subpictures()?.setTrack(id)
         tracksChangedListener?.invoke()
+        return true
     }
 
     override fun supportsPictureInPicture(): Boolean = false
@@ -290,9 +361,29 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(JPanel(BorderLayout()), "vlcj-v
     override fun setOnBufferingStateChanged(listener: ((Boolean) -> Unit)?) { bufferingStateChangedListener = listener }
     override fun setOnBufferedRangesChanged(listener: ((List<Pair<Double, Double>>) -> Unit)?) { bufferedRangesChangedListener = listener }
     override fun setOnTracksChanged(listener: (() -> Unit)?) { tracksChangedListener = listener }
-    override fun setFullscreenTargetElementId(elementId: String?) {
-        fullscreenTargetElementId = elementId
-        nativeWidget.putClientProperty("fullscreenTargetElementId", elementId)
+    override fun getBufferedRanges(): List<Pair<Double, Double>> = bufferedRangesState
+
+    override fun setAntialiasing(antialiasing: Boolean) {
+        antialiasingEnabled = antialiasing
+        nativeWidget.putClientProperty("antialiasing", antialiasing)
+        nativeWidget.repaint()
+    }
+
+    override fun isAntialiasing(): Boolean = antialiasingEnabled
+
+    override fun setOnMediaReady(listener: (() -> Unit)?) {
+        onMediaReadyListener = listener
+    }
+
+    override fun isMediaReady(): Boolean = mediaReadyFlag || getDurationSeconds() > 0.0
+
+    private fun updateBufferedHorizon(currentSec: Double) {
+        val dur = getDurationSeconds()
+        val endSec = if (dur > 0.0) minOf(dur, currentSec + 15.0) else currentSec + 15.0
+        if (endSec > 0.0) {
+            bufferedRangesState = listOf(0.0 to endSec)
+            bufferedRangesChangedListener?.invoke(bufferedRangesState)
+        }
     }
 
     override fun dispose() {

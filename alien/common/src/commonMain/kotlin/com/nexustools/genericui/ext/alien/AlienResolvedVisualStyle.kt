@@ -6,7 +6,7 @@ import com.nexustools.genericui.enums.ui.ObjectFit
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.*
-import com.nexustools.genericui.style.gradient.Gradient
+import com.nexustools.genericui.style.gradient.Gradient.Gradient
 import com.nexustools.genericui.style.transition.CssTransform2D
 
 /**

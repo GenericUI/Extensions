@@ -24,6 +24,8 @@ data class MediaCapabilitiesReport(
     val supportsDolbyVision: Boolean = false,
     val supportsSurround51: Boolean = false,
     val supportsSurround71: Boolean = false,
+    val supportsAudioTrackSelection: Boolean = false,
+    val supportsSubtitleTrackSelection: Boolean = false,
     val hardwareAccelerationBackend: String = "Software"
 ) {
     fun supportsVideo(codec: VideoCodec): Boolean =

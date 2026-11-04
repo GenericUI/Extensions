@@ -3,6 +3,7 @@ package com.nexustools.genericui.nativeimpl.media
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.enums.media.AudioCodec
+import com.nexustools.genericui.enums.media.MediaPreloadMode
 
 interface AudioPlayerNativeImpl<out W> : NativeImpl<W> {
     fun getSupportedAudioCodecs(): Set<AudioCodec>
@@ -18,6 +19,19 @@ interface AudioPlayerNativeImpl<out W> : NativeImpl<W> {
     fun getVolume(): Float
     fun attachAudioAnalyzer(analyzer: AudioAnalyzer?)
     fun setOnTimeUpdate(listener: ((Double) -> Unit)?)
+    fun setOnDurationChanged(listener: ((Double) -> Unit)?) {}
+    fun setOnBufferedRangesChanged(listener: ((List<Pair<Double, Double>>) -> Unit)?) {}
     fun setOnEnded(listener: (() -> Unit)?)
     fun setOnError(listener: ((String) -> Unit)?)
+
+    fun setPreloadMode(mode: MediaPreloadMode) {}
+    fun getPreloadMode(): MediaPreloadMode = MediaPreloadMode.AUTO
+    fun setAdaptivePreloadBufferingEnabled(enabled: Boolean) {}
+    fun isAdaptivePreloadBufferingEnabled(): Boolean = true
+    fun getBufferedRanges(): List<Pair<Double, Double>> = emptyList()
+    fun getEstimatedNetworkSpeedRatio(): Double = 1.0
+    fun getRequiredSafeBufferSeconds(): Double = 0.0
+
+    fun setOnMediaReady(listener: (() -> Unit)?) {}
+    fun isMediaReady(): Boolean = false
 }

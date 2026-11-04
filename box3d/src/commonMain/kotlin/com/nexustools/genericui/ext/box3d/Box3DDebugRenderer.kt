@@ -1,7 +1,7 @@
 package com.nexustools.genericui.ext.box3d
 
+import com.nexustools.genericui.component.media.GLCanvas
 import com.nexustools.genericui.component.media.VBlankSubscription
-import com.nexustools.genericui.ext.canvas3d.GLCanvasExt
 import com.nexustools.genericui.ext.threejs.cameras.Camera
 import com.nexustools.genericui.ext.threejs.core.BufferAttribute
 import com.nexustools.genericui.ext.threejs.core.BufferGeometry
@@ -19,7 +19,7 @@ import com.nexustools.genericui.ext.threejs.scenes.Scene
 
 /**
  * 3D Physics Debug Renderer bridging `:extensions:box3d` ([World3D]) with `:extensions:threejs`
- * ([Scene], [Group], [WebGLRenderer]) and `:extensions:canvas3d` ([GLCanvasExt]).
+ * ([Scene], [Group], [WebGLRenderer]) and `:extensions:canvas3d` ([GLCanvas]).
  *
  * Generates and updates wireframe meshes for 3D colliders, AABBs, joints, and contact normals.
  */
@@ -124,7 +124,7 @@ class Box3DDebugRenderer(
     }
 
     /**
-     * Starts an automatic VBlank simulation and rendering loop on [renderer] (backed by [GLCanvasExt]),
+     * Starts an automatic VBlank simulation and rendering loop on [renderer] (backed by [GLCanvas]),
      * stepping [world], updating debug wireframes, and rendering [scene] from [camera] on every frame.
      */
     fun startSimulationLoop(
@@ -146,7 +146,7 @@ class Box3DDebugRenderer(
      */
     fun bindToCanvas3D(
         camera: Camera,
-        glCanvas: GLCanvasExt = GLCanvasExt()
+        glCanvas: GLCanvas = GLCanvas()
     ): WebGLRenderer {
         val renderer = WebGLRenderer(glCanvas = glCanvas)
         startSimulationLoop(renderer, camera)

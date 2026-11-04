@@ -1,26 +1,19 @@
 package com.nexustools.genericui.ext.media.overlay
 
 import com.nexustools.genericui.component.media.SubtitleCue
-import com.nexustools.genericui.ext.media.VideoPlayerExt
+import com.nexustools.genericui.component.media.VideoPlayer
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.ext.overlay.OverlayHostBox
 
 /**
- * Specialized [OverlayHostBox] wrapping a [VideoPlayerExt], binding its playback state and
+ * Specialized [OverlayHostBox] wrapping a [VideoPlayer], binding its playback state and
  * actions through [VideoPlayerOverlayBinder], targeting the host container for fullscreen mode,
  * and suppressing the overlay when Picture-in-Picture mode is active.
  */
 open class VideoOverlayHost(
-    val videoPlayer: VideoPlayerExt,
+    val videoPlayer: VideoPlayer = VideoPlayer(),
     initialOverlay: AbstractOverlay? = null
 ) : OverlayHostBox(content = videoPlayer, initialOverlay = initialOverlay) {
-
-    override var id: String?
-        get() = super.id
-        set(value) {
-            super.id = value
-            videoPlayer.setFullscreenTargetElementId(value)
-        }
 
     val binder: VideoPlayerOverlayBinder = VideoPlayerOverlayBinder(
         videoPlayer = videoPlayer,
@@ -33,8 +26,6 @@ open class VideoOverlayHost(
         videoPlayer.attachedOverlayHost = this
         if (id.isNullOrBlank()) {
             id = "genericui-video-overlay-host-${++instanceCounter}"
-        } else {
-            videoPlayer.setFullscreenTargetElementId(id)
         }
     }
 

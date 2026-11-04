@@ -2,7 +2,7 @@ package com.nexustools.genericui.android
 
 import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.enums.media.ShaderType
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Android NDK `VK_KHR_android_surface` (`ANativeWindow_fromSurface`) implementation of [VKContext].

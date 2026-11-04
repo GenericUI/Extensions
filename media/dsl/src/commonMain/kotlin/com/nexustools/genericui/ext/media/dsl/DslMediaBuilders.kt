@@ -2,48 +2,13 @@ package com.nexustools.genericui.ext.media.dsl
 
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.component.media.AudioPlayer
+import com.nexustools.genericui.component.media.SeekBar
 import com.nexustools.genericui.component.media.VideoPlayer
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.ext.dsl.GenericUiDslMarker
-import com.nexustools.genericui.ext.media.AudioAnalyzerExt
-import com.nexustools.genericui.ext.media.AudioPlayerExt
-import com.nexustools.genericui.ext.media.VideoPlayerExt
 import com.nexustools.genericui.ext.media.overlay.VideoOverlayHost
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
-
-/**
- * In-place [VideoPlayerExt] builder with `style { ... }` support.
- */
-fun AbstractContainer.videoPlayerExt(
-    sourceUrl: String? = null,
-    volume: Float = 1.0f,
-    muted: Boolean = false,
-    playbackSpeed: Float = 1.0f,
-    resizeMode: VideoResizeMode = VideoResizeMode.FIT,
-    id: String? = null,
-    classes: String? = null,
-    block: (@GenericUiDslMarker VideoPlayerExt.() -> Unit)? = null
-): VideoPlayerExt {
-    val player = VideoPlayerExt(
-        sourceUrl = sourceUrl
-    )
-    player.volume = volume
-    player.isMuted = muted
-    player.playbackSpeed = playbackSpeed
-    player.resizeMode = resizeMode
-    if (!classes.isNullOrBlank()) {
-        player.addClass(classes)
-    }
-    if (!id.isNullOrBlank()) {
-        player.id = id
-    }
-    if (block != null) {
-        player.block()
-    }
-    addChild(player)
-    return player
-}
 
 /**
  * In-place [VideoPlayer] builder.
@@ -63,31 +28,6 @@ fun AbstractContainer.videoPlayer(
     player.isMuted = muted
     player.playbackSpeed = playbackSpeed
     player.resizeMode = resizeMode
-    if (!classes.isNullOrBlank()) {
-        player.addClass(classes)
-    }
-    if (!id.isNullOrBlank()) {
-        player.id = id
-    }
-    if (block != null) {
-        player.block()
-    }
-    addChild(player)
-    return player
-}
-
-/**
- * In-place [AudioPlayerExt] builder.
- */
-fun AbstractContainer.audioPlayerExt(
-    sourceUrl: String? = null,
-    volume: Float = 1.0f,
-    id: String? = null,
-    classes: String? = null,
-    block: (@GenericUiDslMarker AudioPlayerExt.() -> Unit)? = null
-): AudioPlayerExt {
-    val player = AudioPlayerExt(sourceUrl = sourceUrl)
-    player.volume = volume
     if (!classes.isNullOrBlank()) {
         player.addClass(classes)
     }
@@ -127,31 +67,27 @@ fun AbstractContainer.audioPlayer(
 }
 
 /**
- * Creates and configures an [AudioAnalyzerExt] within a container DSL scope.
+ * In-place [SeekBar] builder.
  */
-fun AbstractContainer.audioAnalyzerExt(
-    fftSize: Int = 2048,
-    block: (@GenericUiDslMarker AudioAnalyzerExt.() -> Unit)? = null
-): AudioAnalyzerExt {
-    val analyzer = AudioAnalyzerExt(fftSize = fftSize)
-    if (block != null) {
-        analyzer.block()
+fun AbstractContainer.seekBar(
+    value: Double = 0.0,
+    min: Double = 0.0,
+    max: Double = 100.0,
+    step: Double = 0.25,
+    id: String? = null,
+    classes: String? = null,
+    block: (@GenericUiDslMarker SeekBar.() -> Unit) = {}
+): SeekBar {
+    val bar = SeekBar(value = value, min = min, max = max, step = step)
+    if (!classes.isNullOrBlank()) {
+        bar.addClass(classes)
     }
-    return analyzer
-}
-
-/**
- * Creates and configures a standalone [AudioAnalyzerExt].
- */
-fun audioAnalyzerExt(
-    fftSize: Int = 2048,
-    block: (@GenericUiDslMarker AudioAnalyzerExt.() -> Unit)? = null
-): AudioAnalyzerExt {
-    val analyzer = AudioAnalyzerExt(fftSize = fftSize)
-    if (block != null) {
-        analyzer.block()
+    if (!id.isNullOrBlank()) {
+        bar.id = id
     }
-    return analyzer
+    bar.block()
+    addChild(bar)
+    return bar
 }
 
 /**
@@ -169,7 +105,21 @@ fun AbstractContainer.audioAnalyzer(
 }
 
 /**
- * In-place [VideoOverlayHost] builder wrapping a newly created [VideoPlayerExt] and optional [overlay].
+ * Creates and configures a standalone [AudioAnalyzer].
+ */
+fun audioAnalyzer(
+    fftSize: Int = 2048,
+    block: (@GenericUiDslMarker AudioAnalyzer.() -> Unit)? = null
+): AudioAnalyzer {
+    val analyzer = AudioAnalyzer(fftSize = fftSize)
+    if (block != null) {
+        analyzer.block()
+    }
+    return analyzer
+}
+
+/**
+ * In-place [VideoOverlayHost] builder wrapping a newly created [VideoPlayer] and optional [overlay].
  */
 fun AbstractContainer.videoOverlayHost(
     sourceUrl: String? = null,
@@ -183,7 +133,7 @@ fun AbstractContainer.videoOverlayHost(
     classes: String? = null,
     block: (@GenericUiDslMarker VideoOverlayHost.() -> Unit)? = null
 ): VideoOverlayHost {
-    val player = VideoPlayerExt(sourceUrl = sourceUrl)
+    val player = VideoPlayer(sourceUrl = sourceUrl)
     player.volume = volume
     player.isMuted = muted
     player.playbackSpeed = playbackSpeed
@@ -209,7 +159,7 @@ fun AbstractContainer.videoOverlayHost(
  * In-place [VideoOverlayHost] builder wrapping an existing [videoPlayer] and optional [overlay].
  */
 fun AbstractContainer.videoOverlayHost(
-    videoPlayer: VideoPlayerExt,
+    videoPlayer: VideoPlayer,
     overlay: AbstractOverlay? = null,
     themeColorHex: String? = null,
     id: String? = null,
@@ -234,7 +184,7 @@ fun AbstractContainer.videoOverlayHost(
 }
 
 /**
- * Standalone [VideoOverlayHost] builder wrapping a newly created [VideoPlayerExt] and optional [overlay].
+ * Standalone [VideoOverlayHost] builder wrapping a newly created [VideoPlayer] and optional [overlay].
  */
 fun videoOverlayHost(
     sourceUrl: String? = null,
@@ -248,7 +198,7 @@ fun videoOverlayHost(
     classes: String? = null,
     block: (@GenericUiDslMarker VideoOverlayHost.() -> Unit)? = null
 ): VideoOverlayHost {
-    val player = VideoPlayerExt(sourceUrl = sourceUrl)
+    val player = VideoPlayer(sourceUrl = sourceUrl)
     player.volume = volume
     player.isMuted = muted
     player.playbackSpeed = playbackSpeed
@@ -273,7 +223,7 @@ fun videoOverlayHost(
  * Standalone [VideoOverlayHost] builder wrapping an existing [videoPlayer] and optional [overlay].
  */
 fun videoOverlayHost(
-    videoPlayer: VideoPlayerExt,
+    videoPlayer: VideoPlayer,
     overlay: AbstractOverlay? = null,
     themeColorHex: String? = null,
     id: String? = null,

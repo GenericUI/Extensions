@@ -78,7 +78,7 @@ class WebView(
         typedNative<WebViewNativeImpl<*>>()?.postWebMessage(message)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): WebViewNativeImpl<*> {
+    protected override fun createNativeImpl(factory: NativeFactory): WebViewNativeImpl<*> {
         val extFactory = WebViewExtension.nativeImplFactory
         return extFactory?.invoke(config)
             ?: throw IllegalStateException("No WebViewNativeImpl provider registered in WebViewExtension")

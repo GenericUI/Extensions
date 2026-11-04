@@ -588,17 +588,32 @@ object AlienCssStyleResolver {
             else -> inherited.visible
         }
 
+        val allNodeClasses = LinkedHashSet<String>().apply {
+            addAll(com.nexustools.genericui.style.mapper.BootstrapClassMapper.toEnumClassSet(snapshot))
+            addAll(customClasses)
+        }
+        val responsiveDisplay = resolveResponsiveBootstrapDisplay(allNodeClasses, viewportWidthPx)
+        val rawDisplay = raw["display"]?.replace("!important", "")?.trim()?.lowercase()
+        val rawDisplayImportant = stateComputed?.importantProperties?.contains("display") == true
+
         val display = when {
-            !node.visible || "hidden" in customClasses || "d-none" in customClasses ||
-                snapshot.display == DisplayMode.NONE ||
-                stateComputed?.display?.equals("none", ignoreCase = true) == true -> "none"
+            !node.visible || "hidden" in customClasses -> "none"
+            responsiveDisplay != null -> responsiveDisplay
+            inlineStyle?.getDisplay() != null && inlineWins(CssProperty.DISPLAY) ->
+                inlineStyle.getDisplay()!!.cssValue
+            rawDisplayImportant && !rawDisplay.isNullOrBlank() -> rawDisplay
             stateComputed?.display != null -> stateComputed.display!!.lowercase()
-            snapshot.display == DisplayMode.FLEX || "d-flex" in customClasses -> "flex"
-            snapshot.display == DisplayMode.INLINE_FLEX || "d-inline-flex" in customClasses -> "inline-flex"
-            snapshot.display == DisplayMode.GRID || "d-grid" in customClasses -> "grid"
-            snapshot.display == DisplayMode.INLINE_BLOCK || "d-inline-block" in customClasses -> "inline-block"
-            snapshot.display == DisplayMode.INLINE || "d-inline" in customClasses -> "inline"
-            snapshot.display == DisplayMode.BLOCK || "d-block" in customClasses -> "block"
+            !rawDisplay.isNullOrBlank() -> rawDisplay
+            snapshot.display == DisplayMode.NONE -> "none"
+            snapshot.display == DisplayMode.FLEX -> "flex"
+            snapshot.display == DisplayMode.INLINE_FLEX -> "inline-flex"
+            snapshot.display == DisplayMode.GRID -> "grid"
+            snapshot.display == DisplayMode.INLINE_BLOCK -> "inline-block"
+            snapshot.display == DisplayMode.INLINE -> "inline"
+            snapshot.display == DisplayMode.BLOCK -> "block"
+            node.tagName.equals("table", ignoreCase = true) -> "table"
+            node.tagName.equals("tr", ignoreCase = true) -> "table-row"
+            node.tagName.equals("td", ignoreCase = true) || node.tagName.equals("th", ignoreCase = true) -> "table-cell"
             isButton -> "inline-block"
             else -> "block"
         }
@@ -675,18 +690,40 @@ object AlienCssStyleResolver {
             else -> ObjectFit.FILL
         }
 
+        val classOverflow = when {
+            "overflow-hidden" in customClasses -> OverflowBehavior.HIDDEN
+            "overflow-auto" in customClasses -> OverflowBehavior.AUTO
+            "overflow-scroll" in customClasses -> OverflowBehavior.SCROLL
+            "overflow-visible" in customClasses -> OverflowBehavior.VISIBLE
+            else -> null
+        }
         val overflow = parseOverflow(stateComputed?.overflow ?: raw["overflow"])
             ?: snapshot.overflow
+            ?: classOverflow
             ?: if (snapshot.textOverflow == TextOverflow.ELLIPSIS) OverflowBehavior.HIDDEN else OverflowBehavior.VISIBLE
         val overflowX = (if (inlineStyle?.getOverflowX() != null && inlineWins(CssProperty.OVERFLOW_X)) {
             inlineStyle.getOverflowX()
         } else {
             parseOverflow(raw["overflow-x"])
+                ?: when {
+                    "overflow-x-hidden" in customClasses -> OverflowBehavior.HIDDEN
+                    "overflow-x-auto" in customClasses -> OverflowBehavior.AUTO
+                    "overflow-x-scroll" in customClasses -> OverflowBehavior.SCROLL
+                    "overflow-x-visible" in customClasses -> OverflowBehavior.VISIBLE
+                    else -> null
+                }
         }) ?: overflow
         val overflowY = (if (inlineStyle?.getOverflowY() != null && inlineWins(CssProperty.OVERFLOW_Y)) {
             inlineStyle.getOverflowY()
         } else {
             parseOverflow(raw["overflow-y"])
+                ?: when {
+                    "overflow-y-hidden" in customClasses -> OverflowBehavior.HIDDEN
+                    "overflow-y-auto" in customClasses -> OverflowBehavior.AUTO
+                    "overflow-y-scroll" in customClasses -> OverflowBehavior.SCROLL
+                    "overflow-y-visible" in customClasses -> OverflowBehavior.VISIBLE
+                    else -> null
+                }
         }) ?: overflow
 
         val flexDirection = when (raw["flex-direction"]?.trim()?.lowercase()) {
@@ -1025,11 +1062,52 @@ object AlienCssStyleResolver {
         )
     }
 
+    private val BOOTSTRAP_DISPLAY_BREAKPOINTS: List<Pair<String, Int>> = listOf(
+        "" to 0,
+        "sm-" to 576,
+        "md-" to 768,
+        "lg-" to 992,
+        "xl-" to 1200,
+        "xxl-" to 1400
+    )
+
+    private val BOOTSTRAP_DISPLAY_VALUES: List<String> = listOf(
+        "none",
+        "inline",
+        "inline-block",
+        "block",
+        "grid",
+        "inline-grid",
+        "table",
+        "table-row",
+        "table-cell",
+        "flex",
+        "inline-flex"
+    )
+
+    internal fun resolveResponsiveBootstrapDisplay(
+        classes: Set<String>,
+        viewportWidthPx: Int
+    ): String? {
+        if (classes.isEmpty()) return null
+        var resolved: String? = null
+        for ((bpPrefix, minWidth) in BOOTSTRAP_DISPLAY_BREAKPOINTS) {
+            if (viewportWidthPx < minWidth) break
+            val classPrefix = "d-$bpPrefix"
+            for (value in BOOTSTRAP_DISPLAY_VALUES) {
+                if ("$classPrefix$value" in classes) {
+                    resolved = value
+                }
+            }
+        }
+        return resolved
+    }
+
     private fun parseOverflow(raw: String?): OverflowBehavior? {
         if (raw.isNullOrBlank()) return null
         return when (raw.replace("!important", "").trim().lowercase()) {
             "auto" -> OverflowBehavior.AUTO
-            "hidden" -> OverflowBehavior.HIDDEN
+            "hidden", "clip" -> OverflowBehavior.HIDDEN
             "visible" -> OverflowBehavior.VISIBLE
             "scroll" -> OverflowBehavior.SCROLL
             else -> null

@@ -4,8 +4,6 @@ import com.nexustools.genericui.ext.dsl.GenericUiDslMarker
 import com.nexustools.genericui.ext.mediacontrols.MediaControlButtonConfig
 import com.nexustools.genericui.ext.mediacontrols.MediaControlEvent
 import com.nexustools.genericui.ext.mediacontrols.MediaControlMetadata
-import com.nexustools.genericui.ext.mediacontrols.MediaControlsNativeImpl
-import com.nexustools.genericui.ext.mediacontrols.MediaControlsRegistry
 import com.nexustools.genericui.ext.mediacontrols.MediaControlsSession
 import com.nexustools.genericui.window.IWindow
 import kotlin.jvm.JvmName
@@ -20,11 +18,10 @@ fun mediaControlsSession(
     keyboardMediaKeysEnabled: Boolean = true,
     taskbarPreviewControlsEnabled: Boolean = true,
     autoActivate: Boolean = true,
-    nativeImpl: MediaControlsNativeImpl = MediaControlsRegistry.createNativeImpl(),
     onEvent: ((MediaControlEvent) -> Unit)? = null,
     block: (@GenericUiDslMarker MediaControlsSession.() -> Unit)? = null
 ): MediaControlsSession {
-    val session = MediaControlsSession(window = window, nativeImpl = nativeImpl)
+    val session = MediaControlsSession(window = window)
     session.keyboardMediaKeysEnabled = keyboardMediaKeysEnabled
     session.taskbarPreviewControlsEnabled = taskbarPreviewControlsEnabled
     session.updateButtonConfig(buttonConfig)
@@ -51,7 +48,6 @@ fun IWindow.mediaControlsSession(
     keyboardMediaKeysEnabled: Boolean = true,
     taskbarPreviewControlsEnabled: Boolean = true,
     autoActivate: Boolean = true,
-    nativeImpl: MediaControlsNativeImpl = MediaControlsRegistry.createNativeImpl(),
     onEvent: ((MediaControlEvent) -> Unit)? = null,
     block: (@GenericUiDslMarker MediaControlsSession.() -> Unit)? = null
 ): MediaControlsSession = com.nexustools.genericui.ext.mediacontrols.dsl.mediaControlsSession(
@@ -61,7 +57,6 @@ fun IWindow.mediaControlsSession(
     keyboardMediaKeysEnabled = keyboardMediaKeysEnabled,
     taskbarPreviewControlsEnabled = taskbarPreviewControlsEnabled,
     autoActivate = autoActivate,
-    nativeImpl = nativeImpl,
     onEvent = onEvent,
     block = block
 )

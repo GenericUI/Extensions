@@ -1,11 +1,11 @@
 package com.nexustools.genericui.ext.codeeditor
 
-import com.nexustools.genericui.ext.canvas2d.Canvas2DExtSurface
+import com.nexustools.genericui.component.media.Canvas2D
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 
 /**
  * IDE minimap overview component rendering scaled syntax-colored source lines, diagnostic markers,
- * and the visible viewport slider onto a hardware-accelerated [Canvas2DExtSurface].
+ * and the visible viewport slider onto a hardware-accelerated [Canvas2D].
  */
 class CodeMinimap(
     var document: CodeDocumentBuffer = CodeDocumentBuffer(),
@@ -13,7 +13,7 @@ class CodeMinimap(
     var theme: CodeEditorTheme = CodeEditorTheme.DARK_IDE,
     width: Int = 96,
     height: Int = 600
-) : Canvas2DExtSurface(width = width, height = height) {
+) : Canvas2D(width = width, height = height) {
 
     var firstVisibleLine: Int = 0
     var visibleLineCount: Int = 35

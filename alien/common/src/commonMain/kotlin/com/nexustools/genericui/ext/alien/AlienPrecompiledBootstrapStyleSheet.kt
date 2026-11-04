@@ -1018,10 +1018,14 @@ ${'$'}border-radius-pill: 9999px;
             0,
             setOf(
                 if (darkTheme) "bs-theme-dark" else "bs-theme-light",
-                "root",
-                "genericui:root",
-                "tag:root",
-                "tag:genericui:root"
+                "app",
+                "genericui:app",
+                "tag:app",
+                "tag:genericui:app",
+                "fragment",
+                "genericui:fragment",
+                "tag:fragment",
+                "tag:genericui:fragment"
             )
         )
         return ordered

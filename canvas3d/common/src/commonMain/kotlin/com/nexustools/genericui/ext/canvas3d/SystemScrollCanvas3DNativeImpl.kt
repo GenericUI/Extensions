@@ -1,13 +1,13 @@
 package com.nexustools.genericui.ext.canvas3d
 
+import com.nexustools.genericui.component.media.GLCanvasConfig
+import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.VKCanvasConfig
+import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.enums.bootstrap.*
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.event.WheelEvent
-import com.nexustools.genericui.ext.gpu.GLCanvasConfig
-import com.nexustools.genericui.ext.gpu.GLContext
-import com.nexustools.genericui.ext.gpu.VKCanvasConfig
-import com.nexustools.genericui.ext.gpu.VKContext
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size

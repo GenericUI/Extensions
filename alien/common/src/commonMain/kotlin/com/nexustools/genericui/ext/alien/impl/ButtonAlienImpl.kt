@@ -10,7 +10,7 @@ import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
 /**
  * Self-rendered Bootstrap 5.3 button (`ButtonAlienImpl`) implementing [ButtonNativeImpl].
  */
-class ButtonAlienImpl(
+open class ButtonAlienImpl(
     componentClassPrefix: String = "btn",
     session: AlienRenderSession? = null
 ) : AlienImpl(

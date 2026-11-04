@@ -3,7 +3,7 @@ package com.nexustools.genericui.ext.canvas2d
 import com.nexustools.genericui.enums.bootstrap.TextAlignment
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.geometry.Rect
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * 2D canvas text layout & pagination helper.

@@ -11,7 +11,10 @@ import com.nexustools.genericui.nativeimpl.layout.ScrollViewNativeImpl
  *
  * On `:web`, acts as a zero-overhead pass-through to the native DOM scrollable fragment container.
  */
-abstract class AlienScrollFragment : AlienFragment() {
+abstract class AlienScrollFragment : AlienFragment(), IAlien {
+
+    protected override val alienImplProvider: AlienImplProvider
+        get() = super.alienImplProvider
 
     var scrollX: Int = 0
         private set
@@ -28,7 +31,7 @@ abstract class AlienScrollFragment : AlienFragment() {
     private var onScrollHandler: ((Int, Int) -> Unit)? = null
 
     init {
-        htmlTag = "genericui:alien-scroll-fragment"
+        htmlTag = "genericui:fragment"
         addClass("overflow-auto")
         addClass("scroll-fragment")
         onWheel = { wheel ->
@@ -60,7 +63,7 @@ abstract class AlienScrollFragment : AlienFragment() {
         setAttribute("data-scroll-x", scrollX.toString())
         setAttribute("data-scroll-y", scrollY.toString())
         (nativeImpl as? ScrollViewNativeImpl<*>)?.scrollTo(scrollX, scrollY)
-        renderSession?.let { session ->
+        alienImplProvider.renderSession?.let { session ->
             session.rootNode.scrollOffsetX = scrollX
             session.rootNode.scrollOffsetY = scrollY
             session.rootNode.markLayoutDirty()
@@ -79,12 +82,11 @@ abstract class AlienScrollFragment : AlienFragment() {
         onScrollHandler = handler
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> {
-        if (AlienExtension.platformBridge.isWebPassThrough) {
-            return (factory.createScrollView() as? ContainerNativeImpl<*>) ?: super.createNativeImpl(factory)
-        }
-        return super.createNativeImpl(factory).also {
-            renderSession?.let { session ->
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> {
+        return alienImplProvider.createNativeImpl(factory) { f ->
+            (f.createScrollView(htmlTag) as? ContainerNativeImpl<*>) ?: f.createContainer(componentClassPrefix, htmlTag)
+        }.also {
+            alienImplProvider.renderSession?.let { session ->
                 session.rootNode.scrollOffsetX = scrollX
                 session.rootNode.scrollOffsetY = scrollY
             }

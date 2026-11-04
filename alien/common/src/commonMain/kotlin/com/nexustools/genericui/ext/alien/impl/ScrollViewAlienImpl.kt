@@ -8,10 +8,11 @@ import com.nexustools.genericui.nativeimpl.layout.ScrollViewNativeImpl
  * Self-rendered scrollable viewport (`ScrollViewAlienImpl`) implementing [ScrollViewNativeImpl].
  */
 class ScrollViewAlienImpl(
-    session: AlienRenderSession? = null
+    session: AlienRenderSession? = null,
+    tagName: String = "div"
 ) : ContainerAlienImpl(
     componentClassPrefix = "overflow-auto",
-    tagName = "div",
+    tagName = tagName,
     session = session
 ), ScrollViewNativeImpl<Any?> {
 

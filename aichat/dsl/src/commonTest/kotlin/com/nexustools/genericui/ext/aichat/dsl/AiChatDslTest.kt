@@ -9,7 +9,7 @@ import com.nexustools.genericui.ext.aichat.AiMessageRole
 import com.nexustools.genericui.ext.aichat.AiToolCall
 import com.nexustools.genericui.ext.aichat.AiToolCallStatus
 import com.nexustools.genericui.ext.aichat.ReasoningEffort
-import com.nexustools.genericui.ext.dsl.ColorRgba
+import com.nexustools.genericui.ext.dsl.RgbaColor
 import com.nexustools.genericui.ext.dsl.buildDiv
 import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.TitleCapabilities
@@ -54,7 +54,7 @@ class AiChatDslTest {
                 onOpenToolsInspector { toolsInspectorOpened = true }
                 onClearConversation { conversationCleared = true }
                 style {
-                    backgroundColor = ColorRgba(20, 30, 45, 1.0)
+                    backgroundColor = RgbaColor(20, 30, 45, 1.0)
                 }
                 bootstrap {
                     borderRadius = BorderRadiusStyle.LARGE
@@ -99,7 +99,7 @@ class AiChatDslTest {
         assertEquals(BorderRadiusStyle.LARGE, chat.getBootstrap().getBorderRadius())
         assertEquals(ShadowElevation.SMALL, chat.getBootstrap().getShadow())
         assertFalse(chat.hasClass("rounded-3"))
-        assertEquals(ColorRgba(20, 30, 45, 1.0), chat.getStyle().getBackgroundColor())
+        assertEquals(RgbaColor(20, 30, 45, 1.0), chat.getStyle().getBackgroundColor())
         assertEquals(AiBackendType.ANTHROPIC, chat.session.config.backendType)
         assertEquals("claude-3-7-sonnet-latest", chat.session.config.model)
         assertEquals("You are an AI Studio assistant.", chat.session.config.systemPrompt)

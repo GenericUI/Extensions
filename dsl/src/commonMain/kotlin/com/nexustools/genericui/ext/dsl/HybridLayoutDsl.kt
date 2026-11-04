@@ -1,21 +1,54 @@
 package com.nexustools.genericui.ext.dsl
 
+import com.nexustools.genericui.component.layout.AdaptiveCardContainer
+import com.nexustools.genericui.component.layout.AdaptiveCardMode
 import com.nexustools.genericui.component.layout.AdaptiveNavigationScaffold
 import com.nexustools.genericui.component.layout.BentoGridItemSpec
-import com.nexustools.genericui.component.layout.CollapsibleBottomDockLayout
+import com.nexustools.genericui.component.layout.CollapsibleBottomDockContainer
 import com.nexustools.genericui.component.layout.Container
-import com.nexustools.genericui.component.layout.HybridColumnLayout
+import com.nexustools.genericui.component.layout.HybridColumnContainer
 import com.nexustools.genericui.component.layout.HybridColumnSpec
 import com.nexustools.genericui.component.layout.HybridFoldMode
 import com.nexustools.genericui.component.layout.HybridFullscreenPolicy
-import com.nexustools.genericui.component.layout.HybridSplitNavigationLayout
+import com.nexustools.genericui.component.layout.HybridSplitNavigationContainer
 import com.nexustools.genericui.component.layout.HybridTabPlacement
-import com.nexustools.genericui.component.layout.ResponsiveBentoGridLayout
-import com.nexustools.genericui.component.layout.ResponsiveMasterDetailLayout
+import com.nexustools.genericui.component.layout.ResponsiveBentoGridContainer
+import com.nexustools.genericui.component.layout.ResponsiveMasterDetailContainer
 import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.enums.bootstrap.SpacingScale
 
 /**
- * In-place [HybridColumnLayout] builder inside any [AbstractContainer].
+ * In-place [AdaptiveCardContainer] builder inside any [AbstractContainer].
+ */
+inline fun AbstractContainer.adaptiveCardContainer(
+    cardTitle: String? = null,
+    cardSubtitle: String? = null,
+    cardMode: AdaptiveCardMode = AdaptiveCardMode.CARD_ON_LARGE_SCREENS,
+    cardMaxWidthPx: Int = 520,
+    cardBreakpointDp: Float = 600f,
+    outerPadding: SpacingScale = SpacingScale.S4,
+    cardPadding: SpacingScale = SpacingScale.S3,
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker AdaptiveCardContainer).() -> Unit = {}
+): AdaptiveCardContainer = mountDslComponent(
+    this,
+    AdaptiveCardContainer(
+        cardTitle = cardTitle,
+        cardSubtitle = cardSubtitle,
+        cardMode = cardMode,
+        cardMaxWidthPx = cardMaxWidthPx,
+        cardBreakpointDp = cardBreakpointDp,
+        outerPadding = outerPadding,
+        cardPadding = cardPadding
+    ),
+    classes,
+    id,
+    block
+)
+
+/**
+ * In-place [HybridColumnContainer] builder inside any [AbstractContainer].
  */
 inline fun AbstractContainer.hybridColumnLayout(
     foldMode: HybridFoldMode = HybridFoldMode.PIN_FIRST_COLUMN_TOP,
@@ -23,10 +56,10 @@ inline fun AbstractContainer.hybridColumnLayout(
     fullscreenPolicy: HybridFullscreenPolicy = HybridFullscreenPolicy.DISABLED,
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker HybridColumnLayout).() -> Unit = {}
-): HybridColumnLayout = mountDslComponent(
+    block: (@GenericUiDslMarker HybridColumnContainer).() -> Unit = {}
+): HybridColumnContainer = mountDslComponent(
     this,
-    HybridColumnLayout(
+    HybridColumnContainer(
         foldMode = foldMode,
         tabPlacement = tabPlacement,
         fullscreenPolicy = fullscreenPolicy
@@ -37,9 +70,9 @@ inline fun AbstractContainer.hybridColumnLayout(
 )
 
 /**
- * Adds a column [Container] inside this [HybridColumnLayout] using declarative DSL syntax.
+ * Adds a column [Container] inside this [HybridColumnContainer] using declarative DSL syntax.
  */
-inline fun HybridColumnLayout.column(
+inline fun HybridColumnContainer.column(
     id: String,
     title: String = id,
     weight: Float = 1.0f,
@@ -81,25 +114,25 @@ inline fun HybridColumnLayout.column(
 }
 
 /**
- * In-place [HybridSplitNavigationLayout] builder inside any [AbstractContainer].
+ * In-place [HybridSplitNavigationContainer] builder inside any [AbstractContainer].
  */
 inline fun AbstractContainer.hybridSplitNavigationLayout(
     inColumnMode: Boolean = false,
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker HybridSplitNavigationLayout).() -> Unit = {}
-): HybridSplitNavigationLayout = mountDslComponent(
+    block: (@GenericUiDslMarker HybridSplitNavigationContainer).() -> Unit = {}
+): HybridSplitNavigationContainer = mountDslComponent(
     this,
-    HybridSplitNavigationLayout(inColumnMode = inColumnMode),
+    HybridSplitNavigationContainer(inColumnMode = inColumnMode),
     classes,
     id,
     block
 )
 
 /**
- * Registers a navigable section [Container] inside this [HybridSplitNavigationLayout].
+ * Registers a navigable section [Container] inside this [HybridSplitNavigationContainer].
  */
-inline fun HybridSplitNavigationLayout.section(
+inline fun HybridSplitNavigationContainer.section(
     id: String,
     title: String,
     icon: String? = null,
@@ -117,24 +150,24 @@ inline fun HybridSplitNavigationLayout.section(
 }
 
 /**
- * In-place [CollapsibleBottomDockLayout] builder inside any [AbstractContainer].
+ * In-place [CollapsibleBottomDockContainer] builder inside any [AbstractContainer].
  */
 inline fun AbstractContainer.collapsibleBottomDockLayout(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker CollapsibleBottomDockLayout).() -> Unit = {}
-): CollapsibleBottomDockLayout = mountDslComponent(
+    block: (@GenericUiDslMarker CollapsibleBottomDockContainer).() -> Unit = {}
+): CollapsibleBottomDockContainer = mountDslComponent(
     this,
-    CollapsibleBottomDockLayout(),
+    CollapsibleBottomDockContainer(),
     classes,
     id,
     block
 )
 
 /**
- * Configures and mounts the primary content [Container] inside this [CollapsibleBottomDockLayout].
+ * Configures and mounts the primary content [Container] inside this [CollapsibleBottomDockContainer].
  */
-inline fun CollapsibleBottomDockLayout.mainContent(
+inline fun CollapsibleBottomDockContainer.mainContent(
     classes: String? = null,
     block: (@GenericUiDslMarker Container).() -> Unit = {}
 ): Container {
@@ -148,9 +181,9 @@ inline fun CollapsibleBottomDockLayout.mainContent(
 }
 
 /**
- * Configures and mounts the persistent bottom dock bar [Container] inside this [CollapsibleBottomDockLayout].
+ * Configures and mounts the persistent bottom dock bar [Container] inside this [CollapsibleBottomDockContainer].
  */
-inline fun CollapsibleBottomDockLayout.dockContent(
+inline fun CollapsibleBottomDockContainer.dockContent(
     classes: String? = null,
     block: (@GenericUiDslMarker Container).() -> Unit = {}
 ): Container {
@@ -164,24 +197,24 @@ inline fun CollapsibleBottomDockLayout.dockContent(
 }
 
 /**
- * In-place [ResponsiveMasterDetailLayout] builder inside any [AbstractContainer].
+ * In-place [ResponsiveMasterDetailContainer] builder inside any [AbstractContainer].
  */
 inline fun AbstractContainer.responsiveMasterDetailLayout(
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker ResponsiveMasterDetailLayout).() -> Unit = {}
-): ResponsiveMasterDetailLayout = mountDslComponent(
+    block: (@GenericUiDslMarker ResponsiveMasterDetailContainer).() -> Unit = {}
+): ResponsiveMasterDetailContainer = mountDslComponent(
     this,
-    ResponsiveMasterDetailLayout(),
+    ResponsiveMasterDetailContainer(),
     classes,
     id,
     block
 )
 
 /**
- * Configures and mounts the Master pane [Container] inside this [ResponsiveMasterDetailLayout].
+ * Configures and mounts the Master pane [Container] inside this [ResponsiveMasterDetailContainer].
  */
-inline fun ResponsiveMasterDetailLayout.masterPane(
+inline fun ResponsiveMasterDetailContainer.masterPane(
     widthPx: Int = 320,
     colMd: Int = 4,
     classes: String? = null,
@@ -197,9 +230,9 @@ inline fun ResponsiveMasterDetailLayout.masterPane(
 }
 
 /**
- * Configures and mounts the Detail pane [Container] inside this [ResponsiveMasterDetailLayout].
+ * Configures and mounts the Detail pane [Container] inside this [ResponsiveMasterDetailContainer].
  */
-inline fun ResponsiveMasterDetailLayout.detailPane(
+inline fun ResponsiveMasterDetailContainer.detailPane(
     colMd: Int = 8,
     classes: String? = null,
     block: (@GenericUiDslMarker Container).() -> Unit = {}
@@ -214,9 +247,9 @@ inline fun ResponsiveMasterDetailLayout.detailPane(
 }
 
 /**
- * Configures and mounts the optional 3rd Inspector pane [Container] inside this [ResponsiveMasterDetailLayout].
+ * Configures and mounts the optional 3rd Inspector pane [Container] inside this [ResponsiveMasterDetailContainer].
  */
-inline fun ResponsiveMasterDetailLayout.inspectorPane(
+inline fun ResponsiveMasterDetailContainer.inspectorPane(
     widthPx: Int = 300,
     colXl: Int = 3,
     classes: String? = null,
@@ -267,25 +300,25 @@ inline fun AdaptiveNavigationScaffold.destination(
 }
 
 /**
- * In-place [ResponsiveBentoGridLayout] builder inside any [AbstractContainer].
+ * In-place [ResponsiveBentoGridContainer] builder inside any [AbstractContainer].
  */
 inline fun AbstractContainer.responsiveBentoGridLayout(
     gapPx: Int = 16,
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker ResponsiveBentoGridLayout).() -> Unit = {}
-): ResponsiveBentoGridLayout = mountDslComponent(
+    block: (@GenericUiDslMarker ResponsiveBentoGridContainer).() -> Unit = {}
+): ResponsiveBentoGridContainer = mountDslComponent(
     this,
-    ResponsiveBentoGridLayout(gapPx = gapPx),
+    ResponsiveBentoGridContainer(gapPx = gapPx),
     classes,
     id,
     block
 )
 
 /**
- * Adds a card [Container] to this [ResponsiveBentoGridLayout] using [spec].
+ * Adds a card [Container] to this [ResponsiveBentoGridContainer] using [spec].
  */
-inline fun ResponsiveBentoGridLayout.bentoCard(
+inline fun ResponsiveBentoGridContainer.bentoCard(
     spec: BentoGridItemSpec,
     classes: String? = null,
     block: (@GenericUiDslMarker Container).() -> Unit = {}
@@ -300,9 +333,9 @@ inline fun ResponsiveBentoGridLayout.bentoCard(
 }
 
 /**
- * Adds a card [Container] to this [ResponsiveBentoGridLayout] with responsive Bootstrap 12-grid column spans.
+ * Adds a card [Container] to this [ResponsiveBentoGridContainer] with responsive Bootstrap 12-grid column spans.
  */
-inline fun ResponsiveBentoGridLayout.bentoCard(
+inline fun ResponsiveBentoGridContainer.bentoCard(
     id: String,
     title: String = "",
     colXs: Int = 12,

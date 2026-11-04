@@ -22,8 +22,10 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
     private var volumeLevel: Float = 1.0f
     private var mutedFlag: Boolean = false
     private var resizeMode: VideoResizeMode = VideoResizeMode.FIT
+    private var antialiasingEnabled: Boolean = true
+    private var mediaReadyFlag: Boolean = false
     private var pipActive: Boolean = false
-    private var fullscreenTargetElementId: String? = null
+    private var bufferedRangesState: List<Pair<Double, Double>> = emptyList()
     private val audioTracks = mutableListOf<MediaTrackInfo>()
     private val subtitleTracks = mutableListOf<SubtitleTrackInfo>()
     private var activeSubtitleTrackId: String? = null
@@ -38,6 +40,11 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
     private var onBufferingStateChangedListener: ((Boolean) -> Unit)? = null
     private var onBufferedRangesChangedListener: ((List<Pair<Double, Double>>) -> Unit)? = null
     private var onTracksChangedListener: (() -> Unit)? = null
+    private var onMediaReadyListener: (() -> Unit)? = null
+
+    init {
+        nativeWidget.metadata["antialiasing"] = "true"
+    }
 
     override fun getMediaCapabilities(): MediaCapabilitiesReport = MediaCapabilitiesReport(
         videoCodecs = mapOf(
@@ -65,21 +72,32 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
         supportsDolbyVision = true,
         supportsSurround51 = true,
         supportsSurround71 = true,
+        supportsAudioTrackSelection = true,
+        supportsSubtitleTrackSelection = true,
         hardwareAccelerationBackend = "VideoToolbox / AVFoundation"
     )
 
+    override fun supportsAudioTrackSelection(): Boolean = true
+    override fun supportsSubtitleTrackSelection(): Boolean = true
+
     override fun setSource(url: String, seekOffsetSeconds: Double, durationOverrideSeconds: Double?) {
         currentTimeSec = seekOffsetSeconds.coerceAtLeast(0.0)
+        mediaReadyFlag = url.isNotBlank()
         if (durationOverrideSeconds != null) {
             durationSec = durationOverrideSeconds
             onDurationChangedListener?.invoke(durationSec)
         }
         nativeWidget.metadata["avPlayerUrl"] = url
+        if (mediaReadyFlag) {
+            onMediaReadyListener?.invoke()
+        }
+        updateBufferedHorizon(currentTimeSec)
     }
 
     override fun play() {
         playing = true
         onPlayingStateChangedListener?.invoke(true)
+        updateBufferedHorizon(currentTimeSec)
     }
 
     override fun pause() {
@@ -97,6 +115,7 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
     override fun seekTo(seconds: Double) {
         currentTimeSec = seconds.coerceAtLeast(0.0)
         onTimeUpdateListener?.invoke(currentTimeSec)
+        updateBufferedHorizon(currentTimeSec)
     }
 
     override fun getCurrentTimeSeconds(): Double = currentTimeSec
@@ -116,12 +135,15 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
     override fun getResizeMode(): VideoResizeMode = resizeMode
 
     override fun getAudioTracks(): List<MediaTrackInfo> = audioTracks.toList()
-    override fun selectAudioTrack(trackId: String) {
+    override fun selectAudioTrack(trackId: String): Boolean {
+        val indexPrefix = if (trackId.startsWith("index:")) trackId.removePrefix("index:").toIntOrNull() else null
         for (i in audioTracks.indices) {
             val item = audioTracks[i]
-            audioTracks[i] = item.copy(isSelected = item.id == trackId)
+            val selected = if (indexPrefix != null) (i == indexPrefix) else (item.id == trackId)
+            audioTracks[i] = item.copy(isSelected = selected)
         }
         onTracksChangedListener?.invoke()
+        return true
     }
 
     override fun getSubtitleTracks(): List<SubtitleTrackInfo> = subtitleTracks.toList()
@@ -132,13 +154,16 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
         onTracksChangedListener?.invoke()
     }
 
-    override fun selectSubtitleTrack(trackId: String?) {
-        activeSubtitleTrackId = trackId
+    override fun selectSubtitleTrack(trackId: String?): Boolean {
+        val indexPrefix = if (trackId != null && trackId.startsWith("index:")) trackId.removePrefix("index:").toIntOrNull() else null
+        activeSubtitleTrackId = if (indexPrefix != null) subtitleTracks.getOrNull(indexPrefix)?.id else trackId
         for (i in subtitleTracks.indices) {
             val item = subtitleTracks[i]
-            subtitleTracks[i] = item.copy(isSelected = trackId != null && item.id == trackId)
+            val selected = if (trackId == null) false else if (indexPrefix != null) (i == indexPrefix) else (item.id == trackId)
+            subtitleTracks[i] = item.copy(isSelected = selected)
         }
         onTracksChangedListener?.invoke()
+        return true
     }
 
     override fun supportsPictureInPicture(): Boolean = true
@@ -166,12 +191,26 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
     override fun setOnBufferingStateChanged(listener: ((Boolean) -> Unit)?) { onBufferingStateChangedListener = listener }
     override fun setOnBufferedRangesChanged(listener: ((List<Pair<Double, Double>>) -> Unit)?) { onBufferedRangesChangedListener = listener }
     override fun setOnTracksChanged(listener: (() -> Unit)?) { onTracksChangedListener = listener }
-    override fun setFullscreenTargetElementId(elementId: String?) {
-        fullscreenTargetElementId = elementId
-        if (!elementId.isNullOrBlank()) {
-            nativeWidget.metadata["fullscreenTargetElementId"] = elementId
-        } else {
-            nativeWidget.metadata.remove("fullscreenTargetElementId")
+    override fun getBufferedRanges(): List<Pair<Double, Double>> = bufferedRangesState
+
+    override fun setAntialiasing(antialiasing: Boolean) {
+        antialiasingEnabled = antialiasing
+        nativeWidget.metadata["antialiasing"] = antialiasing.toString()
+    }
+
+    override fun isAntialiasing(): Boolean = antialiasingEnabled
+
+    override fun setOnMediaReady(listener: (() -> Unit)?) {
+        onMediaReadyListener = listener
+    }
+
+    override fun isMediaReady(): Boolean = mediaReadyFlag
+
+    private fun updateBufferedHorizon(currentSec: Double) {
+        val bufEnd = if (durationSec > 0.0) minOf(durationSec, currentSec + 15.0) else currentSec + 15.0
+        if (bufEnd > 0.0) {
+            bufferedRangesState = listOf(0.0 to bufEnd)
+            onBufferedRangesChangedListener?.invoke(bufferedRangesState)
         }
     }
 }

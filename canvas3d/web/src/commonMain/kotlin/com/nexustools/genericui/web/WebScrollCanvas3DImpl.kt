@@ -1,7 +1,7 @@
 package com.nexustools.genericui.web
 
-import com.nexustools.genericui.ext.gpu.GLContext
-import com.nexustools.genericui.ext.gpu.VKContext
+import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.ext.gpu.web.WebVBlankSurfaceSynchronizer
 import com.nexustools.genericui.nativeimpl.media.ScrollCanvas3DNativeImpl
 import kotlin.math.roundToInt
@@ -40,12 +40,6 @@ class WebScrollCanvas3DImpl(
      * Inner `<div>` sized to `(contentWidth, contentHeight)` to establish the scrollable bounds.
      */
     val contentSizerDiv: WebDomElement = WebDomElement("div")
-
-    /**
-     * Alias for [contentSizerDiv].
-     */
-    val spacerDiv: WebDomElement
-        get() = contentSizerDiv
 
     /**
      * Viewport-sized HTML `<canvas>` positioned overtop [contentSizerDiv] with

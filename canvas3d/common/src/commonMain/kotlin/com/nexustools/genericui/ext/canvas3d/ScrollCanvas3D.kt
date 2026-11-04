@@ -2,23 +2,25 @@ package com.nexustools.genericui.ext.canvas3d
 
 import com.nexustools.genericui.component.form.RangeSlider
 import com.nexustools.genericui.component.media.AbstractCanvas
+import com.nexustools.genericui.component.media.GLCanvas
+import com.nexustools.genericui.component.media.GLCanvasConfig
+import com.nexustools.genericui.component.media.GLContext
 import com.nexustools.genericui.component.media.VBlankRenderCallback
 import com.nexustools.genericui.component.media.VBlankSubscription
+import com.nexustools.genericui.component.media.VKCanvas
+import com.nexustools.genericui.component.media.VKCanvasConfig
+import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.event.WheelEvent
 import com.nexustools.genericui.ext.canvas3d.overlay.ScrollCanvas3DOverlayHost
-import com.nexustools.genericui.ext.gpu.GLCanvasConfig
-import com.nexustools.genericui.ext.gpu.GLContext
-import com.nexustools.genericui.ext.gpu.VKCanvasConfig
-import com.nexustools.genericui.ext.gpu.VKContext
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.nativeimpl.media.ScrollCanvas3DNativeImpl
 import kotlin.math.roundToInt
 
 /**
- * Scrollable 3D canvas supporting Vulkan ([VKCanvasExt]) and OpenGL ES ([GLCanvasExt]) with a
+ * Scrollable 3D canvas supporting Vulkan ([VKCanvas]) and OpenGL ES ([GLCanvas]) with a
  * configurable virtual content size ([contentWidth] x [contentHeight]) where **the actual hardware/HTML
  * 3D `<canvas>` only fills the visible viewport ([viewportWidth] x [viewportHeight]) and scrolling is
  * simulated** via [onScroll] / [ScrollCanvas3DListener].
@@ -50,7 +52,7 @@ open class ScrollCanvas3D(
     /**
      * Viewport-sized OpenGL ES 3D canvas (`viewportWidth` x `viewportHeight`).
      */
-    val viewportGlCanvas: GLCanvasExt = GLCanvasExt(
+    val viewportGlCanvas: GLCanvas = GLCanvas(
         config = glConfig,
         width = currentViewportWidth,
         height = currentViewportHeight
@@ -59,7 +61,7 @@ open class ScrollCanvas3D(
     /**
      * Viewport-sized Vulkan 3D canvas (`viewportWidth` x `viewportHeight`).
      */
-    val viewportVkCanvas: VKCanvasExt = VKCanvasExt(
+    val viewportVkCanvas: VKCanvas = VKCanvas(
         config = vkConfig,
         width = currentViewportWidth,
         height = currentViewportHeight
@@ -349,7 +351,7 @@ open class ScrollCanvas3D(
      * Binds a [ScrollCanvas3DNativeImpl] peer directly (used by `:web` or tests) and synchronizes
      * viewport size, scrollable content size, scroll position, and scroll listener callbacks.
      */
-    fun attachScrollNativeImpl(impl: ScrollCanvas3DNativeImpl<*, *>) {
+    internal fun attachScrollNativeImpl(impl: ScrollCanvas3DNativeImpl<*, *>) {
         explicitScrollNative = impl
         configureScrollNativeImpl(impl)
     }
@@ -406,7 +408,7 @@ open class ScrollCanvas3D(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): NativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): NativeImpl<*> =
         Canvas3DExtension.createScrollCanvas3DNativeOrNull(
             viewportWidth = currentViewportWidth,
             viewportHeight = currentViewportHeight,

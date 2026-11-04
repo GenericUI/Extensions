@@ -6,7 +6,7 @@ import com.nexustools.genericui.enums.bootstrap.BorderRadiusStyle
 import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.ext.alien.AlienContainer
 import com.nexustools.genericui.ext.alien.UnalienContainer
-import com.nexustools.genericui.ext.dsl.ColorRgba
+import com.nexustools.genericui.ext.dsl.RgbaColor
 import com.nexustools.genericui.ext.dsl.bootstrap
 import com.nexustools.genericui.ext.dsl.button
 import com.nexustools.genericui.ext.dsl.h2
@@ -23,7 +23,7 @@ class AlienDslTest {
         val root = Container()
         val alien = root.alienContainer(classes = "custom-alien", id = "main-alien") {
             style {
-                backgroundColor = ColorRgba(18, 24, 38, 1.0)
+                backgroundColor = RgbaColor(18, 24, 38, 1.0)
             }
             bootstrap {
                 padding = SpacingScale.THREE
@@ -42,7 +42,7 @@ class AlienDslTest {
         assertIs<AlienContainer>(alien)
         assertEquals("main-alien", alien.id)
         assertEquals(3, alien.children.size)
-        assertEquals(ColorRgba(18, 24, 38, 1.0), alien.getStyle().getBackgroundColor())
+        assertEquals(RgbaColor(18, 24, 38, 1.0), alien.getStyle().getBackgroundColor())
         assertEquals(SpacingScale.THREE, alien.getBootstrap().getPadding())
         assertEquals(BorderRadiusStyle.LARGE, alien.getBootstrap().getBorderRadius())
         assertFalse(alien.hasClass("p-3"))

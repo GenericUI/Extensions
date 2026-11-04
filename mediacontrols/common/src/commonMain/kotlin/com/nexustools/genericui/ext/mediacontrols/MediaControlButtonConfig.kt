@@ -10,9 +10,9 @@ data class MediaControlButtonConfig(
     val nextEnabled: Boolean = true,
     val stopEnabled: Boolean = false,
     val seekEnabled: Boolean = true,
-    val previousTooltip: String = "Previous",
-    val playTooltip: String = "Play",
-    val pauseTooltip: String = "Pause",
-    val nextTooltip: String = "Next",
-    val stopTooltip: String = "Stop"
+    val previousTooltip: String = "",
+    val playTooltip: String = "",
+    val pauseTooltip: String = "",
+    val nextTooltip: String = "",
+    val stopTooltip: String = ""
 )

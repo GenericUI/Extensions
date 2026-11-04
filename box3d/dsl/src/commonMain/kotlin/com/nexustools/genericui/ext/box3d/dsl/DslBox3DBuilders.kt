@@ -1,15 +1,15 @@
 package com.nexustools.genericui.ext.box3d.dsl
 
+import com.nexustools.genericui.component.media.GLCanvas
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.ext.box3d.Vec3
 import com.nexustools.genericui.ext.box3d.World3D
-import com.nexustools.genericui.ext.canvas3d.GLCanvasExt
 import com.nexustools.genericui.ext.dsl.GenericUiDslMarker
 import com.nexustools.genericui.ext.threejs.cameras.PerspectiveCamera
 import com.nexustools.genericui.ext.threejs.scenes.Scene
 
 /**
- * In-place 3D physics debug canvas builder backed by [GLCanvasExt], [World3D], and [Box3DDebugRenderer].
+ * In-place 3D physics debug canvas builder backed by [GLCanvas], [World3D], and [Box3DDebugRenderer].
  */
 fun AbstractContainer.box3dDebugCanvas(
     world: World3D = World3D(),
@@ -19,8 +19,8 @@ fun AbstractContainer.box3dDebugCanvas(
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker Box3DWorldDslScope.() -> Unit)? = null
-): GLCanvasExt {
-    val glCanvas = GLCanvasExt(width = width, height = height)
+): GLCanvas {
+    val glCanvas = GLCanvas(width = width, height = height)
     if (!classes.isNullOrBlank()) {
         glCanvas.addClass(classes)
     }

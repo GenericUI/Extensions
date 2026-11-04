@@ -1,6 +1,6 @@
 package com.nexustools.genericui.ext.imageprocessing.context2d
 
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Strongly-typed fill or stroke paint descriptor for [ImageBuffer2DContext] (`fillStyle` / `strokeStyle`),

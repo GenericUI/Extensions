@@ -28,9 +28,18 @@ class SwingAudioPlayerImpl : SwingBaseNativeImpl(JPanel(), "vlcj-audio-player"),
     private var timeUpdateListener: ((Double) -> Unit)? = null
     private var endedListener: (() -> Unit)? = null
     private var errorListener: ((String) -> Unit)? = null
+    private var mediaReadyListener: (() -> Unit)? = null
+    private var mediaReady: Boolean = false
 
     init {
         vlcjAudioComponent?.mediaPlayer()?.events()?.addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
+            override fun mediaPlayerReady(mediaPlayer: MediaPlayer) {
+                if (!mediaReady) {
+                    mediaReady = true
+                    mediaReadyListener?.invoke()
+                }
+            }
+
             override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) {
                 val sec = newTime / 1000.0
                 currentSecFallback = sec
@@ -54,12 +63,17 @@ class SwingAudioPlayerImpl : SwingBaseNativeImpl(JPanel(), "vlcj-audio-player"),
     override fun setSource(url: String, seekOffsetSeconds: Double) {
         nativeWidget.putClientProperty("audioUri", url)
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
+        mediaReady = false
         val options = if (seekOffsetSeconds > 0.0) {
             arrayOf(":start-time=$seekOffsetSeconds")
         } else {
             emptyArray()
         }
         vlcjPlayer?.media()?.prepare(url, *options)
+        if (url.isNotBlank()) {
+            mediaReady = true
+            mediaReadyListener?.invoke()
+        }
     }
 
     override fun play() {
@@ -110,6 +124,11 @@ class SwingAudioPlayerImpl : SwingBaseNativeImpl(JPanel(), "vlcj-audio-player"),
     override fun setOnTimeUpdate(listener: ((Double) -> Unit)?) { timeUpdateListener = listener }
     override fun setOnEnded(listener: ((() -> Unit))?) { endedListener = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { errorListener = listener }
+    override fun setOnMediaReady(listener: (() -> Unit)?) {
+        mediaReadyListener = listener
+        if (mediaReady) listener?.invoke()
+    }
+    override fun isMediaReady(): Boolean = mediaReady
 
     override fun dispose() {
         vlcjAudioComponent?.release()

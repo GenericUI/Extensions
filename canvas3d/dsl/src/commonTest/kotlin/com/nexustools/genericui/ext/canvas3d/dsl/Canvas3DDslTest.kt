@@ -1,10 +1,10 @@
 package com.nexustools.genericui.ext.canvas3d.dsl
 
-import com.nexustools.genericui.ext.canvas3d.GLCanvasExt
+import com.nexustools.genericui.component.media.GLCanvas
+import com.nexustools.genericui.component.media.VKCanvas
 import com.nexustools.genericui.ext.canvas3d.ScrollCanvas3D
 import com.nexustools.genericui.ext.canvas3d.ScrollGLCanvas
 import com.nexustools.genericui.ext.canvas3d.ScrollVKCanvas
-import com.nexustools.genericui.ext.canvas3d.VKCanvasExt
 import com.nexustools.genericui.ext.canvas3d.overlay.Canvas3DOverlayHost
 import com.nexustools.genericui.ext.canvas3d.overlay.ScrollCanvas3DOverlayHost
 import com.nexustools.genericui.ext.dsl.buildDiv
@@ -19,8 +19,8 @@ class Canvas3DDslTest {
         var lastScrollX = 0
         var lastScrollY = 0
         val root = buildDiv {
-            glCanvasExt(width = 800, height = 600, id = "gl3d")
-            vkCanvasExt(width = 800, height = 600, id = "vk3d")
+            glCanvas(width = 800, height = 600, id = "gl3d")
+            vkCanvas(width = 800, height = 600, id = "vk3d")
             scrollCanvas3D(
                 viewportWidth = 640,
                 viewportHeight = 480,
@@ -48,8 +48,8 @@ class Canvas3DDslTest {
             )
         }
         assertEquals(5, root.children.size)
-        val gl = root.children[0] as GLCanvasExt
-        val vk = root.children[1] as VKCanvasExt
+        val gl = root.children[0] as GLCanvas
+        val vk = root.children[1] as VKCanvas
         val scroll3d = root.children[2] as ScrollCanvas3D
         val scrollGl = root.children[3] as ScrollGLCanvas
         val scrollVk = root.children[4] as ScrollVKCanvas

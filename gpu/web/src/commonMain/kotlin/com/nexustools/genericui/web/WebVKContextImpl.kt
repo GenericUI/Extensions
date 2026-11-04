@@ -2,7 +2,7 @@ package com.nexustools.genericui.web
 
 import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.enums.media.ShaderType
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Web `WebGPU` (`navigator.gpu` / `GPUDevice`) backed implementation of [VKContext] for [WebVKCanvasImpl].

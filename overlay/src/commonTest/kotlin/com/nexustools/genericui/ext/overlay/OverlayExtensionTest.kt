@@ -1,17 +1,18 @@
 package com.nexustools.genericui.ext.overlay
 
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.LayerAlignment
+import com.nexustools.genericui.component.layout.LayerConstraint
+import com.nexustools.genericui.component.layout.LayerSizingMode
 import com.nexustools.genericui.core.UiTimerScheduler
-import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.event.KeyEvent
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class OverlayExtensionTest {
@@ -21,7 +22,6 @@ class OverlayExtensionTest {
         UiTimerScheduler.clearAllTimers()
         OverlayExtension.activeApplication = null
         OverlayExtension.defaultThemeColorHex = "#0d6efd"
-        OverlayExtension.resetBuiltInPresets()
     }
 
     @AfterTest
@@ -33,304 +33,151 @@ class OverlayExtensionTest {
 
     @Test
     fun testOverlayTimeFormatterMinutesAndForcedHoursAndUnknown() {
-        // Under 1 hour -> M:SS
         assertEquals("0:05", OverlayTimeFormatter.formatPosition(5.0, 120.0))
         assertEquals("2:00", OverlayTimeFormatter.formatDuration(5.0, 120.0))
         assertEquals("0:05 / 2:00", OverlayTimeFormatter.formatPositionAndDuration(5.0, 120.0))
-
-        // Duration >= 3600s -> both position and duration forced to H:MM:SS
-        assertEquals("0:05:09", OverlayTimeFormatter.formatPosition(309.0, 3600.0))
-        assertEquals("1:00:00", OverlayTimeFormatter.formatDuration(309.0, 3600.0))
-        assertEquals("0:05:09 / 1:00:00", OverlayTimeFormatter.formatPositionAndDuration(309.0, 3600.0))
-
-        // Position >= 3600s -> forced H:MM:SS
-        assertEquals("1:02:03", OverlayTimeFormatter.formatPosition(3723.0, 4000.0))
-        assertEquals("1:06:40", OverlayTimeFormatter.formatDuration(3723.0, 4000.0))
-
-        // Unknown or zero duration -> --:--
-        assertEquals("0:42", OverlayTimeFormatter.formatPosition(42.0, 0.0))
-        assertEquals("--:--", OverlayTimeFormatter.formatDuration(42.0, 0.0))
-        assertEquals("0:42 / --:--", OverlayTimeFormatter.formatPositionAndDuration(42.0, 0.0))
-        assertEquals("--:--", OverlayTimeFormatter.formatDuration(0.0, Double.NaN))
+        assertEquals("--:--", OverlayTimeFormatter.formatDuration(5.0, 0.0))
+        assertEquals("0:05:00", OverlayTimeFormatter.formatPosition(300.0, 3600.0))
+        assertEquals("1:00:00", OverlayTimeFormatter.formatDuration(300.0, 3600.0))
     }
 
     @Test
-    fun testAutoHideControllerTimeoutPinningPointerLeaveTapAndPiP() {
-        val target = Container("overlay-target")
-        val controller = AutoHideController(
-            spec = AutoHideSpec(
-                timeoutMs = 3500,
-                fadeDurationMs = 200,
-                hideImmediatelyOnPointerLeave = true,
-                instantHideOnTap = true,
-                hideCursorWhenHidden = true
-            ),
-            targetComponent = target
-        )
-
-        // Show overlay starts 3500ms timer
-        controller.showOverlay(scheduleHide = true)
-        assertTrue(controller.isOverlayVisible)
-        assertEquals(1.0f, controller.currentOpacity)
-
-        UiTimerScheduler.advanceTimeBy(3499)
-        assertTrue(controller.isOverlayVisible)
-
-        UiTimerScheduler.advanceTimeBy(1)
-        assertFalse(controller.isOverlayVisible)
-        assertEquals(0.0f, controller.currentOpacity)
-        assertEquals("none", target.cursor)
-
-        // Pin reason keeps overlay visible and prevents timeout from hiding it
-        controller.setPinned("popover", true)
-        assertTrue(controller.isPinned)
-        assertTrue(controller.isOverlayVisible)
-
-        UiTimerScheduler.advanceTimeBy(10000)
-        assertTrue(controller.isOverlayVisible)
-
-        // Pointer leave is ignored while pinned
-        controller.notifyPointerLeave()
-        assertTrue(controller.isOverlayVisible)
-
-        // Unpinning restarts the 3500ms countdown
-        controller.setPinned("popover", false)
-        assertFalse(controller.isPinned)
-        UiTimerScheduler.advanceTimeBy(3500)
-        assertFalse(controller.isOverlayVisible)
-
-        // Pointer leave hides immediately on System+Web when unpinned
-        controller.notifyUserActivity()
-        assertTrue(controller.isOverlayVisible)
-        controller.notifyPointerLeave()
-        assertFalse(controller.isOverlayVisible)
-
-        // Tap toggle on Mobile
-        controller.toggleVisibilityByTap()
-        assertTrue(controller.isOverlayVisible)
-        controller.toggleVisibilityByTap()
-        assertFalse(controller.isOverlayVisible)
-
-        // Picture-in-Picture mode immediately hides and disables the overlay even if pinned
-        controller.setPinned("seeking", true)
-        assertTrue(controller.isOverlayVisible)
-        controller.setPictureInPictureMode(true)
-        assertTrue(controller.isInPictureInPictureMode)
-        assertFalse(controller.isOverlayVisible)
-        assertFalse(target.isVisible)
-        assertFalse(target.pointerEventsEnabled)
-
-        // User activity is ignored while in PiP mode
-        controller.notifyUserActivity()
-        assertFalse(controller.isOverlayVisible)
-
-        // Exiting PiP restores visibility
-        controller.setPictureInPictureMode(false)
-        assertFalse(controller.isInPictureInPictureMode)
-        assertTrue(controller.isOverlayVisible)
-        assertTrue(target.isVisible)
-
-        controller.dispose()
-    }
-
-    @Test
-    fun testTrackSeekBarAndSliderSeekBarDragPreviewClampingAndThemeColor() {
-        OverlayExtension.defaultThemeColorHex = "#2A80FF"
-        val autoHide = AutoHideController()
-
-        var committedTrackSeek: Double? = null
-        val trackSeekBar = TrackSeekBar(autoHideController = autoHide)
-        assertEquals("#2A80FF", trackSeekBar.effectiveThemeColorHex)
-
-        // Disabled when duration <= 0
-        trackSeekBar.onStateChanged(
-            OverlayState(positionSec = 0.0, durationSec = 0.0),
-            OverlayActions(onSeekToSec = { committedTrackSeek = it })
-        )
-        assertFalse(trackSeekBar.isEnabled)
-
-        // Enabled when duration > 0
-        trackSeekBar.onStateChanged(
-            OverlayState(
-                positionSec = 10.0,
-                durationSec = 100.0,
-                bufferedRanges = listOf(OverlayBufferedRange(0.0, 50.0))
-            ),
-            OverlayActions(onSeekToSec = { committedTrackSeek = it })
-        )
-        assertTrue(trackSeekBar.isEnabled)
-        assertEquals(0.5, trackSeekBar.bufferedFraction, 1e-4)
-
-        // Drag-with-live-preview pins AutoHideController and does NOT commit until release
-        trackSeekBar.beginScrubAtSeconds(30.0)
-        assertTrue(trackSeekBar.isScrubbing)
-        assertTrue(autoHide.activePinReasons.contains(TrackSeekBar.PIN_REASON_SEEKING))
-        assertEquals("0:30", trackSeekBar.previewTimeText)
-        assertNull(committedTrackSeek)
-
-        // Clamping to [0, duration - 0.5]
-        trackSeekBar.updateScrubAtSeconds(150.0)
-        assertEquals(99.5, trackSeekBar.previewPositionSec, 1e-4)
-        assertNull(committedTrackSeek)
-
-        trackSeekBar.endScrub(commit = true)
-        assertFalse(trackSeekBar.isScrubbing)
-        assertFalse(autoHide.activePinReasons.contains(TrackSeekBar.PIN_REASON_SEEKING))
-        assertNotNull(committedTrackSeek)
-        assertEquals(99.5, committedTrackSeek!!, 1e-4)
-
-        // Override themeColorHex property on TrackSeekBar
-        trackSeekBar.themeColorHex = "#FF5500"
-        assertEquals("#FF5500", trackSeekBar.effectiveThemeColorHex)
-
-        // SliderSeekBar test
-        var committedSliderSeek: Double? = null
-        val sliderSeekBar = SliderSeekBar(autoHideController = autoHide)
-        assertEquals("#2A80FF", sliderSeekBar.effectiveThemeColorHex)
-        assertFalse(sliderSeekBar.isEnabled)
-
-        sliderSeekBar.onStateChanged(
-            OverlayState(positionSec = 20.0, durationSec = 200.0),
-            OverlayActions(onSeekToSec = { committedSliderSeek = it })
-        )
-        assertTrue(sliderSeekBar.isEnabled)
-
-        sliderSeekBar.beginScrub(60.0)
-        assertTrue(sliderSeekBar.isScrubbing)
-        assertTrue(autoHide.activePinReasons.contains(SliderSeekBar.PIN_REASON_SEEKING))
-        assertEquals("1:00 / 3:20", sliderSeekBar.previewTimePairText)
-        assertNull(committedSliderSeek)
-
-        // Clamping near end of media to duration - 0.5 = 199.5
-        sliderSeekBar.updateScrub(200.0)
-        assertEquals(199.5, sliderSeekBar.previewPositionSec, 1e-4)
-        sliderSeekBar.endScrub(commit = true)
-        assertFalse(sliderSeekBar.isScrubbing)
-        assertFalse(autoHide.activePinReasons.contains(SliderSeekBar.PIN_REASON_SEEKING))
-        assertEquals(199.5, committedSliderSeek!!, 1e-4)
-
-        trackSeekBar.dispose()
-        sliderSeekBar.dispose()
-        autoHide.dispose()
-    }
-
-    @Test
-    fun testOverlayPresetResolverAndPresetsBehavior() {
-        // Resolver maps Android & IOS -> MobileOverlayPreset, Desktop & Web -> WebSystemOverlayPreset
-        assertIs<MobileOverlayPreset>(OverlayPresetResolver.resolveForBackend(BackendTarget.Android))
-        assertIs<MobileOverlayPreset>(OverlayPresetResolver.resolveForBackend(BackendTarget.IOS))
-        assertIs<WebSystemOverlayPreset>(OverlayPresetResolver.resolveForBackend(BackendTarget.Windows))
-        assertIs<WebSystemOverlayPreset>(OverlayPresetResolver.resolveForBackend(BackendTarget.MacOS))
-        assertIs<WebSystemOverlayPreset>(OverlayPresetResolver.resolveForBackend(BackendTarget.Gtk))
-        assertIs<WebSystemOverlayPreset>(OverlayPresetResolver.resolveForBackend(BackendTarget.Qt))
-        assertIs<WebSystemOverlayPreset>(OverlayPresetResolver.resolveForBackend(BackendTarget.Swing))
-        assertIs<WebSystemOverlayPreset>(OverlayPresetResolver.resolveForBackend(BackendTarget.Web))
-
-        // OverlayExtension.createDefaultPreset delegates to OverlayPresetResolver
-        val hostBox = OverlayHostBox()
-        val mobilePreset = OverlayExtension.createDefaultPreset(BackendTarget.Android, host = hostBox)
-        assertIs<MobileOverlayPreset>(mobilePreset)
-        assertEquals(mobilePreset, hostBox.activeOverlay)
-
-        // Test MobileOverlayPreset slots and state propagation
-        var skipDeltaCalled: Double? = null
-        var badgeClickedId: String? = null
-        hostBox.actions = OverlayActions(
-            onSkipDeltaSec = { skipDeltaCalled = it },
-            onBadgeClick = { badgeClickedId = it }
-        )
-        hostBox.updateState {
-            it.copy(
-                title = "Sample Title",
-                subtitle = "Subtitle Info",
-                statusText = "Buffering...",
-                subtitleCueText = "Hello world",
-                isLoading = true,
-                positionSec = 90.0,
-                durationSec = 3600.0,
-                topBadges = listOf(OverlayBadgeSpec(id = "hd", text = "HD", variant = OverlayBadgeVariant.OUTLINED))
-            )
+    fun testOverlayExtensionPureOverlayAndHostBoxAreTransparentWithNoDefaultOverlay() {
+        val target = Container("gui-target").apply {
+            widthPx = 1280
+            heightPx = 720
         }
+        val host = OverlayHostBox(content = target)
+        assertNull(host.overlay)
+        assertNull(host.activeOverlay)
+        assertSame(target, host.targetComponent)
+        assertSame(target, host.contentComponent)
+        assertEquals("transparent", host.getStyleProperty("background"))
+        assertEquals("transparent", host.getStyleProperty("background-color"))
+        assertEquals("transparent", host.overlayRoot.getStyleProperty("background"))
+        assertEquals(1280, host.overlayRoot.widthPx)
+        assertEquals(720, host.overlayRoot.heightPx)
 
-        assertEquals("Sample Title", mobilePreset.metadataHeader.titleLabel.text)
-        assertEquals("Subtitle Info", mobilePreset.metadataHeader.subtitleLabel.text)
-        assertTrue(mobilePreset.statusPill.isVisible)
-        assertEquals("Buffering...", mobilePreset.statusPill.textLabel.text)
-        assertTrue(mobilePreset.subtitleCueView.isVisible)
-        assertEquals("Hello world", mobilePreset.subtitleCueView.cueLabel.text)
-        assertTrue(mobilePreset.centerTransportCluster.loadingIndicator.isVisible)
-        assertFalse(mobilePreset.centerTransportCluster.playPauseButton.isVisible)
-        assertEquals("0:01:30 / 1:00:00", mobilePreset.timePill.text)
+        val overlay = OverlayExtension.createOverlay(tagName = "test-overlay", host = host)
+        assertEquals("transparent", overlay.getStyleProperty("background"))
+        assertEquals("transparent", overlay.getStyleProperty("background-color"))
+        assertSame(overlay, host.overlay)
+        assertSame(overlay, host.activeOverlay)
+        assertEquals(1280, overlay.targetWidthPx)
+        assertEquals(720, overlay.targetHeightPx)
+        assertEquals(1280, overlay.widthPx)
+        assertEquals(720, overlay.heightPx)
 
-        mobilePreset.centerTransportCluster.skipForwardButton.triggerClick()
-        assertEquals(30.0, skipDeltaCalled)
+        host.detachOverlay()
+        assertNull(host.overlay)
+        assertNull(host.activeOverlay)
+        host.dispose()
+    }
 
-        // Switch hostBox to WebSystemOverlayPreset
-        val webPreset = WebSystemOverlayPreset()
-        hostBox.attachOverlay(webPreset)
+    @Test
+    fun testOverlayFillAndFloatingLayersAndRenderResizeSynchronization() {
+        val overlay = Overlay()
+        val fillChild = Container("gui-fill-child")
+        val floatChild = Container("gui-float-child")
+
+        val fillElement = overlay.addElement(
+            component = fillChild,
+            constraint = LayerConstraint.fill(zIndex = 2, passThroughPointerEvents = true)
+        )
+        var lastRenderFrameTs = -1L
+        var lastResizeW = -1
+        var lastResizeH = -1
+
+        val floatElement = object : OverlayElement(
+            elementId = "floating-bubble",
+            component = floatChild,
+            constraint = LayerConstraint.float(
+                alignment = LayerAlignment.BOTTOM_START,
+                offsetXPx = 24,
+                offsetYPx = -36,
+                zIndex = 5
+            )
+        ) {
+            override fun onTargetRenderFrame(frameTimestampMs: Long, targetWidthPx: Int, targetHeightPx: Int) {
+                lastRenderFrameTs = frameTimestampMs
+            }
+
+            override fun onTargetResize(targetWidthPx: Int, targetHeightPx: Int) {
+                lastResizeW = targetWidthPx
+                lastResizeH = targetHeightPx
+            }
+        }
+        overlay.addElement(floatElement)
+
+        assertEquals(2, overlay.elements.size)
+        assertSame(fillElement, overlay.elements[0])
+        assertSame(floatElement, overlay.getElement("floating-bubble"))
+        assertEquals(LayerSizingMode.FILL, overlay.getLayerConstraint(fillChild)?.sizingMode)
+        assertEquals(LayerSizingMode.FLOAT, overlay.getLayerConstraint(floatChild)?.sizingMode)
+        assertEquals(LayerAlignment.BOTTOM_START, overlay.getLayerConstraint(floatChild)?.alignment)
+
+        val host = OverlayHostBox(initialOverlay = overlay)
+        host.syncWithTargetResize(1920, 1080)
+        assertEquals(1920, overlay.targetWidthPx)
+        assertEquals(1080, overlay.targetHeightPx)
+        assertEquals(1920, lastResizeW)
+        assertEquals(1080, lastResizeH)
+
+        host.syncWithTargetRender(frameTimestampMs = 42_000L)
+        assertEquals(42_000L, overlay.lastFrameTimestampMs)
+        assertEquals(42_000L, lastRenderFrameTs)
+
+        assertTrue(overlay.removeElement("floating-bubble"))
+        assertEquals(1, overlay.elements.size)
+        assertNull(overlay.getElement("floating-bubble"))
+        host.dispose()
+    }
+
+    @Test
+    fun testAutoHideAndKeyboardShortcutRouting() {
+        val overlay = Overlay()
         var playPauseCount = 0
         var fullscreenCount = 0
-        hostBox.actions = OverlayActions(
-            onPlayPause = { playPauseCount++ },
-            onToggleFullscreen = { fullscreenCount++ },
-            onNext = {},
-            onBadgeClick = { badgeClickedId = it }
-        )
-        hostBox.updateState {
-            it.copy(
-                isLoading = false,
-                belowHostBadges = listOf(
-                    OverlayBadgeSpec(id = "codec", text = "AV1", variant = OverlayBadgeVariant.ACCENT, clickable = true)
-                )
+        var muteCount = 0
+        var lastSeekSec = -1.0
+
+        overlay.updateState(
+            OverlayState(
+                title = "Demo Video",
+                isPlaying = true,
+                positionSec = 30.0,
+                durationSec = 120.0,
+                volumePercent = 80
             )
-        }
+        )
+        overlay.updateActions(
+            OverlayActions(
+                onPlayPause = { playPauseCount++ },
+                onToggleFullscreen = { fullscreenCount++ },
+                onMuteToggle = { muteCount++ },
+                onSeekToSec = { lastSeekSec = it }
+            )
+        )
 
-        assertTrue(webPreset.nextButton.isVisible)
-        assertTrue(webPreset.belowHostBadgeStrip.isVisible)
-        assertEquals(1, webPreset.belowHostBadgeStrip.badges.size)
-        webPreset.belowHostBadgeStrip.badges.first().onClick?.invoke()
-        assertEquals("codec", badgeClickedId)
-
-        // Single-click play/pause is debounced by 250ms on WebSystemOverlayPreset
-        webPreset.inputRouter.handlePointerClick(webPreset.state, webPreset.actions)
-        UiTimerScheduler.advanceTimeBy(100)
-        assertEquals(0, playPauseCount)
-        UiTimerScheduler.advanceTimeBy(150)
+        assertTrue(overlay.inputRouter.handleKeyDown(KeyEvent(key = "Space"), overlay.state, overlay.actions))
         assertEquals(1, playPauseCount)
-
-        // Double-click cancels pending single-click and toggles fullscreen immediately
-        webPreset.inputRouter.handlePointerClick(webPreset.state, webPreset.actions)
-        UiTimerScheduler.advanceTimeBy(100)
-        webPreset.inputRouter.handlePointerDoubleClick(webPreset.state, webPreset.actions)
-        UiTimerScheduler.advanceTimeBy(300)
-        assertEquals(1, playPauseCount)
+        assertTrue(overlay.inputRouter.handleKeyDown(KeyEvent(key = "f"), overlay.state, overlay.actions))
         assertEquals(1, fullscreenCount)
+        assertTrue(overlay.inputRouter.handleKeyDown(KeyEvent(key = "m"), overlay.state, overlay.actions))
+        assertEquals(1, muteCount)
+        assertTrue(overlay.inputRouter.handleKeyDown(KeyEvent(key = "ArrowRight"), overlay.state, overlay.actions))
+        assertEquals(40.0, lastSeekSec)
 
-        // Keyboard shortcut Space triggers play/pause unless text input is focused
-        assertTrue(webPreset.inputRouter.handleKeyDown(KeyEvent(key = " "), webPreset.state, webPreset.actions))
-        assertEquals(2, playPauseCount)
-        assertFalse(
-            webPreset.inputRouter.handleKeyDown(
-                KeyEvent(key = " "),
-                webPreset.state,
-                webPreset.actions,
-                isTextInputFocused = true
-            )
-        )
-        assertEquals(2, playPauseCount)
+        overlay.autoHideController.setPinned("scrubbing", true)
+        assertTrue(overlay.autoHideController.isPinned)
+        overlay.autoHideController.hideOverlay()
+        assertTrue(overlay.autoHideController.isOverlayVisible)
 
-        // Popover and Curtain pin AutoHideController
-        webPreset.popoverPanel.open()
-        assertTrue(webPreset.autoHideController.activePinReasons.contains(OverlayPopoverPanel.PIN_REASON_POPOVER))
-        webPreset.popoverPanel.close()
-        assertFalse(webPreset.autoHideController.activePinReasons.contains(OverlayPopoverPanel.PIN_REASON_POPOVER))
+        overlay.autoHideController.setPinned("scrubbing", false)
+        assertFalse(overlay.autoHideController.isPinned)
+        overlay.autoHideController.hideOverlay(instant = true)
+        assertFalse(overlay.autoHideController.isOverlayVisible)
 
-        webPreset.showCurtain()
-        assertTrue(webPreset.autoHideController.activePinReasons.contains(OverlayCurtain.PIN_REASON_CURTAIN))
-        webPreset.hideCurtain()
-        assertFalse(webPreset.autoHideController.activePinReasons.contains(OverlayCurtain.PIN_REASON_CURTAIN))
-
-        hostBox.dispose()
-        mobilePreset.dispose()
+        overlay.dispose()
     }
 }

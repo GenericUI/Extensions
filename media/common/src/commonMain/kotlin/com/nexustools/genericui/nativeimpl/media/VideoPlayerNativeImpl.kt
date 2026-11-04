@@ -5,6 +5,7 @@ import com.nexustools.genericui.component.media.MediaCapabilitiesReport
 import com.nexustools.genericui.component.media.MediaTrackInfo
 import com.nexustools.genericui.component.media.SubtitleTrackInfo
 import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.enums.media.VideoResizeMode
 
 /**
@@ -36,12 +37,17 @@ interface VideoPlayerNativeImpl<out W> : NativeImpl<W> {
     fun setResizeMode(mode: VideoResizeMode)
     fun getResizeMode(): VideoResizeMode
 
+    fun supportsAudioTrackSelection(): Boolean = getMediaCapabilities().supportsAudioTrackSelection
+    fun supportsSubtitleTrackSelection(): Boolean = getMediaCapabilities().supportsSubtitleTrackSelection
+
     fun getAudioTracks(): List<MediaTrackInfo>
-    fun selectAudioTrack(trackId: String)
+    fun getSelectedAudioTrackId(): String? = getAudioTracks().firstOrNull { it.isSelected }?.id
+    fun selectAudioTrack(trackId: String): Boolean
 
     fun getSubtitleTracks(): List<SubtitleTrackInfo>
+    fun getSelectedSubtitleTrackId(): String? = getSubtitleTracks().firstOrNull { it.isSelected }?.id
     fun addExternalSubtitleTrack(label: String, language: String, vttOrSrtUrl: String)
-    fun selectSubtitleTrack(trackId: String?)
+    fun selectSubtitleTrack(trackId: String?): Boolean
 
     fun supportsPictureInPicture(): Boolean
     fun enterPictureInPicture(): Boolean
@@ -59,5 +65,18 @@ interface VideoPlayerNativeImpl<out W> : NativeImpl<W> {
     fun setOnBufferingStateChanged(listener: ((Boolean) -> Unit)?) {}
     fun setOnBufferedRangesChanged(listener: ((List<Pair<Double, Double>>) -> Unit)?) {}
     fun setOnTracksChanged(listener: (() -> Unit)?) {}
-    fun setFullscreenTargetElementId(elementId: String?) {}
+
+    fun setPreloadMode(mode: MediaPreloadMode) {}
+    fun getPreloadMode(): MediaPreloadMode = MediaPreloadMode.AUTO
+    fun setAdaptivePreloadBufferingEnabled(enabled: Boolean) {}
+    fun isAdaptivePreloadBufferingEnabled(): Boolean = true
+    fun getBufferedRanges(): List<Pair<Double, Double>> = emptyList()
+    fun getEstimatedNetworkSpeedRatio(): Double = 1.0
+    fun getRequiredSafeBufferSeconds(): Double = 0.0
+
+    fun setAntialiasing(antialiasing: Boolean) {}
+    fun isAntialiasing(): Boolean = true
+
+    fun setOnMediaReady(listener: (() -> Unit)?) {}
+    fun isMediaReady(): Boolean = false
 }

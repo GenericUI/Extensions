@@ -2,7 +2,7 @@ package com.nexustools.genericui.ios
 
 import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.enums.media.ShaderType
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * iOS `MoltenVK` (`VK_EXT_metal_surface` over `CAMetalLayer`) implementation of [VKContext].

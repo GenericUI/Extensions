@@ -4,6 +4,7 @@ import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.swing.SwingAudioAnalyzerImpl
 import com.nexustools.genericui.swing.SwingAudioPlayerImpl
 import com.nexustools.genericui.swing.SwingMediaSessionManagerImpl
+import com.nexustools.genericui.swing.SwingSeekBarImpl
 import com.nexustools.genericui.swing.SwingVideoPlayerImpl
 
 /**
@@ -17,7 +18,8 @@ object SwingMediaExtensionProvider {
             audioAnalyzer = { fftSize ->
                 SwingAudioAnalyzerImpl().also { it.fftSize = fftSize }
             },
-            mediaSessionManager = { SwingMediaSessionManagerImpl() }
+            mediaSessionManager = { SwingMediaSessionManagerImpl() },
+            seekBar = { SwingSeekBarImpl() }
         )
     }
 }

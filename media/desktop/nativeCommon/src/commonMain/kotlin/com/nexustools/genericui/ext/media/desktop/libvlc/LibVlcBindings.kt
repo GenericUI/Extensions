@@ -7,13 +7,17 @@ import kotlinx.cinterop.CFunction
 import kotlinx.cinterop.COpaquePointer
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.CPointerVar
+import kotlinx.cinterop.IntVar
 import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.cstr
 import kotlinx.cinterop.invoke
 import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.plus
+import kotlinx.cinterop.pointed
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.set
 import kotlinx.cinterop.toKString
+import kotlinx.cinterop.value
 
 /**
  * Shared Kotlin/Native bindings to the official `libvlc` C API (`libvlc.h`, `libvlc_media.h`,
@@ -47,7 +51,14 @@ object LibVlcBindings {
         return fn.invoke()?.toKString()
     }
 
-    fun libvlc_new(args: List<String> = emptyList()): COpaquePointer? {
+    fun libvlc_new(
+        args: List<String> = listOf(
+            "--no-video-title-show",
+            "--no-sub-autodetect-file",
+            "--avcodec-hw=any",
+            "--quiet"
+        )
+    ): COpaquePointer? {
         val fn = symbol("libvlc_new")
             ?.reinterpret<CFunction<(Int, CPointer<CPointerVar<ByteVar>>?) -> COpaquePointer?>>()
             ?: return null
@@ -166,6 +177,14 @@ object LibVlcBindings {
         return fn.invoke(player) != 0
     }
 
+    fun libvlc_media_player_get_state(player: COpaquePointer?): Int {
+        if (player == null) return -1
+        val fn = symbol("libvlc_media_player_get_state")
+            ?.reinterpret<CFunction<(COpaquePointer) -> Int>>()
+            ?: return -1
+        return fn.invoke(player)
+    }
+
     fun libvlc_media_player_get_time(player: COpaquePointer?): Long {
         if (player == null) return -1L
         val fn = symbol("libvlc_media_player_get_time")
@@ -238,6 +257,30 @@ object LibVlcBindings {
         return fn.invoke(player) != 0
     }
 
+    fun libvlc_audio_get_track(player: COpaquePointer?): Int {
+        if (player == null) return -1
+        val fn = symbol("libvlc_audio_get_track")
+            ?.reinterpret<CFunction<(COpaquePointer) -> Int>>()
+            ?: return -1
+        return fn.invoke(player)
+    }
+
+    fun libvlc_audio_get_track_count(player: COpaquePointer?): Int {
+        if (player == null) return 0
+        val fn = symbol("libvlc_audio_get_track_count")
+            ?.reinterpret<CFunction<(COpaquePointer) -> Int>>()
+            ?: return 0
+        return fn.invoke(player)
+    }
+
+    fun libvlc_audio_get_track_description(player: COpaquePointer?): COpaquePointer? {
+        if (player == null) return null
+        val fn = symbol("libvlc_audio_get_track_description")
+            ?.reinterpret<CFunction<(COpaquePointer) -> COpaquePointer?>>()
+            ?: return null
+        return fn.invoke(player)
+    }
+
     fun libvlc_audio_set_track(player: COpaquePointer?, trackId: Int): Int {
         if (player == null) return -1
         val fn = symbol("libvlc_audio_set_track")
@@ -246,12 +289,70 @@ object LibVlcBindings {
         return fn.invoke(player, trackId)
     }
 
+    fun libvlc_video_get_spu(player: COpaquePointer?): Int {
+        if (player == null) return -1
+        val fn = symbol("libvlc_video_get_spu")
+            ?.reinterpret<CFunction<(COpaquePointer) -> Int>>()
+            ?: return -1
+        return fn.invoke(player)
+    }
+
+    fun libvlc_video_get_spu_count(player: COpaquePointer?): Int {
+        if (player == null) return 0
+        val fn = symbol("libvlc_video_get_spu_count")
+            ?.reinterpret<CFunction<(COpaquePointer) -> Int>>()
+            ?: return 0
+        return fn.invoke(player)
+    }
+
+    fun libvlc_video_get_spu_description(player: COpaquePointer?): COpaquePointer? {
+        if (player == null) return null
+        val fn = symbol("libvlc_video_get_spu_description")
+            ?.reinterpret<CFunction<(COpaquePointer) -> COpaquePointer?>>()
+            ?: return null
+        return fn.invoke(player)
+    }
+
     fun libvlc_video_set_spu(player: COpaquePointer?, spuId: Int): Int {
         if (player == null) return -1
         val fn = symbol("libvlc_video_set_spu")
             ?.reinterpret<CFunction<(COpaquePointer, Int) -> Int>>()
             ?: return -1
         return fn.invoke(player, spuId)
+    }
+
+    fun libvlc_track_description_list_release(p_track_description: COpaquePointer?) {
+        if (p_track_description == null) return
+        val fn = symbol("libvlc_track_description_list_release")
+            ?.reinterpret<CFunction<(COpaquePointer) -> Unit>>()
+            ?: return
+        fn.invoke(p_track_description)
+    }
+
+    fun readAudioTrackDescriptions(player: COpaquePointer?): List<Pair<Int, String>> =
+        parseTrackDescriptionList(libvlc_audio_get_track_description(player))
+
+    fun readSubtitleTrackDescriptions(player: COpaquePointer?): List<Pair<Int, String>> =
+        parseTrackDescriptionList(libvlc_video_get_spu_description(player))
+
+    private fun parseTrackDescriptionList(head: COpaquePointer?): List<Pair<Int, String>> {
+        if (head == null) return emptyList()
+        val result = mutableListOf<Pair<Int, String>>()
+        try {
+            var cur: CPointer<ByteVar>? = head.reinterpret()
+            var safety = 0
+            while (cur != null && safety < 256) {
+                safety += 1
+                val id = (cur + 0)!!.reinterpret<IntVar>().pointed.value
+                val namePtr = (cur + 8)!!.reinterpret<CPointerVar<ByteVar>>().pointed.value
+                val name = namePtr?.toKString()?.takeIf { it.isNotBlank() } ?: "Track $id"
+                result.add(id to name)
+                cur = (cur + 16)!!.reinterpret<CPointerVar<ByteVar>>().pointed.value
+            }
+        } finally {
+            libvlc_track_description_list_release(head)
+        }
+        return result
     }
 
     fun libvlc_video_set_aspect_ratio(player: COpaquePointer?, aspect: String?) {
@@ -330,5 +431,29 @@ object LibVlcBindings {
             ?.reinterpret<CFunction<(COpaquePointer, COpaquePointer?, COpaquePointer?, COpaquePointer?, COpaquePointer?, COpaquePointer?, COpaquePointer?) -> Unit>>()
             ?: return
         fn.invoke(player, playCb, pauseCb, resumeCb, flushCb, drainCb, opaque)
+    }
+
+    fun libvlc_video_set_format(player: COpaquePointer?, chroma: String, width: Int, height: Int, pitch: Int) {
+        if (player == null) return
+        val fn = symbol("libvlc_video_set_format")
+            ?.reinterpret<CFunction<(COpaquePointer, CPointer<ByteVar>, UInt, UInt, UInt) -> Unit>>()
+            ?: return
+        memScoped {
+            fn.invoke(player, chroma.cstr.ptr, width.toUInt(), height.toUInt(), pitch.toUInt())
+        }
+    }
+
+    fun libvlc_video_set_callbacks(
+        player: COpaquePointer?,
+        lockCb: COpaquePointer? = null,
+        unlockCb: COpaquePointer? = null,
+        displayCb: COpaquePointer? = null,
+        opaque: COpaquePointer? = null
+    ) {
+        if (player == null) return
+        val fn = symbol("libvlc_video_set_callbacks")
+            ?.reinterpret<CFunction<(COpaquePointer, COpaquePointer?, COpaquePointer?, COpaquePointer?, COpaquePointer?) -> Unit>>()
+            ?: return
+        fn.invoke(player, lockCb, unlockCb, displayCb, opaque)
     }
 }

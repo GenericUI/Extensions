@@ -8,7 +8,7 @@ import com.nexustools.genericui.ext.alien.AlienWidgetNode
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.dock.ToolPaletteNativeImpl
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Self-rendered GIMP/Photoshop tool palette (`ToolPaletteAlienImpl`) implementing [ToolPaletteNativeImpl].

@@ -1,38 +1,67 @@
 package com.nexustools.genericui.ext.overlay
 
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.LayerConstraint
+import com.nexustools.genericui.component.layout.LayeredContainer
 import com.nexustools.genericui.core.AbstractComponent
-import com.nexustools.genericui.enums.bootstrap.FlexDirection
-import com.nexustools.genericui.enums.bootstrap.PositionMode
 
 /**
- * Concrete [Container] implementing [OverlayHost] that wraps a target [content] component,
- * stacks [overlayRoot] directly on top of [content], and places [belowHostContainer] directly
- * below [content] for the [OverlaySlot.BELOW_HOST] region.
+ * Pure, background-free [LayeredContainer] implementing [OverlayHost].
+ *
+ * Mounts [targetComponent] as a full-bleed base layer (`zIndex = 0`) and mounts
+ * [overlay] inside [overlayRoot] as a full-bleed top layer (`zIndex = 10`) without
+ * any default preset overlay, background color, or scrim.
  */
 open class OverlayHostBox(
     content: AbstractComponent? = null,
     initialOverlay: AbstractOverlay? = null
-) : Container("genericui-overlay-host-box"), OverlayHost {
+) : LayeredContainer("genericui:overlay-host", "gui-overlay-host"), OverlayHost {
 
-    val viewportContainer: Container = Container("genericui-overlay-host-viewport").apply {
-        positionMode = PositionMode.RELATIVE
+    private var fallbackTarget: Container? = if (content == null) {
+        Container("genericui-overlay-host-target").apply {
+            setStyleProperty("width", "100%")
+            setStyleProperty("height", "100%")
+            setStyleProperty("background", "transparent")
+            setStyleProperty("background-color", "transparent")
+        }
+    } else {
+        null
     }
 
-    val contentContainer: Container = Container("genericui-overlay-host-content")
-
-    override val overlayRoot: Container = Container("genericui-overlay-host-root").apply {
-        positionMode = PositionMode.ABSOLUTE
-        topOffset = "0px"
-        leftOffset = "0px"
-    }
-
-    override val belowHostContainer: Container = Container("genericui-overlay-host-below")
-
-    var contentComponent: AbstractComponent? = null
+    var contentComponent: AbstractComponent? = content
         private set
 
-    override var activeOverlay: AbstractOverlay? = null
+    override val targetComponent: AbstractComponent
+        get() = contentComponent ?: fallbackTarget!!
+
+    override val overlayRoot: LayeredContainer = LayeredContainer(
+        tagName = "genericui:overlay-host-root",
+        classPrefix = "gui-overlay-host-root"
+    ).apply {
+        setStyleProperty("width", "100%")
+        setStyleProperty("height", "100%")
+        setStyleProperty("background", "transparent")
+        setStyleProperty("background-color", "transparent")
+    }
+
+    private var overlayBacking: AbstractOverlay? = null
+
+    override var overlay: AbstractOverlay?
+        get() = overlayBacking
+        set(value) {
+            if (overlayBacking === value) return
+            if (value == null) {
+                detachOverlay()
+            } else {
+                attachOverlay(value)
+            }
+        }
+
+    override var activeOverlay: AbstractOverlay?
+        get() = overlay
+        set(value) {
+            overlay = value
+        }
 
     private var stateBacking: OverlayState = OverlayState()
     override var state: OverlayState
@@ -43,7 +72,7 @@ open class OverlayHostBox(
                 pipBacking = value.isInPictureInPictureMode
                 overlayRoot.isVisible = !pipBacking
             }
-            activeOverlay?.updateState(value)
+            overlay?.updateState(value)
         }
 
     private var actionsBacking: OverlayActions = OverlayActions()
@@ -51,7 +80,7 @@ open class OverlayHostBox(
         get() = actionsBacking
         set(value) {
             actionsBacking = value
-            activeOverlay?.updateActions(value)
+            overlay?.updateActions(value)
         }
 
     private var pipBacking: Boolean = false
@@ -66,41 +95,76 @@ open class OverlayHostBox(
         get() = themeColorHexBacking ?: OverlayExtension.effectiveDefaultThemeColorHex()
         set(value) {
             themeColorHexBacking = value
-            activeOverlay?.themeColorHex = value
+            overlay?.themeColorHex = value
         }
 
     init {
-        htmlTag = "genericui:overlay-host-box"
-        flexDirection = FlexDirection.COLUMN
-        viewportContainer.addChild(contentContainer)
-        viewportContainer.addChild(overlayRoot)
-        addChild(viewportContainer)
-        addChild(belowHostContainer)
-        if (content != null) {
-            setContent(content)
+        setStyleProperty("width", "100%")
+        setStyleProperty("height", "100%")
+        setStyleProperty("background", "transparent")
+        setStyleProperty("background-color", "transparent")
+        addLayer(targetComponent, LayerConstraint.fill(zIndex = 0))
+        addLayer(overlayRoot, LayerConstraint.fill(zIndex = 10, passThroughPointerEvents = true))
+        val initW = content?.widthPx ?: 0
+        val initH = content?.heightPx ?: 0
+        if (initW > 0 && initH > 0) {
+            overlayRoot.widthPx = initW
+            overlayRoot.heightPx = initH
         }
         if (initialOverlay != null) {
             attachOverlay(initialOverlay)
         }
     }
 
+    override fun onResize(viewportWidth: Int, viewportHeight: Int) {
+        super.onResize(viewportWidth, viewportHeight)
+        syncWithTargetResize(viewportWidth, viewportHeight)
+    }
+
     fun setContent(component: AbstractComponent?) {
-        contentComponent?.let { contentContainer.removeChild(it) }
+        val currentTarget = targetComponent
+        removeLayer(currentTarget)
         contentComponent = component
-        if (component != null) {
-            contentContainer.addChild(component)
+        if (component == null && fallbackTarget == null) {
+            fallbackTarget = Container("genericui-overlay-host-target").apply {
+                setStyleProperty("width", "100%")
+                setStyleProperty("height", "100%")
+                setStyleProperty("background", "transparent")
+                setStyleProperty("background-color", "transparent")
+            }
+        }
+        addLayer(targetComponent, LayerConstraint.fill(zIndex = 0))
+        setLayerConstraint(
+            overlayRoot,
+            LayerConstraint.fill(zIndex = 10, passThroughPointerEvents = overlay == null)
+        )
+        val w = component?.widthPx ?: 0
+        val h = component?.heightPx ?: 0
+        if (w > 0 && h > 0) {
+            syncWithTargetResize(w, h)
         }
     }
 
     override fun attachOverlay(overlay: AbstractOverlay) {
-        if (activeOverlay === overlay) return
-        detachOverlay()
-        activeOverlay = overlay
+        val current = this.overlayBacking
+        if (current === overlay) return
+        if (current != null) {
+            detachOverlay()
+        }
+        overlayBacking = overlay
         if (themeColorHexBacking != null) {
             overlay.themeColorHex = themeColorHexBacking
         }
-        overlayRoot.addChild(overlay)
-        belowHostContainer.addChild(overlay.belowHostSlotContainer)
+        val targetW = overlayRoot.widthPx ?: contentComponent?.widthPx ?: widthPx ?: 0
+        val targetH = overlayRoot.heightPx ?: contentComponent?.heightPx ?: heightPx ?: 0
+        if (targetW > 0 && targetH > 0) {
+            overlay.notifyTargetResize(targetW, targetH)
+        }
+        overlayRoot.addLayer(overlay, LayerConstraint.fill(zIndex = 10))
+        setLayerConstraint(
+            overlayRoot,
+            LayerConstraint.fill(zIndex = 10, passThroughPointerEvents = false)
+        )
         overlay.onAttachToHost(this)
         if (pipBacking) {
             overlay.setPictureInPictureMode(true)
@@ -109,11 +173,28 @@ open class OverlayHostBox(
     }
 
     override fun detachOverlay() {
-        val current = activeOverlay ?: return
-        activeOverlay = null
+        val current = this.overlayBacking ?: return
+        overlayBacking = null
         current.onDetachFromHost()
-        overlayRoot.removeChild(current)
-        belowHostContainer.removeChild(current.belowHostSlotContainer)
+        overlayRoot.removeLayer(current)
+        setLayerConstraint(
+            overlayRoot,
+            LayerConstraint.fill(zIndex = 10, passThroughPointerEvents = true)
+        )
+    }
+
+    override fun syncWithTargetRender(frameTimestampMs: Long) {
+        val targetW = overlayRoot.widthPx ?: contentComponent?.widthPx ?: widthPx ?: 0
+        val targetH = overlayRoot.heightPx ?: contentComponent?.heightPx ?: heightPx ?: 0
+        overlay?.notifyTargetRenderFrame(frameTimestampMs, targetW, targetH)
+    }
+
+    override fun syncWithTargetResize(widthPx: Int, heightPx: Int) {
+        if (widthPx > 0 && heightPx > 0) {
+            overlayRoot.widthPx = widthPx
+            overlayRoot.heightPx = heightPx
+        }
+        overlay?.notifyTargetResize(widthPx, heightPx)
     }
 
     override fun updateState(transform: (OverlayState) -> OverlayState) {
@@ -124,11 +205,11 @@ open class OverlayHostBox(
         pipBacking = enabled
         stateBacking = stateBacking.copy(isInPictureInPictureMode = enabled)
         overlayRoot.isVisible = !enabled
-        activeOverlay?.setPictureInPictureMode(enabled)
+        overlay?.setPictureInPictureMode(enabled)
     }
 
     override fun dispose() {
-        val current = activeOverlay
+        val current = overlay
         detachOverlay()
         current?.dispose()
         super.dispose()

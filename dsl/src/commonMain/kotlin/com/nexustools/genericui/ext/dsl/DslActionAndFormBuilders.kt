@@ -23,15 +23,15 @@ import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.ui.Orientation
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
-fun ColorRgba(r: Int, g: Int, b: Int, a: Double = 1.0): RgbaColor =
+fun RgbaColor(r: Int, g: Int, b: Int, a: Double = 1.0): RgbaColor =
     RgbaColor(r, g, b, a)
 
-fun ColorRgba(r: Int, g: Int, b: Int, a: Float): RgbaColor =
+fun RgbaColor(r: Int, g: Int, b: Int, a: Float): RgbaColor =
     RgbaColor(r, g, b, a)
 
-fun ColorRgba(r: Int, g: Int, b: Int, a: Int): RgbaColor =
+fun RgbaColor(r: Int, g: Int, b: Int, a: Int): RgbaColor =
     RgbaColor(r, g, b, a)
 
 /**

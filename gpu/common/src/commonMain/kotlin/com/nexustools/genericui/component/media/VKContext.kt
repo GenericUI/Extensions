@@ -1,7 +1,7 @@
 package com.nexustools.genericui.component.media
 
 import com.nexustools.genericui.enums.media.ShaderType
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Cross-platform Vulkan 1.1 / 1.2 / 1.3 rendering context exposed by [VKCanvas].

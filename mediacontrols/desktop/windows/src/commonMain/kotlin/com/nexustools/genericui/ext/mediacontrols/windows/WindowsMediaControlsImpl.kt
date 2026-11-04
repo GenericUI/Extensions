@@ -39,6 +39,7 @@ import kotlinx.cinterop.value
 import platform.windows.CallNextHookEx
 import platform.windows.CallWindowProcW
 import platform.windows.DWORDVar
+import platform.windows.FindWindowExW
 import platform.windows.GWLP_WNDPROC
 import platform.windows.GetActiveWindow
 import platform.windows.GetCurrentProcessId
@@ -211,11 +212,42 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
 
     private fun resolveActiveProcessHwnd(): HWND? {
         targetHwnd?.let { return it }
-        val active = GetActiveWindow() ?: return null
-        return memScoped {
-            val pidVar = alloc<DWORDVar>()
-            GetWindowThreadProcessId(active, pidVar.ptr)
-            if (pidVar.value == GetCurrentProcessId()) active else null
+        val currentPid = GetCurrentProcessId()
+        val active = GetActiveWindow()
+        if (active != null) {
+            val matchesPid = memScoped {
+                val pidVar = alloc<DWORDVar>()
+                GetWindowThreadProcessId(active, pidVar.ptr)
+                pidVar.value == currentPid
+            }
+            if (matchesPid) {
+                targetHwnd = active
+                return active
+            }
+        }
+        var candidate: HWND? = FindWindowExW(null, null, "GenericUIWin32HostWindowW", null)
+        while (candidate != null) {
+            val matchesPid = memScoped {
+                val pidVar = alloc<DWORDVar>()
+                GetWindowThreadProcessId(candidate, pidVar.ptr)
+                pidVar.value == currentPid
+            }
+            if (matchesPid) {
+                targetHwnd = candidate
+                return candidate
+            }
+            candidate = FindWindowExW(null, candidate, "GenericUIWin32HostWindowW", null)
+        }
+        return null
+    }
+
+    private fun ensureActiveBindingsReady() {
+        if (!isActive()) return
+        if (subclassedHwnd == null || taskbarList3Ptr == null) {
+            ensureWin32Bindings()
+        }
+        if (keyboardMediaKeysEnabled && !isLowLevelKeyboardHookInstalled) {
+            syncKeyboardHookState()
         }
     }
 
@@ -223,7 +255,9 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
         super.bindWindow(window)
         if (isActive()) {
             ensureWin32Bindings()
+            syncKeyboardHookState()
             syncTaskbarButtons()
+            syncTaskbarTooltipAndProgress()
         }
     }
 
@@ -237,6 +271,7 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
             ensureWin32Bindings()
             syncKeyboardHookState()
             syncTaskbarButtons()
+            syncTaskbarTooltipAndProgress()
         } else if (!active && wasActive) {
             activeWindowsMediaControlsInstances.remove(this)
             syncKeyboardHookState()
@@ -246,17 +281,24 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
 
     override fun setKeyboardMediaKeysEnabled(enabled: Boolean) {
         super.setKeyboardMediaKeysEnabled(enabled)
+        if (isActive()) {
+            ensureWin32Bindings()
+        }
         syncKeyboardHookState()
     }
 
     override fun setTaskbarPreviewControlsEnabled(enabled: Boolean) {
         super.setTaskbarPreviewControlsEnabled(enabled)
+        if (isActive()) {
+            ensureActiveBindingsReady()
+        }
         syncTaskbarButtons()
     }
 
     override fun updateMetadata(metadata: MediaControlMetadata) {
         super.updateMetadata(metadata)
         if (isActive()) {
+            ensureActiveBindingsReady()
             syncTaskbarTooltipAndProgress()
         }
     }
@@ -269,6 +311,7 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
     ) {
         super.updatePlaybackStatus(status, positionMs, durationMs, playbackRate)
         if (isActive()) {
+            ensureActiveBindingsReady()
             syncTaskbarButtons()
             syncTaskbarTooltipAndProgress()
         }
@@ -277,6 +320,7 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
     override fun updateButtonConfig(config: MediaControlButtonConfig) {
         super.updateButtonConfig(config)
         if (isActive()) {
+            ensureActiveBindingsReady()
             syncTaskbarButtons()
         }
     }

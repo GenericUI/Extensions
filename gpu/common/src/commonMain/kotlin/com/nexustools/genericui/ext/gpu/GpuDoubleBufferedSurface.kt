@@ -2,7 +2,7 @@ package com.nexustools.genericui.ext.gpu
 
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.PixelFormat
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt

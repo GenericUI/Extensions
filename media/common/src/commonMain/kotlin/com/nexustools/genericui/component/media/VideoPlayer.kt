@@ -2,9 +2,15 @@ package com.nexustools.genericui.component.media
 
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.ext.media.MediaExtension
+import com.nexustools.genericui.ext.media.overlay.VideoOverlayHost
+import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 
 /**
  * Hardware-accelerated cross-platform video player component.
@@ -65,25 +71,105 @@ open class VideoPlayer(
             notifyStateChangeObservers()
         }
 
-    var fullscreenTargetElementId: String? = null
+    var preloadMode: MediaPreloadMode = MediaPreloadMode.AUTO
         set(value) {
             field = value
-            typedNative<VideoPlayerNativeImpl<*>>()?.setFullscreenTargetElementId(value)
+            typedNative<VideoPlayerNativeImpl<*>>()?.setPreloadMode(value)
+            notifyStateChangeObservers()
         }
 
-    @kotlin.jvm.JvmName("assignFullscreenTargetElementId")
-    fun setFullscreenTargetElementId(elementId: String?) {
-        fullscreenTargetElementId = elementId
+    var adaptivePreloadBufferingEnabled: Boolean = true
+        set(value) {
+            field = value
+            typedNative<VideoPlayerNativeImpl<*>>()?.setAdaptivePreloadBufferingEnabled(value)
+            notifyStateChangeObservers()
+        }
+
+    /**
+     * Enables smooth bilinear/bicubic antialiasing and high-quality video frame scaling.
+     * Enabled (`true`) by default across all backends.
+     */
+    var antialiasing: Boolean = true
+        set(value) {
+            field = value
+            setAttribute("data-antialiasing", value.toString())
+            typedNative<VideoPlayerNativeImpl<*>>()?.setAntialiasing(value)
+            notifyStateChangeObservers()
+        }
+
+    private var mediaReadyFallbackState: Boolean = false
+    private val mediaReadyWaiters = mutableListOf<() -> Unit>()
+
+    val isMediaReady: Boolean
+        get() = typedNative<VideoPlayerNativeImpl<*>>()?.isMediaReady() == true || mediaReadyFallbackState
+
+    var onMediaReady: (() -> Unit)? = null
+
+    init {
+        setAttribute("data-antialiasing", antialiasing.toString())
+    }
+
+    internal fun notifyMediaReady() {
+        val wasReady = mediaReadyFallbackState
+        mediaReadyFallbackState = true
+        val waiters = mediaReadyWaiters.toList()
+        mediaReadyWaiters.clear()
+        for (waiter in waiters) {
+            waiter.invoke()
+        }
+        if (!wasReady) {
+            onMediaReady?.invoke()
+            notifyStateChangeObservers()
+        }
+    }
+
+    /**
+     * Suspends until the first frame / media metadata for the current [sourceUrl] is ready to play,
+     * or until [timeoutMs] elapses. Returns `true` if media is ready.
+     */
+    suspend fun awaitMediaReady(timeoutMs: Long = 8_000L): Boolean {
+        if (isMediaReady) return true
+        val result = withTimeoutOrNull(timeoutMs.coerceAtLeast(1L)) {
+            if (isMediaReady) return@withTimeoutOrNull true
+            suspendCancellableCoroutine { cont ->
+                if (isMediaReady) {
+                    if (cont.isActive) cont.resume(true)
+                    return@suspendCancellableCoroutine
+                }
+                lateinit var waiter: () -> Unit
+                waiter = {
+                    mediaReadyWaiters.remove(waiter)
+                    if (cont.isActive) {
+                        cont.resume(true)
+                    }
+                }
+                mediaReadyWaiters.add(waiter)
+                cont.invokeOnCancellation {
+                    mediaReadyWaiters.remove(waiter)
+                }
+            }
+        }
+        return result ?: isMediaReady
     }
 
     var isBuffering: Boolean = false
         private set
 
     var bufferedRanges: List<Pair<Double, Double>> = emptyList()
+        get() {
+            if (field.isNotEmpty()) return field
+            return typedNative<VideoPlayerNativeImpl<*>>()?.getBufferedRanges().orEmpty()
+        }
         private set
 
-    var isFullscreen: Boolean = false
-        private set
+    val bufferedEndSeconds: Double
+        get() = bufferedRanges.maxOfOrNull { it.second } ?: 0.0
+
+    val estimatedNetworkSpeedRatio: Double
+        get() = typedNative<VideoPlayerNativeImpl<*>>()?.getEstimatedNetworkSpeedRatio() ?: 1.0
+
+    fun getRequiredSafeBufferSeconds(): Double =
+        typedNative<VideoPlayerNativeImpl<*>>()?.getRequiredSafeBufferSeconds() ?: 0.0
 
     var isInPictureInPictureMode: Boolean = false
         private set
@@ -109,10 +195,39 @@ open class VideoPlayer(
     var onBufferingStateChanged: ((Boolean) -> Unit)? = null
     var onBufferedRangesChanged: ((List<Pair<Double, Double>>) -> Unit)? = null
     var onTracksChanged: (() -> Unit)? = null
-    var onFullscreenChanged: ((Boolean) -> Unit)? = null
     var onPictureInPictureChanged: ((Boolean) -> Unit)? = null
 
     private var attachedAnalyzer: AudioAnalyzer? = null
+
+    internal var attachedOverlayHost: VideoOverlayHost? = null
+
+    /**
+     * Wraps this [VideoPlayer] in a [VideoOverlayHost] (or reuses the existing host) and
+     * attaches [overlay] to it.
+     */
+    fun attachVideoOverlay(overlay: AbstractOverlay): VideoOverlayHost {
+        val existing = attachedOverlayHost
+        if (existing != null) {
+            existing.attachOverlay(overlay)
+            return existing
+        }
+        return VideoOverlayHost(videoPlayer = this, initialOverlay = overlay)
+    }
+
+    /**
+     * Wraps this [VideoPlayer] in a [VideoOverlayHost] (or reuses the existing host),
+     * optionally attaching [overlay] if provided.
+     */
+    fun withOverlay(overlay: AbstractOverlay? = null): VideoOverlayHost {
+        val existing = attachedOverlayHost
+        if (existing != null) {
+            if (overlay != null) {
+                existing.attachOverlay(overlay)
+            }
+            return existing
+        }
+        return VideoOverlayHost(videoPlayer = this, initialOverlay = overlay)
+    }
 
     internal fun addStateChangeObserver(observer: () -> Unit) {
         if (observer !in stateChangeObservers) {
@@ -148,12 +263,21 @@ open class VideoPlayer(
         this.sourceUrl = url
         this.seekOffsetSeconds = seekOffsetSeconds.coerceAtLeast(0.0)
         this.durationOverrideSeconds = durationOverrideSeconds
+        this.mediaReadyFallbackState = false
         val impl = typedNative<VideoPlayerNativeImpl<*>>()
         if (impl != null) {
             impl.setSource(url, this.seekOffsetSeconds, durationOverrideSeconds)
-        } else if (durationOverrideSeconds != null) {
-            nativeReportedDurationSeconds = durationOverrideSeconds
-            onDurationChanged?.invoke(durationOverrideSeconds)
+            if (impl.isMediaReady() || (durationOverrideSeconds != null && durationOverrideSeconds > 0.0)) {
+                notifyMediaReady()
+            }
+        } else {
+            if (durationOverrideSeconds != null) {
+                nativeReportedDurationSeconds = durationOverrideSeconds
+                onDurationChanged?.invoke(durationOverrideSeconds)
+            }
+            if (url.isNotBlank()) {
+                notifyMediaReady()
+            }
         }
         notifyStateChangeObservers()
     }
@@ -231,17 +355,63 @@ open class VideoPlayer(
         notifyStateChangeObservers()
     }
 
-    fun setFullscreen(fullscreen: Boolean) {
-        if (isFullscreen != fullscreen) {
-            isFullscreen = fullscreen
-            onFullscreenChanged?.invoke(fullscreen)
-            notifyStateChangeObservers()
+    override fun isFullscreen(): Boolean {
+        val host = attachedOverlayHost
+        if (host != null && host !== this) {
+            return host.isFullscreen() || super.isFullscreen()
+        }
+        return super.isFullscreen()
+    }
+
+    override fun requestFullscreen(cutoutMode: com.nexustools.genericui.enums.window.DisplayCutoutMode) {
+        val host = attachedOverlayHost
+        if (host != null && host !== this) {
+            host.requestFullscreen(cutoutMode)
+            updateFullscreenElementState(true, cutoutMode)
+        } else {
+            super.requestFullscreen(cutoutMode)
+        }
+        notifyStateChangeObservers()
+    }
+
+    override fun exitFullscreen() {
+        val host = attachedOverlayHost
+        if (host != null && host !== this) {
+            host.exitFullscreen()
+            updateFullscreenElementState(false)
+        } else {
+            super.exitFullscreen()
+        }
+        notifyStateChangeObservers()
+    }
+
+    override fun toggleFullscreen(cutoutMode: com.nexustools.genericui.enums.window.DisplayCutoutMode): Boolean {
+        if (isFullscreen()) {
+            exitFullscreen()
+        } else {
+            requestFullscreen(cutoutMode)
+        }
+        return isFullscreen()
+    }
+
+    override fun setFullscreen(fullscreen: Boolean, cutoutMode: com.nexustools.genericui.enums.window.DisplayCutoutMode) {
+        if (fullscreen) {
+            requestFullscreen(cutoutMode)
+        } else {
+            exitFullscreen()
         }
     }
 
-    fun toggleFullscreen(): Boolean {
-        setFullscreen(!isFullscreen)
-        return isFullscreen
+    fun supportsAudioTrackSelection(): Boolean {
+        val impl = typedNative<VideoPlayerNativeImpl<*>>()
+            ?: MediaExtension.createVideoPlayerNative()
+        return impl?.supportsAudioTrackSelection() ?: false
+    }
+
+    fun supportsSubtitleTrackSelection(): Boolean {
+        val impl = typedNative<VideoPlayerNativeImpl<*>>()
+            ?: MediaExtension.createVideoPlayerNative()
+        return impl?.supportsSubtitleTrackSelection() ?: false
     }
 
     fun setAudioTracks(tracks: List<MediaTrackInfo>) {
@@ -257,25 +427,52 @@ open class VideoPlayer(
         return if (nativeTracks.isNotEmpty()) nativeTracks else fallbackAudioTracks.toList()
     }
 
-    fun selectAudioTrack(trackId: String) {
+    fun getSelectedAudioTrackId(): String? =
+        typedNative<VideoPlayerNativeImpl<*>>()?.getSelectedAudioTrackId()
+            ?: selectedAudioTrackIdState
+            ?: getAudioTracks().firstOrNull { it.isSelected }?.id
+
+    fun selectAudioTrack(trackId: String): Boolean {
         selectedAudioTrackIdState = trackId
+        var matchedFallback = false
         for (i in fallbackAudioTracks.indices) {
             val item = fallbackAudioTracks[i]
-            fallbackAudioTracks[i] = item.copy(isSelected = item.id == trackId)
+            val match = item.id == trackId
+            if (match) matchedFallback = true
+            fallbackAudioTracks[i] = item.copy(isSelected = match)
         }
         val impl = typedNative<VideoPlayerNativeImpl<*>>()
-        if (impl != null) {
+        val result = if (impl != null) {
             impl.selectAudioTrack(trackId)
         } else {
             onTracksChanged?.invoke()
+            matchedFallback || fallbackAudioTracks.isEmpty()
         }
         notifyStateChangeObservers()
+        return result
+    }
+
+    /**
+     * Selects an audio track by its 0-based index among [getAudioTracks] (or passes `"index:$index"`
+     * to the underlying native player when tracks are still being demuxed by LibVLC/ExoPlayer).
+     */
+    fun selectAudioTrackByIndex(index: Int): Boolean {
+        if (index < 0) return false
+        val tracks = getAudioTracks()
+        val targetId = tracks.getOrNull(index)?.id ?: "index:$index"
+        return selectAudioTrack(targetId)
     }
 
     fun getSubtitleTracks(): List<SubtitleTrackInfo> {
         val nativeTracks = typedNative<VideoPlayerNativeImpl<*>>()?.getSubtitleTracks().orEmpty()
         return if (nativeTracks.isNotEmpty()) nativeTracks else fallbackSubtitleTracks.toList()
     }
+
+    fun getSelectedSubtitleTrackId(): String? =
+        if (subtitlesExplicitlyDisabled) null
+        else typedNative<VideoPlayerNativeImpl<*>>()?.getSelectedSubtitleTrackId()
+            ?: selectedSubtitleTrackIdState
+            ?: getSubtitleTracks().firstOrNull { it.isSelected }?.id
 
     fun addExternalSubtitleTrack(label: String, language: String, vttOrSrtUrl: String) {
         val trackId = "sub-${fallbackSubtitleTracks.size}"
@@ -297,20 +494,32 @@ open class VideoPlayer(
         notifyStateChangeObservers()
     }
 
-    fun selectSubtitleTrack(trackId: String?) {
+    fun selectSubtitleTrack(trackId: String?): Boolean {
         selectedSubtitleTrackIdState = trackId
         subtitlesExplicitlyDisabled = (trackId == null)
+        var matchedFallback = (trackId == null)
         for (i in fallbackSubtitleTracks.indices) {
             val item = fallbackSubtitleTracks[i]
-            fallbackSubtitleTracks[i] = item.copy(isSelected = trackId != null && item.id == trackId)
+            val match = trackId != null && item.id == trackId
+            if (match) matchedFallback = true
+            fallbackSubtitleTracks[i] = item.copy(isSelected = match)
         }
         val impl = typedNative<VideoPlayerNativeImpl<*>>()
-        if (impl != null) {
+        val result = if (impl != null) {
             impl.selectSubtitleTrack(trackId)
         } else {
             onTracksChanged?.invoke()
+            matchedFallback || fallbackSubtitleTracks.isEmpty()
         }
         notifyStateChangeObservers()
+        return result
+    }
+
+    fun selectSubtitleTrackByIndex(index: Int?): Boolean {
+        if (index == null || index < 0) return selectSubtitleTrack(null)
+        val tracks = getSubtitleTracks()
+        val targetId = tracks.getOrNull(index)?.id ?: "index:$index"
+        return selectSubtitleTrack(targetId)
     }
 
     val subtitleCues: List<SubtitleCue>
@@ -388,17 +597,28 @@ open class VideoPlayer(
         typedNative<VideoPlayerNativeImpl<*>>()?.attachAudioAnalyzer(analyzer)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): VideoPlayerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): VideoPlayerNativeImpl<*> =
         MediaExtension.createVideoPlayerNativeOrFallback()
 
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<VideoPlayerNativeImpl<*>>() ?: return
+        impl.setPreloadMode(preloadMode)
+        impl.setAdaptivePreloadBufferingEnabled(adaptivePreloadBufferingEnabled)
+        impl.setAntialiasing(antialiasing)
         impl.setVolume(volume)
         impl.setMuted(isMuted)
         impl.setPlaybackSpeed(playbackSpeed)
         impl.setResizeMode(resizeMode)
-        impl.setFullscreenTargetElementId(fullscreenTargetElementId)
+        impl.setOnMediaReady {
+            notifyMediaReady()
+        }
+        selectedAudioTrackIdState?.let { impl.selectAudioTrack(it) }
+        if (subtitlesExplicitlyDisabled) {
+            impl.selectSubtitleTrack(null)
+        } else {
+            selectedSubtitleTrackIdState?.let { impl.selectSubtitleTrack(it) }
+        }
         impl.setOnTimeUpdate { timeSec ->
             seekOffsetSeconds = timeSec
             onTimeUpdate?.invoke(timeSec)
@@ -406,6 +626,9 @@ open class VideoPlayer(
         }
         impl.setOnDurationChanged { durSec ->
             nativeReportedDurationSeconds = durSec
+            if (durSec > 0.0 && !mediaReadyFallbackState) {
+                notifyMediaReady()
+            }
             onDurationChanged?.invoke(durSec)
             notifyStateChangeObservers()
         }

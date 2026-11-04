@@ -2,7 +2,7 @@ package com.nexustools.genericui.desktop.canvas
 
 import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.enums.media.ShaderType
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Shared desktop Vulkan 1.3 (`VK_KHR_win32_surface`, `MoltenVK` `VK_EXT_metal_surface`,

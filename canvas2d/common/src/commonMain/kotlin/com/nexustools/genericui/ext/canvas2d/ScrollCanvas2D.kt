@@ -357,7 +357,7 @@ open class ScrollCanvas2D(
      * Binds a [ScrollCanvas2DNativeImpl] peer directly (used by `:web` or tests) and synchronizes
      * viewport size, scrollable content size, scroll position, and scroll listener callbacks.
      */
-    fun attachScrollNativeImpl(impl: ScrollCanvas2DNativeImpl<*>) {
+    internal fun attachScrollNativeImpl(impl: ScrollCanvas2DNativeImpl<*>) {
         explicitScrollNative = impl
         configureScrollNativeImpl(impl)
     }
@@ -414,7 +414,7 @@ open class ScrollCanvas2D(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): NativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): NativeImpl<*> =
         Canvas2DExtension.createScrollCanvas2DNativeOrNull(
             viewportWidth = currentViewportWidth,
             viewportHeight = currentViewportHeight,

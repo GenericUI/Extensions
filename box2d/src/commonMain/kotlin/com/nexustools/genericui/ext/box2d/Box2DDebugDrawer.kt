@@ -3,16 +3,14 @@ package com.nexustools.genericui.ext.box2d
 import com.nexustools.genericui.component.media.Canvas2D
 import com.nexustools.genericui.component.media.GLCanvas
 import com.nexustools.genericui.component.media.VBlankSubscription
-import com.nexustools.genericui.ext.canvas2d.Canvas2DExtSurface
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtension
-import com.nexustools.genericui.ext.canvas3d.GLCanvasExt
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.PI
 
 /**
  * 2D Physics Debug Drawer rendering [World2D] bodies, fixtures, AABBs, joints, and contact points
- * onto a `:extensions:canvas2d` [Canvas2D] / [Canvas2DExtSurface] or `:extensions:canvas3d` [GLCanvas] / [GLCanvasExt].
+ * onto a `:extensions:canvas2d` [Canvas2D] or `:extensions:canvas3d` [GLCanvas].
  */
 class Box2DDebugDrawer(
     var pixelsPerMeter: Float = 50f,
@@ -40,12 +38,12 @@ class Box2DDebugDrawer(
     fun worldToScreenY(wy: Float): Float = if (flipY) offsetY - wy * pixelsPerMeter else offsetY + wy * pixelsPerMeter
 
     /**
-     * Binds a [World2D] simulation to a [Canvas2D] (such as [Canvas2DExtSurface]), automatically stepping
+     * Binds a [World2D] simulation to a [Canvas2D], automatically stepping
      * the physics world by `deltaMs` and drawing the debug overlay on each hardware VBlank frame.
      */
     fun bindToCanvas2D(
         world: World2D,
-        canvas: Canvas2D = Canvas2DExtSurface(),
+        canvas: Canvas2D = Canvas2D(),
         clearBackground: Boolean = true
     ): VBlankSubscription {
         vblankSubscription?.dispose()
@@ -64,11 +62,11 @@ class Box2DDebugDrawer(
     }
 
     /**
-     * Binds a [World2D] simulation to a [GLCanvas] (such as [GLCanvasExt]) for hardware-accelerated stepping.
+     * Binds a [World2D] simulation to a [GLCanvas] for hardware-accelerated stepping.
      */
     fun bindToGLCanvas(
         world: World2D,
-        glCanvas: GLCanvas = GLCanvasExt()
+        glCanvas: GLCanvas = GLCanvas()
     ): VBlankSubscription {
         vblankSubscription?.dispose()
         val offscreen2D = Canvas2DExtension.createContext(

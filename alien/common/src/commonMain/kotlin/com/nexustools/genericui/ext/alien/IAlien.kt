@@ -1,13 +1,16 @@
 package com.nexustools.genericui.ext.alien
 
-import com.nexustools.genericui.res.ResourceType
+import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.resources.ResourceType
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
+import kotlin.reflect.KClass
 
 /**
  * Common contract implemented by all Alien root containers and fragments ([AlienContainer],
- * [AlienFragment], [AlienScrollFragment]).
+ * [AlienFragment], [AlienScrollFragment], [AlienFragmentHostFragment]).
  *
  * - Starts with the precompiled Bootstrap 5.3 stylesheet ([AlienPrecompiledBootstrapStyleSheet],
  *   identified by [BOOTSTRAP_STYLE_SHEET_ID]) active by default at index `0`.
@@ -19,6 +22,14 @@ import com.nexustools.genericui.style.css.PrecompiledStyleSheet
  *   (`[Bootstrap, $ApplicationStyleSheets, AllAdditionalStyleSheets...]` when `1`, disabled when `-1`).
  */
 interface IAlien {
+
+    val isAlienModeActive: Boolean
+        get() = !AlienExtension.platformBridge.isWebPassThrough
+
+    val renderSession: AlienRenderSession?
+
+    val alienSession: AlienRenderSession?
+        get() = renderSession
 
     /**
      * Controls the index at which application/window stylesheets (`$ApplicationStyleSheets`) are
@@ -61,7 +72,20 @@ interface IAlien {
     val isBootstrapStyleSheetEnabled: Boolean
         get() = hasStyleSheet(BOOTSTRAP_STYLE_SHEET_ID)
 
+    fun getOrCreateRenderSession(): AlienRenderSession?
+
+    fun resizeAlienViewport(width: Int, height: Int)
+
     fun repaintAlien(deltaMs: Float = 16.67f)
+
+    fun requestAlienRepaint() {
+        repaintAlien()
+    }
+
+    fun <T : NativeImpl<*>> registerAlienComponentImpl(
+        componentClass: KClass<*>,
+        creator: (AbstractComponent) -> T
+    )
 
     companion object {
         /**

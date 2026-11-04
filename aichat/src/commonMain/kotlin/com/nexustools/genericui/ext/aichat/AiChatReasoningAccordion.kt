@@ -73,8 +73,6 @@ class AiChatReasoningAccordion(
     }
 
     private fun refreshView() {
-        headerBar.tooltipText = headerTitle
-        bodyContainer.tooltipText = reasoningContent
         bodyContainer.isVisible = isExpanded && reasoningContent.isNotBlank()
     }
 }

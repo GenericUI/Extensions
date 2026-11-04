@@ -2,7 +2,7 @@ package com.nexustools.genericui.component.media
 
 import com.nexustools.genericui.ext.gpu.VBlankWatcher
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

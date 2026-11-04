@@ -10,10 +10,15 @@ import com.nexustools.genericui.window.IWindow
  * Depends strictly on `:common` and can be used independently of `:extensions:media` for any
  * audio, video, animation, slideshow, or presentation playback workflow.
  */
-class MediaControlsSession(
+class MediaControlsSession internal constructor(
     window: IWindow? = null,
-    val nativeImpl: MediaControlsNativeImpl = MediaControlsRegistry.createNativeImpl()
+    internal val nativeImpl: MediaControlsNativeImpl
 ) : Disposable {
+
+    constructor(window: IWindow? = null) : this(
+        window = window,
+        nativeImpl = MediaControlsRegistry.createNativeImpl()
+    )
 
     private val listeners = mutableListOf<MediaControlListener>()
     private var disposed = false

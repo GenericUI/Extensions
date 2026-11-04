@@ -5,6 +5,7 @@ import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.ext.alien.impl.*
 import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
 import com.nexustools.genericui.nativeimpl.action.DropdownNativeImpl
+import com.nexustools.genericui.nativeimpl.action.StyledButtonNativeImpl
 import com.nexustools.genericui.nativeimpl.content.ImageNativeImpl
 import com.nexustools.genericui.nativeimpl.content.TableNativeImpl
 import com.nexustools.genericui.nativeimpl.dialog.DialogWindowNativeImpl
@@ -21,6 +22,7 @@ import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.DividerNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ScrollViewNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.StyledContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.lazy.LazyGridNativeImpl
 import com.nexustools.genericui.nativeimpl.lazy.LazyListNativeImpl
 import com.nexustools.genericui.nativeimpl.lazy.TreeViewNativeImpl
@@ -28,7 +30,6 @@ import com.nexustools.genericui.nativeimpl.navigation.BottomNavigationBarNativeI
 import com.nexustools.genericui.nativeimpl.navigation.NavbarNativeImpl
 import com.nexustools.genericui.nativeimpl.overlay.PopoverNativeImpl
 import com.nexustools.genericui.nativeimpl.shell.*
-import com.nexustools.genericui.nativeimpl.surface.CollapseNativeImpl
 import com.nexustools.genericui.nativeimpl.system.*
 import com.nexustools.genericui.nativeimpl.tabs.TabContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
@@ -46,8 +47,15 @@ class AlienFactory(
     val session: AlienRenderSession? = null
 ) : NativeFactory {
 
+    override val backendTarget: com.nexustools.genericui.enums.system.BackendTarget
+        get() = hostFactory.backendTarget
+
     override val backendName: String
         get() = "alien(${hostFactory.backendName})"
+
+    override fun supportsTcp(): Boolean = hostFactory.supportsTcp()
+    override fun supportsUdp(): Boolean = hostFactory.supportsUdp()
+    override fun supportsMulticastUdp(): Boolean = hostFactory.supportsMulticastUdp()
 
     // Shell & Window (OS Window/Application delegated to hostFactory; UI chrome self-rendered)
     override fun createApplication(): ApplicationNativeImpl<*> = hostFactory.createApplication()
@@ -57,7 +65,6 @@ class AlienFactory(
     override fun createMenuItem(checkable: Boolean, radio: Boolean): MenuItemNativeImpl<*> =
         MenuItemAlienImpl(checkable = checkable, radio = radio, session = session)
     override fun createContextMenu(): ContextMenuNativeImpl<*> = ContextMenuAlienImpl(session)
-    override fun createSplitPane(): SplitPaneNativeImpl<*> = SplitPaneAlienImpl(session)
 
     // Dockable Panel System
     override fun createDockWorkspace(): DockWorkspaceNativeImpl<*> = DockWorkspaceAlienImpl(session)
@@ -74,10 +81,15 @@ class AlienFactory(
     override fun createContainer(classPrefix: String, tagName: String): ContainerNativeImpl<*> =
         ContainerAlienImpl(componentClassPrefix = classPrefix, tagName = tagName, session = session)
 
+    override fun createStyledContainer(classPrefix: String, tagName: String): StyledContainerNativeImpl<*> =
+        StyledContainerAlienImpl(componentClassPrefix = classPrefix, tagName = tagName, session = session)
+
     override fun createBookContainer(): BookContainerNativeImpl<*> =
         BookContainerAlienImpl(hostFactory = hostFactory, session = session)
 
     override fun createScrollView(): ScrollViewNativeImpl<*> = ScrollViewAlienImpl(session)
+    override fun createScrollView(tagName: String): ScrollViewNativeImpl<*> =
+        ScrollViewAlienImpl(session = session, tagName = tagName)
     override fun createDivider(): DividerNativeImpl<*> = DividerAlienImpl(session)
 
     // Typography & Content
@@ -92,6 +104,9 @@ class AlienFactory(
     override fun createButton(classPrefix: String): ButtonNativeImpl<*> =
         ButtonAlienImpl(componentClassPrefix = classPrefix, session = session)
 
+    override fun createStyledButton(classPrefix: String): StyledButtonNativeImpl<*> =
+        StyledButtonAlienImpl(componentClassPrefix = classPrefix, session = session)
+
     override fun createDropdown(): DropdownNativeImpl<*> = DropdownAlienImpl(session)
     override fun createTextInput(multiline: Boolean): TextInputNativeImpl<*> =
         TextInputAlienImpl(multiline = multiline, session = session)
@@ -103,7 +118,6 @@ class AlienFactory(
     override fun createRangeSlider(): RangeSliderNativeImpl<*> = RangeSliderAlienImpl(session)
 
     // Surface, Tabs, Navigation, Feedback & Overlay
-    override fun createCollapse(): CollapseNativeImpl<*> = CollapseAlienImpl(session)
     override fun createTab(closable: Boolean): TabNativeImpl<*> =
         TabAlienImpl(initialClosable = closable, session = session)
 

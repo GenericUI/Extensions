@@ -13,7 +13,8 @@ object AndroidMediaProvider {
             videoPlayerFactory = { AndroidVideoPlayerImpl() },
             audioPlayerFactory = { AndroidAudioPlayerImpl() },
             audioAnalyzerFactory = { AndroidAudioAnalyzerImpl() },
-            mediaSessionManagerFactory = { AndroidMediaSessionManagerImpl() }
+            mediaSessionManagerFactory = { AndroidMediaSessionManagerImpl() },
+            seekBarFactory = { AndroidSeekBarImpl() }
         )
     }
 }

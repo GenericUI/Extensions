@@ -1,6 +1,6 @@
 package com.nexustools.genericui.ext.imageprocessing.context2d
 
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Hardware-accelerated 2D rendering context operating directly on an [ImageBuffer] surface

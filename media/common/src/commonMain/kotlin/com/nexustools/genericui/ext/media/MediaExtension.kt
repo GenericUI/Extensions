@@ -2,6 +2,7 @@ package com.nexustools.genericui.ext.media
 
 import com.nexustools.genericui.nativeimpl.media.AudioAnalyzerNativeImpl
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
+import com.nexustools.genericui.nativeimpl.media.SeekBarNativeImpl
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import com.nexustools.genericui.nativeimpl.system.MediaSessionManagerNativeImpl
 
@@ -17,6 +18,7 @@ import com.nexustools.genericui.nativeimpl.system.MediaSessionManagerNativeImpl
 object MediaExtension {
     private var videoPlayerProvider: (() -> VideoPlayerNativeImpl<*>)? = null
     private var audioPlayerProvider: (() -> AudioPlayerNativeImpl<*>)? = null
+    private var seekBarProvider: (() -> SeekBarNativeImpl<*>)? = null
     private var audioAnalyzerProvider: ((Int) -> AudioAnalyzerNativeImpl)? = null
     private var mediaSessionManagerProvider: (() -> MediaSessionManagerNativeImpl)? = null
 
@@ -24,12 +26,14 @@ object MediaExtension {
         videoPlayer: (() -> VideoPlayerNativeImpl<*>)? = null,
         audioPlayer: (() -> AudioPlayerNativeImpl<*>)? = null,
         audioAnalyzer: ((Int) -> AudioAnalyzerNativeImpl)? = null,
-        mediaSessionManager: (() -> MediaSessionManagerNativeImpl)? = null
+        mediaSessionManager: (() -> MediaSessionManagerNativeImpl)? = null,
+        seekBar: (() -> SeekBarNativeImpl<*>)? = null
     ) {
         if (videoPlayer != null) videoPlayerProvider = videoPlayer
         if (audioPlayer != null) audioPlayerProvider = audioPlayer
         if (audioAnalyzer != null) audioAnalyzerProvider = audioAnalyzer
         if (mediaSessionManager != null) mediaSessionManagerProvider = mediaSessionManager
+        if (seekBar != null) seekBarProvider = seekBar
     }
 
     fun createVideoPlayerNative(): VideoPlayerNativeImpl<*>? = videoPlayerProvider?.invoke()
@@ -43,6 +47,12 @@ object MediaExtension {
     fun createAudioPlayerNativeOrFallback(): AudioPlayerNativeImpl<*> =
         audioPlayerProvider?.invoke()
             ?: throw IllegalStateException("No AudioPlayerNativeImpl provider registered in MediaExtension")
+
+    fun createSeekBarNative(): SeekBarNativeImpl<*>? = seekBarProvider?.invoke()
+
+    fun createSeekBarNativeOrFallback(): SeekBarNativeImpl<*> =
+        seekBarProvider?.invoke()
+            ?: throw IllegalStateException("No SeekBarNativeImpl provider registered in MediaExtension")
 
     fun createAudioAnalyzerNative(fftSize: Int = 2048): AudioAnalyzerNativeImpl? =
         audioAnalyzerProvider?.invoke(fftSize)

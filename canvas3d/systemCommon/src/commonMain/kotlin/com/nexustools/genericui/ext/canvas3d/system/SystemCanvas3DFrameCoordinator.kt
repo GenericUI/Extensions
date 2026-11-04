@@ -4,7 +4,7 @@ import com.nexustools.genericui.ext.gpu.GpuBackendType
 
 /**
  * Shared system-target (`:extensions:canvas3d:sharedSystem`) frame pacing and swapchain state
- * coordinator for Vulkan (`VKCanvasExt`) and OpenGL ES (`GLCanvasExt`) surfaces across Desktop,
+ * coordinator for Vulkan (`VKCanvas`) and OpenGL ES (`GLCanvas`) surfaces across Desktop,
  * Swing, and Mobile targets.
  */
 class SystemCanvas3DFrameCoordinator(

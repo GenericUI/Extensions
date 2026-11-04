@@ -16,6 +16,8 @@ class IosAudioPlayerImpl : IosBaseNativeImpl("AVAudioPlayerView", "audio-player"
     private var onTimeUpdateListener: ((Double) -> Unit)? = null
     private var onEndedListener: (() -> Unit)? = null
     private var onErrorListener: ((String) -> Unit)? = null
+    private var onMediaReadyListener: (() -> Unit)? = null
+    private var mediaReady: Boolean = false
 
     override fun getSupportedAudioCodecs(): Set<AudioCodec> = setOf(
         AudioCodec.AAC,
@@ -31,6 +33,10 @@ class IosAudioPlayerImpl : IosBaseNativeImpl("AVAudioPlayerView", "audio-player"
     override fun setSource(url: String, seekOffsetSeconds: Double) {
         currentTimeSec = seekOffsetSeconds.coerceAtLeast(0.0)
         nativeWidget.metadata["audioSourceUrl"] = url
+        mediaReady = url.isNotBlank()
+        if (mediaReady) {
+            onMediaReadyListener?.invoke()
+        }
     }
 
     override fun play() { playing = true }
@@ -56,4 +62,9 @@ class IosAudioPlayerImpl : IosBaseNativeImpl("AVAudioPlayerView", "audio-player"
     override fun setOnTimeUpdate(listener: ((Double) -> Unit)?) { onTimeUpdateListener = listener }
     override fun setOnEnded(listener: (() -> Unit)?) { onEndedListener = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { onErrorListener = listener }
+    override fun setOnMediaReady(listener: (() -> Unit)?) {
+        onMediaReadyListener = listener
+        if (mediaReady) listener?.invoke()
+    }
+    override fun isMediaReady(): Boolean = mediaReady
 }

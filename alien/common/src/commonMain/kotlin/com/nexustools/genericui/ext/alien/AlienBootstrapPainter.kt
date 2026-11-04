@@ -7,8 +7,8 @@ import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.cache.ImageCacheManager
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssShadowList
-import com.nexustools.genericui.style.gradient.LinearGradient
-import com.nexustools.genericui.style.gradient.RadialGradient
+import com.nexustools.genericui.style.gradient.Gradient.LinearGradient
+import com.nexustools.genericui.style.gradient.Gradient.RadialGradient
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min

@@ -20,12 +20,13 @@ import com.nexustools.genericui.component.htmlcompat.Th
 import com.nexustools.genericui.component.htmlcompat.Thead
 import com.nexustools.genericui.component.htmlcompat.Tr
 import com.nexustools.genericui.component.layout.Box
-import com.nexustools.genericui.component.layout.Col
+import com.nexustools.genericui.component.layout.Column
+import com.nexustools.genericui.component.layout.ColumnContainer
+import com.nexustools.genericui.component.layout.ColumnSpec
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.Divider
 import com.nexustools.genericui.component.layout.FlexBox
 import com.nexustools.genericui.component.layout.HStack
-import com.nexustools.genericui.component.layout.Row
 import com.nexustools.genericui.component.layout.ScrollView
 import com.nexustools.genericui.component.layout.Spacer
 import com.nexustools.genericui.component.layout.VStack
@@ -35,6 +36,7 @@ import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
 import com.nexustools.genericui.enums.bootstrap.JustifyContent
+import com.nexustools.genericui.enums.bootstrap.SpacingScale
 
 /**
  * Internal helper to apply optional CSS classes and `id` to a newly constructed DSL component,
@@ -243,35 +245,74 @@ inline fun AbstractContainer.box(
 ): Box = mountDslComponent(this, Box(), classes, id, block)
 
 /**
- * In-place Bootstrap [Row] builder (`row`).
+ * In-place Bootstrap 5 12-column `.row` [ColumnContainer] builder (`genericui:row`).
  */
-inline fun AbstractContainer.row(
+inline fun AbstractContainer.columnLayout(
+    gutter: SpacingScale? = null,
+    gutterX: SpacingScale? = null,
+    gutterY: SpacingScale? = null,
+    rowCols: Int? = null,
+    rowColsSm: Int? = null,
+    rowColsMd: Int? = null,
+    rowColsLg: Int? = null,
+    rowColsXl: Int? = null,
+    rowColsXxl: Int? = null,
     classes: String? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Row).() -> Unit = {}
-): Row = mountDslComponent(this, Row(), classes, id, block)
+    block: (@GenericUiDslMarker ColumnContainer).() -> Unit = {}
+): ColumnContainer = mountDslComponent(
+    this,
+    ColumnContainer(
+        gutter = gutter,
+        gutterX = gutterX,
+        gutterY = gutterY,
+        rowCols = rowCols,
+        rowColsSm = rowColsSm,
+        rowColsMd = rowColsMd,
+        rowColsLg = rowColsLg,
+        rowColsXl = rowColsXl,
+        rowColsXxl = rowColsXxl
+    ),
+    classes,
+    id,
+    block
+)
 
 /**
- * In-place Bootstrap [Col] builder (`col` / `col-$span`).
- */
-inline fun AbstractContainer.col(
-    classes: String? = null,
-    span: Int? = null,
-    weight: Float = 1.0f,
-    id: String? = null,
-    block: (@GenericUiDslMarker Col).() -> Unit = {}
-): Col = mountDslComponent(this, Col(span = span, weight = weight), classes, id, block)
-
-/**
- * Alias for [col].
+ * In-place Bootstrap 5 [Column] builder (`col` / `col-$span` / `col-{sm,md,lg,xl,xxl}-*`).
  */
 inline fun AbstractContainer.column(
     classes: String? = null,
     span: Int? = null,
-    weight: Float = 1.0f,
+    autoWidth: Boolean = false,
+    sm: Int? = null,
+    md: Int? = null,
+    lg: Int? = null,
+    xl: Int? = null,
+    xxl: Int? = null,
+    offset: Int? = null,
+    order: Int? = null,
     id: String? = null,
-    block: (@GenericUiDslMarker Col).() -> Unit = {}
-): Col = col(classes = classes, span = span, weight = weight, id = id, block = block)
+    block: (@GenericUiDslMarker Column).() -> Unit = {}
+): Column = mountDslComponent(
+    this,
+    Column(
+        ColumnSpec(
+            span = span,
+            autoWidth = autoWidth,
+            sm = sm,
+            md = md,
+            lg = lg,
+            xl = xl,
+            xxl = xxl,
+            offset = offset,
+            order = order
+        )
+    ),
+    classes,
+    id,
+    block
+)
 
 /**
  * In-place horizontal stack [HStack] builder (`hstack`).

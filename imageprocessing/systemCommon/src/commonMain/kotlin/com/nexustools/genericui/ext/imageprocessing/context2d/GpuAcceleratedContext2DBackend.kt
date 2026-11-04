@@ -5,7 +5,7 @@ import com.nexustools.genericui.ext.gpu.GpuDevice
 import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
 import com.nexustools.genericui.ext.gpu.GpuShaderProgram
 import com.nexustools.genericui.ext.gpu.system.SystemGpuShaderCache
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor

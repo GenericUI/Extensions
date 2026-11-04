@@ -6,5 +6,5 @@ package com.nexustools.genericui.ext.aichat
 data class AiQuickPromptChip(
     val label: String,
     val prompt: String,
-    val tooltip: String = prompt
+    val tooltip: String? = null
 )

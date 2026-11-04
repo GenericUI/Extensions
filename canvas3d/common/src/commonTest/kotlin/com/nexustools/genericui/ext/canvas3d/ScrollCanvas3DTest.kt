@@ -1,7 +1,9 @@
 package com.nexustools.genericui.ext.canvas3d
 
+import com.nexustools.genericui.component.media.GLCanvas
+import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.VKCanvas
 import com.nexustools.genericui.event.WheelEvent
-import com.nexustools.genericui.ext.gpu.GLContext
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -94,14 +96,14 @@ class ScrollCanvas3DTest {
 
     @Test
     fun testCanvas3DAndScrollCanvas3DOverlayHostsExcludeScrollbarsAndHaveNoDefaultOverlay() {
-        val glCanvas = GLCanvasExt(width = 800, height = 600)
+        val glCanvas = GLCanvas(width = 800, height = 600)
         val glHost = glCanvas.withOverlay()
         assertNull(glHost.activeOverlay)
         assertSame(glCanvas, glHost.glCanvas)
         assertEquals(800, glHost.overlayRoot.widthPx)
         assertEquals(600, glHost.overlayRoot.heightPx)
 
-        val vkCanvas = VKCanvasExt(width = 1024, height = 768)
+        val vkCanvas = VKCanvas(width = 1024, height = 768)
         val vkOverlay = object : AbstractOverlay("test-vk-overlay") {}
         val vkHost = vkCanvas.attachOverlay(vkOverlay)
         assertSame(vkOverlay, vkHost.activeOverlay)

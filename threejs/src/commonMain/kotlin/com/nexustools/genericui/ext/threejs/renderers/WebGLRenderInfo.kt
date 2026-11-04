@@ -8,18 +8,6 @@ class WebGLRenderInfo {
     var texturesCount: Int = 0
     var programsCount: Int = 0
 
-    var geometries: Int
-        get() = geometriesCount
-        set(value) { geometriesCount = value }
-
-    var textures: Int
-        get() = texturesCount
-        set(value) { texturesCount = value }
-
-    var programs: Int
-        get() = programsCount
-        set(value) { programsCount = value }
-
     var frame: Long = 0L
     var calls: Int = 0
     var triangles: Int = 0
@@ -34,6 +22,4 @@ class WebGLRenderInfo {
         points = 0
         lines = 0
     }
-
-    fun resetFrameStats() = resetFrameCounters()
 }

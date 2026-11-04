@@ -34,7 +34,7 @@ open class UnalienContainer(
 
     override fun resolveChildFactory(): NativeFactory? = resolveActiveFactory()
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> {
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> {
         val hostFactory = if (AlienExtension.platformBridge.isWebPassThrough) {
             factory
         } else {

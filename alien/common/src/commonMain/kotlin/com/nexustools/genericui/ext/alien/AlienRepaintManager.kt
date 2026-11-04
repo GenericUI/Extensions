@@ -1,5 +1,6 @@
 package com.nexustools.genericui.ext.alien
 
+import com.nexustools.genericui.enums.bootstrap.OverflowBehavior
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.style.color.RgbaColor
@@ -109,7 +110,8 @@ class AlienRepaintManager(
         val baseBg = when {
             rootStyle.backgroundColor.a > 0 -> rootStyle.backgroundColor
             rootNode.componentClassPrefix == "alien-root" ||
-                rootNode.tagName.equals("genericui:root", ignoreCase = true) ||
+                rootNode.tagName.equals("genericui:app", ignoreCase = true) ||
+                rootNode.tagName.equals("genericui:fragment", ignoreCase = true) ||
                 !rootStyle.backgroundImageUrl.isNullOrBlank() -> RgbaColor.BLACK
             rootStyle.darkTheme -> AlienBootstrapThemeTokens.BODY_BG_DARK
             else -> AlienBootstrapThemeTokens.BODY_BG_LIGHT
@@ -140,7 +142,7 @@ class AlienRepaintManager(
         if (transform.scaleX == 0f || transform.scaleY == 0f) return
 
         // If this node is an underlay slot (`UnalienContainer` or extension widget below the Canvas2D):
-        if (node.isUnderlayExtensionSlot) {
+        if (node.isUnderlayExtensionSlot && !isSeekBarNode(node)) {
             if (node.underlayLayerMode == AlienExtensionLayerMode.CUT_TRANSPARENT_HOLE) {
                 val holeIntersection = intersectRect(node.bounds, clipRegion)
                 if (holeIntersection != null) {
@@ -194,15 +196,58 @@ class AlienRepaintManager(
             AlienBootstrapPainter.paintBoxSurface(ctx, node.bounds, effectiveStyle)
 
             // Paint component-specific content (button label, input text/caret, progress bar, checkbox, image, etc.)
-            node.customPaint?.invoke(ctx, node.bounds, effectiveStyle)
+            if (isSeekBarNode(node)) {
+                paintSeekBarNode(ctx, node, node.bounds, effectiveStyle)
+            } else {
+                node.customPaint?.invoke(ctx, node.bounds, effectiveStyle)
+            }
         }
 
         if (node.children.isNotEmpty()) {
-            val sortedChildren = node.children
-                .filter { it.visible }
-                .sortedBy { it.resolveVisualStyle().zIndex }
-            for (child in sortedChildren) {
-                paintNodeHierarchy(ctx, child, clipRegion, effectiveOpacity)
+            val clipsX = style.overflow == OverflowBehavior.HIDDEN || style.overflowX == OverflowBehavior.HIDDEN
+            val clipsY = style.overflow == OverflowBehavior.HIDDEN || style.overflowY == OverflowBehavior.HIDDEN
+            val hasOverflowClip = clipsX || clipsY
+
+            var childClipRegion: Rect? = clipRegion
+            if (hasOverflowClip) {
+                val clipLeft = if (clipsX) node.bounds.x.toFloat() else 0f
+                val clipTop = if (clipsY) node.bounds.y.toFloat() else 0f
+                val clipRight = if (clipsX) node.bounds.right.toFloat() else ctx.width.toFloat().coerceAtLeast(clipRegion.right.toFloat())
+                val clipBottom = if (clipsY) node.bounds.bottom.toFloat() else ctx.height.toFloat().coerceAtLeast(clipRegion.bottom.toFloat())
+
+                if (clipRight <= clipLeft || clipBottom <= clipTop) {
+                    childClipRegion = null
+                } else {
+                    ctx.save()
+                    ctx.beginPath()
+                    ctx.moveTo(clipLeft, clipTop)
+                    ctx.lineTo(clipRight, clipTop)
+                    ctx.lineTo(clipRight, clipBottom)
+                    ctx.lineTo(clipLeft, clipBottom)
+                    ctx.closePath()
+                    ctx.clip()
+
+                    if (transform.scaleX == 1f && transform.scaleY == 1f && transform.rotateDeg == 0f) {
+                        val x0 = if (clipsX) max(clipRegion.x, node.bounds.x) else clipRegion.x
+                        val y0 = if (clipsY) max(clipRegion.y, node.bounds.y) else clipRegion.y
+                        val x1 = if (clipsX) min(clipRegion.right, node.bounds.right) else clipRegion.right
+                        val y1 = if (clipsY) min(clipRegion.bottom, node.bounds.bottom) else clipRegion.bottom
+                        childClipRegion = if (x1 > x0 && y1 > y0) Rect(x0, y0, x1 - x0, y1 - y0) else null
+                    }
+                }
+            }
+
+            if (childClipRegion != null) {
+                val sortedChildren = node.children
+                    .filter { it.visible }
+                    .sortedBy { it.resolveVisualStyle().zIndex }
+                for (child in sortedChildren) {
+                    paintNodeHierarchy(ctx, child, childClipRegion, effectiveOpacity)
+                }
+            }
+
+            if (hasOverflowClip && childClipRegion != null) {
+                ctx.restore()
             }
         }
 
@@ -218,5 +263,115 @@ class AlienRepaintManager(
         val x1 = min(a.right, b.right)
         val y1 = min(a.bottom, b.bottom)
         return if (x1 > x0 && y1 > y0) Rect(x0, y0, x1 - x0, y1 - y0) else null
+    }
+
+    private fun isSeekBarNode(node: AlienWidgetNode): Boolean =
+        node.tagName.equals("genericui:seekbar", ignoreCase = true) ||
+            node.componentClassPrefix.equals("seek-bar", ignoreCase = true)
+
+    private fun readSeekBarAttr(node: AlienWidgetNode, vararg keys: String): String? {
+        for (key in keys) {
+            node.attributes[key]?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return null
+    }
+
+    private fun applyStyleOpacity(color: RgbaColor, opacity: Float): RgbaColor =
+        if (opacity >= 0.999f) color else RgbaColor(color.r, color.g, color.b, (color.a * opacity.coerceIn(0f, 1f)).toInt().coerceIn(0, 255))
+
+    private fun paintSeekBarNode(
+        ctx: ImageBuffer2DContext,
+        node: AlienWidgetNode,
+        bounds: Rect,
+        style: AlienResolvedVisualStyle
+    ) {
+        if (bounds.width <= 0 || bounds.height <= 0) return
+
+        val minVal = readSeekBarAttr(node, "data-min", "min")?.toDoubleOrNull() ?: 0.0
+        val maxVal = (readSeekBarAttr(node, "data-max", "max")?.toDoubleOrNull() ?: 100.0).coerceAtLeast(minVal)
+        val curVal = (readSeekBarAttr(node, "data-value", "value")?.toDoubleOrNull() ?: 0.0).coerceIn(minVal, maxVal)
+        val span = (maxVal - minVal).takeIf { it > 0.0 } ?: 1.0
+
+        val trackHeight = (readSeekBarAttr(node, "data-track-height-px", "trackHeightPx")?.toFloatOrNull() ?: 5f)
+            .coerceIn(1f, bounds.height.toFloat())
+        val thumbRadius = (readSeekBarAttr(node, "data-thumb-radius-px", "thumbRadiusPx")?.toFloatOrNull() ?: 7f)
+            .coerceAtLeast(0f)
+
+        val accentColor = readSeekBarAttr(node, "data-effective-accent-color", "data-accent-color", "accentColor")
+            ?.let { runCatching { RgbaColor.fromCss(it) }.getOrNull() }
+            ?: style.accentColor
+            ?: AlienBootstrapThemeTokens.PRIMARY
+        val bufferedColor = readSeekBarAttr(node, "data-buffered-color", "bufferedColor")
+            ?.let { runCatching { RgbaColor.fromCss(it) }.getOrNull() }
+            ?: RgbaColor(255, 255, 255, 128)
+        val trackColor = readSeekBarAttr(node, "data-track-color", "trackColor")
+            ?.let { runCatching { RgbaColor.fromCss(it) }.getOrNull() }
+            ?: RgbaColor(255, 255, 255, 56)
+        val thumbColor = readSeekBarAttr(node, "data-thumb-color", "thumbColor")
+            ?.let { runCatching { RgbaColor.fromCss(it) }.getOrNull() }
+            ?: accentColor
+
+        val pad = thumbRadius.coerceAtLeast(2f)
+        val trackLeft = bounds.x + pad
+        val trackRight = (bounds.right - pad).coerceAtLeast(trackLeft + 1f)
+        val trackWidth = (trackRight - trackLeft).coerceAtLeast(1f)
+        val trackY = bounds.y + (bounds.height - trackHeight) * 0.5f
+        val radius = trackHeight * 0.5f
+
+        // 1. Unloaded track
+        ctx.setFillColor(applyStyleOpacity(trackColor, style.opacity))
+        AlienBootstrapPainter.fillRoundedRect(ctx, trackLeft, trackY, trackWidth, trackHeight, radius)
+
+        // 2. Preloaded / buffered segments
+        val rawRanges = readSeekBarAttr(node, "data-buffered-ranges", "bufferedRanges").orEmpty()
+        val parsedRanges = if (rawRanges.isNotBlank()) {
+            rawRanges.split(',').mapNotNull { token ->
+                val dash = token.indexOf('-')
+                if (dash <= 0) null
+                else {
+                    val s = token.substring(0, dash).trim().toDoubleOrNull()
+                    val e = token.substring(dash + 1).trim().toDoubleOrNull()
+                    if (s != null && e != null && e > s) s to e else null
+                }
+            }
+        } else {
+            val bufEnd = readSeekBarAttr(node, "data-buffered-end", "bufferedEnd")?.toDoubleOrNull() ?: 0.0
+            if (bufEnd > minVal) listOf(minVal to bufEnd.coerceAtMost(maxVal)) else emptyList()
+        }
+
+        ctx.setFillColor(applyStyleOpacity(bufferedColor, style.opacity))
+        for ((rangeStart, rangeEnd) in parsedRanges) {
+            val startFrac = (((rangeStart - minVal) / span).toFloat()).coerceIn(0f, 1f)
+            val endFrac = (((rangeEnd - minVal) / span).toFloat()).coerceIn(0f, 1f)
+            if (endFrac > startFrac) {
+                val segX = trackLeft + startFrac * trackWidth
+                val segW = (endFrac - startFrac) * trackWidth
+                AlienBootstrapPainter.fillRoundedRect(ctx, segX, trackY, segW, trackHeight, radius)
+            }
+        }
+
+        // 3. Theme-colored played segment
+        val playedFrac = (readSeekBarAttr(node, "data-played-fraction", "playedFraction")?.toFloatOrNull()
+            ?: (((curVal - minVal) / span).toFloat())).coerceIn(0f, 1f)
+        val playedW = playedFrac * trackWidth
+        if (playedW > 0f) {
+            ctx.setFillColor(applyStyleOpacity(accentColor, style.opacity))
+            AlienBootstrapPainter.fillRoundedRect(ctx, trackLeft, trackY, playedW, trackHeight, radius)
+        }
+
+        // 4. Circular thumb
+        if (thumbRadius > 0f) {
+            val cx = trackLeft + playedW
+            val cy = bounds.y + bounds.height * 0.5f
+            ctx.setFillColor(applyStyleOpacity(thumbColor, style.opacity))
+            AlienBootstrapPainter.fillRoundedRect(
+                ctx,
+                cx - thumbRadius,
+                cy - thumbRadius,
+                thumbRadius * 2f,
+                thumbRadius * 2f,
+                thumbRadius
+            )
+        }
     }
 }

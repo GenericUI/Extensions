@@ -1,6 +1,6 @@
 package com.nexustools.genericui.ext.imageprocessing.context2d
 
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min

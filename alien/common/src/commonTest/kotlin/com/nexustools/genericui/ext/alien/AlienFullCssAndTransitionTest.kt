@@ -40,17 +40,21 @@ import kotlin.test.assertTrue
 class AlienFullCssAndTransitionTest {
 
     private class TestAlienHostFactory : NativeFactory {
+        override val backendTarget: com.nexustools.genericui.enums.system.BackendTarget =
+            com.nexustools.genericui.enums.system.BackendTarget.Windows
         override val backendName: String = "test-alien-host"
+        override fun supportsTcp(): Boolean = true
+        override fun supportsUdp(): Boolean = true
         private val delegate = AlienFactory(this)
         override fun createApplication(): ApplicationNativeImpl<*> = throw UnsupportedOperationException()
         override fun createWindow(): WindowNativeImpl<*> = throw UnsupportedOperationException()
         override fun createContainer(classPrefix: String) = delegate.createContainer(classPrefix)
         override fun createContainer(classPrefix: String, tagName: String) = delegate.createContainer(classPrefix, tagName)
+        override fun createStyledContainer(classPrefix: String, tagName: String) = delegate.createStyledContainer(classPrefix, tagName)
         override fun createMenuBar() = delegate.createMenuBar()
         override fun createMenu() = delegate.createMenu()
         override fun createMenuItem(checkable: Boolean, radio: Boolean) = delegate.createMenuItem(checkable, radio)
         override fun createContextMenu() = delegate.createContextMenu()
-        override fun createSplitPane() = delegate.createSplitPane()
         override fun createDockWorkspace() = delegate.createDockWorkspace()
         override fun createDockArea() = delegate.createDockArea()
         override fun createDockGroup() = delegate.createDockGroup()
@@ -65,12 +69,12 @@ class AlienFullCssAndTransitionTest {
         override fun createImage() = delegate.createImage()
         override fun createTable() = delegate.createTable()
         override fun createButton(classPrefix: String) = delegate.createButton(classPrefix)
+        override fun createStyledButton(classPrefix: String) = delegate.createStyledButton(classPrefix)
         override fun createDropdown() = delegate.createDropdown()
         override fun createTextInput(multiline: Boolean) = delegate.createTextInput(multiline)
         override fun createSelect() = delegate.createSelect()
         override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean) = delegate.createCheckbox(switchStyle, radioStyle)
         override fun createRangeSlider() = delegate.createRangeSlider()
-        override fun createCollapse() = delegate.createCollapse()
         override fun createTab(closable: Boolean) = delegate.createTab(closable)
         override fun createTabContainer() = delegate.createTabContainer()
         override fun createNavbar() = delegate.createNavbar()

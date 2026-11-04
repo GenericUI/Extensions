@@ -18,9 +18,31 @@ open class DesktopLibVlcAudioPlayerImpl<out W : DesktopNativeWidget>(
     nativeWidget: W
 ) : DesktopBaseNativeImpl<W>(nativeWidget, "libvlc-audio-player"), AudioPlayerNativeImpl<W> {
 
-    protected val vlcInstance: COpaquePointer? = LibVlcBindings.libvlc_new(listOf("--no-video", "--quiet"))
-    protected val vlcMediaPlayer: COpaquePointer? = LibVlcBindings.libvlc_media_player_new(vlcInstance)
+    private var initializedVlcInstance: COpaquePointer? = null
+    private var initializedVlcMediaPlayer: COpaquePointer? = null
+    private var vlcInitAttempted: Boolean = false
+
+    protected val vlcInstance: COpaquePointer?
+        get() = initializedVlcInstance
+
+    protected val vlcMediaPlayer: COpaquePointer?
+        get() = initializedVlcMediaPlayer
+
     protected var currentVlcMedia: COpaquePointer? = null
+
+    private fun ensureVlcPlayer(): COpaquePointer? {
+        if (!vlcInitAttempted) {
+            vlcInitAttempted = true
+            val inst = LibVlcBindings.libvlc_new(listOf("--no-video", "--quiet"))
+            initializedVlcInstance = inst
+            val player = LibVlcBindings.libvlc_media_player_new(inst)
+            initializedVlcMediaPlayer = player
+            if (player != null && attachedAnalyzer != null) {
+                LibVlcBindings.libvlc_audio_set_format(player, "S16N", 44100, 2)
+            }
+        }
+        return initializedVlcMediaPlayer
+    }
 
     private var currentSecFallback: Double = 0.0
     private var playingFallback: Boolean = false
@@ -30,31 +52,42 @@ open class DesktopLibVlcAudioPlayerImpl<out W : DesktopNativeWidget>(
     private var onTimeUpdateListener: ((Double) -> Unit)? = null
     private var onEndedListener: (() -> Unit)? = null
     private var onErrorListener: ((String) -> Unit)? = null
+    private var onMediaReadyListener: (() -> Unit)? = null
+    private var mediaReady: Boolean = false
 
     override fun getSupportedAudioCodecs(): Set<AudioCodec> = AudioCodec.entries.toSet()
 
     override fun setSource(url: String, seekOffsetSeconds: Double) {
         nativeWidget.attributes["audioSource"] = url
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
+        mediaReady = false
 
-        LibVlcBindings.libvlc_media_release(currentVlcMedia)
-        val media = if (url.contains("://")) {
-            LibVlcBindings.libvlc_media_new_location(vlcInstance, url)
-        } else {
-            LibVlcBindings.libvlc_media_new_path(vlcInstance, url)
+        if (url.isNotBlank()) {
+            val player = ensureVlcPlayer()
+            LibVlcBindings.libvlc_media_release(currentVlcMedia)
+            val media = if (url.contains("://")) {
+                LibVlcBindings.libvlc_media_new_location(vlcInstance, url)
+            } else {
+                LibVlcBindings.libvlc_media_new_path(vlcInstance, url)
+            }
+            if (seekOffsetSeconds > 0.0) {
+                LibVlcBindings.libvlc_media_add_option(media, ":start-time=$seekOffsetSeconds")
+            }
+            currentVlcMedia = media
+            LibVlcBindings.libvlc_media_player_set_media(player, media)
+            mediaReady = true
+            onMediaReadyListener?.invoke()
         }
-        if (seekOffsetSeconds > 0.0) {
-            LibVlcBindings.libvlc_media_add_option(media, ":start-time=$seekOffsetSeconds")
-        }
-        currentVlcMedia = media
-        LibVlcBindings.libvlc_media_player_set_media(vlcMediaPlayer, media)
     }
 
     override fun play() {
         playingFallback = true
-        val res = LibVlcBindings.libvlc_media_player_play(vlcMediaPlayer)
-        if (res < 0 && LibVlcBindings.isAvailable) {
-            onErrorListener?.invoke(LibVlcBindings.libvlc_errmsg() ?: "libvlc_media_player_play failed")
+        val player = vlcMediaPlayer
+        if (player != null) {
+            val res = LibVlcBindings.libvlc_media_player_play(player)
+            if (res < 0 && LibVlcBindings.isAvailable) {
+                onErrorListener?.invoke(LibVlcBindings.libvlc_errmsg() ?: "libvlc_media_player_play failed")
+            }
         }
     }
 
@@ -86,12 +119,14 @@ open class DesktopLibVlcAudioPlayerImpl<out W : DesktopNativeWidget>(
         return if (vlcLenMs > 0L) vlcLenMs / 1000.0 else 0.0
     }
 
-    override fun isPlaying(): Boolean =
-        if (LibVlcBindings.isAvailable) {
-            LibVlcBindings.libvlc_media_player_is_playing(vlcMediaPlayer)
+    override fun isPlaying(): Boolean {
+        val player = vlcMediaPlayer
+        return if (player != null && LibVlcBindings.isAvailable) {
+            LibVlcBindings.libvlc_media_player_is_playing(player)
         } else {
             playingFallback
         }
+    }
 
     override fun setVolume(volume: Float) {
         volumeLevel = volume.coerceIn(0f, 2f)
@@ -110,6 +145,11 @@ open class DesktopLibVlcAudioPlayerImpl<out W : DesktopNativeWidget>(
     override fun setOnTimeUpdate(listener: ((Double) -> Unit)?) { onTimeUpdateListener = listener }
     override fun setOnEnded(listener: (() -> Unit)?) { onEndedListener = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { onErrorListener = listener }
+    override fun setOnMediaReady(listener: (() -> Unit)?) {
+        onMediaReadyListener = listener
+        if (mediaReady) listener?.invoke()
+    }
+    override fun isMediaReady(): Boolean = mediaReady
 
     override fun dispose() {
         LibVlcBindings.libvlc_media_player_stop(vlcMediaPlayer)

@@ -13,7 +13,8 @@ object IosMediaProvider {
             videoPlayerFactory = { IosVideoPlayerImpl() },
             audioPlayerFactory = { IosAudioPlayerImpl() },
             audioAnalyzerFactory = { IosAudioAnalyzerImpl() },
-            mediaSessionManagerFactory = { IosMediaSessionManagerImpl() }
+            mediaSessionManagerFactory = { IosMediaSessionManagerImpl() },
+            seekBarFactory = { IosSeekBarImpl() }
         )
     }
 }

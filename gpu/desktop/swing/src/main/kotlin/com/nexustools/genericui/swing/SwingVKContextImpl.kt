@@ -2,7 +2,7 @@ package com.nexustools.genericui.swing
 
 import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.enums.media.ShaderType
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Java Swing Vulkan (`LWJGL` `org.lwjgl.vulkan.VK10` when present on the runtime classpath, with

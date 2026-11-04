@@ -1,10 +1,12 @@
 package com.nexustools.genericui.ext.gpu.desktop
 
+import com.nexustools.genericui.component.media.GLBuffer
+import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.GLProgram
+import com.nexustools.genericui.component.media.GLTexture
+import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.desktop.canvas.DesktopGLContextImpl
 import com.nexustools.genericui.enums.media.ShaderType
-import com.nexustools.genericui.ext.gpu.GLContext
-import com.nexustools.genericui.ext.gpu.GLProgram
-import com.nexustools.genericui.ext.gpu.GLTexture
 import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.gpu.GpuBuffer
 import com.nexustools.genericui.ext.gpu.GpuBufferUsage
@@ -12,7 +14,6 @@ import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
 import com.nexustools.genericui.ext.gpu.GpuShaderProgram
 import com.nexustools.genericui.ext.gpu.GpuShaderStage
 import com.nexustools.genericui.ext.gpu.GpuTexture
-import com.nexustools.genericui.ext.gpu.VKContext
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.PixelFormat
 
@@ -96,7 +97,7 @@ class DesktopAngleGlesGpuContext(
     }
 
     override fun destroyBuffer(buffer: GpuBuffer) {
-        glContext.deleteBuffer(com.nexustools.genericui.ext.gpu.GLBuffer(buffer.id.toInt()))
+        glContext.deleteBuffer(GLBuffer(buffer.id.toInt()))
     }
 
     override fun compileComputeOrFragmentKernel(

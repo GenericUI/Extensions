@@ -1,16 +1,16 @@
 package com.nexustools.genericui.ext.canvas3d
 
-import com.nexustools.genericui.ext.gpu.GLCanvasConfig
-import com.nexustools.genericui.ext.gpu.GLContext
+import com.nexustools.genericui.component.media.GLCanvasConfig
+import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.VKCanvasConfig
+import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.gpu.GpuDoubleBufferedSurface
 import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
 import com.nexustools.genericui.ext.gpu.GpuShaderProgram
 import com.nexustools.genericui.ext.gpu.GpuTexture
-import com.nexustools.genericui.ext.gpu.VKCanvasConfig
-import com.nexustools.genericui.ext.gpu.VKContext
 import com.nexustools.genericui.image.ImageBuffer
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.max
 import kotlin.math.min
 

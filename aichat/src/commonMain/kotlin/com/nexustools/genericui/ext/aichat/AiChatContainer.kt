@@ -121,7 +121,6 @@ class AiChatContainer(
         setPreferredSize(Size(width, height))
         setPaddingAll(SpacingScale.S2)
 
-        providerSettingsButton.tooltipText = "Configure AI Provider (LM Studio / OpenAI / Claude / Gemini / Grok)"
         providerSettingsButton.setOnClick {
             val customHandler = onOpenProviderSettings
             if (customHandler != null) {
@@ -131,7 +130,6 @@ class AiChatContainer(
             }
         }
 
-        toolsCatalogButton.tooltipText = "View Available AI Tools & Schemas"
         toolsCatalogButton.setOnClick {
             val customHandler = onOpenToolsCatalog
             if (customHandler != null) {
@@ -141,7 +139,6 @@ class AiChatContainer(
             }
         }
 
-        clearChatButton.tooltipText = "Clear Chat Conversation"
         clearChatButton.setOnClick {
             resetToWelcomeMessage()
         }
@@ -162,7 +159,6 @@ class AiChatContainer(
             }
         }
 
-        fastSendButton.tooltipText = "Fast Send (Non-Reasoning Mode — Enter)"
         fastSendButton.setOnClick {
             val text = draftPromptText.trim()
             if (text.isNotEmpty()) {
@@ -170,7 +166,6 @@ class AiChatContainer(
             }
         }
 
-        brainSendButton.tooltipText = "Send with Reasoning Mode (Low / Medium / Max)"
         brainSendButton.setOnClick {
             val text = draftPromptText.trim()
             if (text.isNotEmpty()) {
@@ -189,7 +184,6 @@ class AiChatContainer(
             }
         }
 
-        reasoningLevelSelect.tooltipText = "Select Reasoning Effort (Low / Medium / Max)"
         reasoningLevelSelect.onSelectionChanged = { selected ->
             activeReasoningLevel = when (selected.lowercase()) {
                 "low" -> ReasoningEffort.LOW
@@ -198,7 +192,6 @@ class AiChatContainer(
             }
         }
 
-        stopButton.tooltipText = "Stop Active AI Stream"
         stopButton.isVisible = false
         stopButton.setOnClick {
             session.cancelStreaming()
@@ -553,20 +546,8 @@ class AiChatContainer(
         val hostShort = cfg.baseUrl.removeSuffix("/v1").removeSuffix("/")
         val badgeText = "🔌 ${cfg.backendType.displayName} ($hostShort • ${cfg.model}) • $toolCount Tools Ready"
         connectionStatusBadge.text = badgeText
-
-        val reasoningLabel = if (showReasoningEffortSelector) {
-            " • Reasoning: ${cfg.reasoningConfig.effort.displayName}"
-        } else {
-            ""
-        }
-        val usage = session.cumulativeUsage
-        headerToolbar.tooltipText =
-            "Backend: ${cfg.backendType.displayName} (${cfg.model})$reasoningLabel • Total Tokens: ${usage.totalTokens}"
     }
 
     private fun refreshComposerSummary() {
-        val raw = promptInput.value
-        composerToolbar.tooltipText =
-            "Draft: ${raw.length} chars • Attachments: ${stagedAttachments.size}"
     }
 }

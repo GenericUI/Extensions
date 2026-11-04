@@ -1,37 +1,36 @@
 package com.nexustools.genericui.ext.overlay
 
-import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.LayerConstraint
+import com.nexustools.genericui.component.layout.LayeredContainer
+import com.nexustools.genericui.core.AbstractComponent
 
 /**
- * Base overlay class managing [OverlaySlot] containers, [OverlayState], [OverlayActions],
- * [AutoHideController], [OverlayInputRouter], and Picture-in-Picture mode suppression.
+ * Pure, background-free layered overlay container.
+ *
+ * Extends [LayeredContainer] so child components and [OverlayElement] instances can be
+ * mounted as either full-overlay layers ([LayerConstraint.fill]) or positioned floating
+ * layers ([LayerConstraint.float]) without imposing any background color, gradient scrim,
+ * curtain, or pre-baked transport chrome.
  */
 abstract class AbstractOverlay(
-    val overlayId: String = "overlay",
+    tagName: String = "genericui:overlay",
+    classPrefix: String = "gui-overlay",
     autoHideSpec: AutoHideSpec = AutoHideSpec()
-) : Container("genericui-overlay") {
+) : LayeredContainer(
+    tagName = if (tagName.contains(':')) tagName else "genericui:overlay",
+    classPrefix = classPrefix
+) {
 
-    val topBarSlotContainer: Container = Container("genericui-overlay-slot-top-bar")
-    val centerSlotContainer: Container = Container("genericui-overlay-slot-center")
-    val subtitleCueSlotContainer: Container = Container("genericui-overlay-slot-subtitle-cue")
-    val bottomSeekSlotContainer: Container = Container("genericui-overlay-slot-bottom-seek")
-    val bottomBarSlotContainer: Container = Container("genericui-overlay-slot-bottom-bar")
-    val bottomStatusSlotContainer: Container = Container("genericui-overlay-slot-bottom-status")
-    val popoverSlotContainer: Container = Container("genericui-overlay-slot-popover")
-    val curtainSlotContainer: Container = Container("genericui-overlay-slot-curtain")
-    val belowHostSlotContainer: Container = Container("genericui-overlay-slot-below-host")
-
-    private val slotContainers: Map<OverlaySlot, Container> = mapOf(
-        OverlaySlot.TOP_BAR to topBarSlotContainer,
-        OverlaySlot.CENTER to centerSlotContainer,
-        OverlaySlot.SUBTITLE_CUE to subtitleCueSlotContainer,
-        OverlaySlot.BOTTOM_SEEK to bottomSeekSlotContainer,
-        OverlaySlot.BOTTOM_BAR to bottomBarSlotContainer,
-        OverlaySlot.BOTTOM_STATUS to bottomStatusSlotContainer,
-        OverlaySlot.POPOVER to popoverSlotContainer,
-        OverlaySlot.CURTAIN to curtainSlotContainer,
-        OverlaySlot.BELOW_HOST to belowHostSlotContainer
+    constructor(
+        overlayId: String,
+        autoHideSpec: AutoHideSpec
+    ) : this(
+        tagName = overlayId,
+        classPrefix = "gui-overlay",
+        autoHideSpec = autoHideSpec
     )
+
+    val overlayId: String = tagName
 
     private val mountedElements = mutableListOf<OverlayElement>()
 
@@ -70,16 +69,24 @@ abstract class AbstractOverlay(
     val elements: List<OverlayElement>
         get() = mountedElements.toList()
 
+    var targetWidthPx: Int = 0
+        private set
+
+    var targetHeightPx: Int = 0
+        private set
+
+    var lastFrameTimestampMs: Long = 0L
+        private set
+
+    var onTargetFrameRendered: ((frameTimestampMs: Long, widthPx: Int, heightPx: Int) -> Unit)? = null
+    var onTargetResized: ((widthPx: Int, heightPx: Int) -> Unit)? = null
+
     init {
-        htmlTag = "genericui:overlay"
-        addChild(topBarSlotContainer)
-        addChild(centerSlotContainer)
-        addChild(subtitleCueSlotContainer)
-        addChild(bottomSeekSlotContainer)
-        addChild(bottomBarSlotContainer)
-        addChild(bottomStatusSlotContainer)
-        addChild(popoverSlotContainer)
-        addChild(curtainSlotContainer)
+        setStyleProperty("width", "100%")
+        setStyleProperty("height", "100%")
+        setAttribute("data-overlay-id", overlayId)
+        setStyleProperty("background", "transparent")
+        setStyleProperty("background-color", "transparent")
         inputRouter.bindToComponent(
             component = this,
             stateProvider = { state },
@@ -87,14 +94,42 @@ abstract class AbstractOverlay(
         )
     }
 
-    fun getSlotContainer(slot: OverlaySlot): Container =
-        slotContainers.getValue(slot)
-
-    fun addElement(element: OverlayElement) {
-        removeElement(element.elementId)
-        mountedElements.add(element)
-        getSlotContainer(element.slot).addChild(element.component)
+    fun addElement(
+        element: OverlayElement,
+        constraint: LayerConstraint = element.constraint
+    ): OverlayElement {
+        val existing = mountedElements.firstOrNull { it.elementId == element.elementId && it !== element }
+        if (existing != null) {
+            removeElement(existing)
+        }
+        element.constraint = constraint
+        if (!mountedElements.contains(element)) {
+            mountedElements.add(element)
+        }
+        addLayer(element.component, constraint)
         element.onStateChanged(state, actions)
+        if (targetWidthPx > 0 && targetHeightPx > 0) {
+            element.onTargetResize(targetWidthPx, targetHeightPx)
+        }
+        return element
+    }
+
+    fun addElement(
+        component: AbstractComponent,
+        constraint: LayerConstraint = LayerConstraint.fill()
+    ): OverlayElement {
+        val existing = mountedElements.firstOrNull { it.component === component }
+        if (existing != null) {
+            existing.constraint = constraint
+            setLayerConstraint(component, constraint)
+            return existing
+        }
+        val element = OverlayElement(
+            component = component,
+            constraint = constraint,
+            elementId = component.id ?: "overlay-element-${mountedElements.size}"
+        )
+        return addElement(element, constraint)
     }
 
     fun addElement(factory: OverlayElementFactory): OverlayElement {
@@ -107,15 +142,29 @@ abstract class AbstractOverlay(
                 themeColorHex = effectiveThemeColorHex
             )
         )
-        addElement(created)
-        return created
+        return addElement(created, created.constraint)
+    }
+
+    fun removeElement(element: OverlayElement) {
+        mountedElements.remove(element)
+        removeLayer(element.component)
+        element.dispose()
+    }
+
+    fun removeElement(component: AbstractComponent) {
+        val matching = mountedElements.filter { it.component === component }
+        for (element in matching) {
+            mountedElements.remove(element)
+            element.dispose()
+        }
+        removeLayer(component)
     }
 
     fun removeElement(elementId: String): Boolean {
         val index = mountedElements.indexOfFirst { it.elementId == elementId }
         if (index < 0) return false
         val removed = mountedElements.removeAt(index)
-        getSlotContainer(removed.slot).removeChild(removed.component)
+        removeLayer(removed.component)
         removed.dispose()
         return true
     }
@@ -123,23 +172,11 @@ abstract class AbstractOverlay(
     fun getElement(elementId: String): OverlayElement? =
         mountedElements.firstOrNull { it.elementId == elementId }
 
-    fun getElementsInSlot(slot: OverlaySlot): List<OverlayElement> =
-        mountedElements.filter { it.slot == slot }
-
-    fun clearSlot(slot: OverlaySlot) {
-        val toRemove = mountedElements.filter { it.slot == slot }
-        for (element in toRemove) {
-            mountedElements.remove(element)
-            getSlotContainer(slot).removeChild(element.component)
-            element.dispose()
-        }
-    }
-
     fun clearElements() {
         val snapshot = mountedElements.toList()
         mountedElements.clear()
+        clearLayers()
         for (element in snapshot) {
-            getSlotContainer(element.slot).removeChild(element.component)
             element.dispose()
         }
     }
@@ -166,15 +203,40 @@ abstract class AbstractOverlay(
         updateActions(transform(actions))
     }
 
-    /**
-     * Enables or disables Picture-in-Picture mode on this overlay, immediately hiding and disabling
-     * the overlay while in PiP mode.
-     */
     open fun setPictureInPictureMode(enabled: Boolean) {
         autoHideController.setPictureInPictureMode(enabled)
         if (state.isInPictureInPictureMode != enabled) {
             state = state.copy(isInPictureInPictureMode = enabled)
             notifyElementsAndSubclass()
+        }
+    }
+
+    open fun notifyTargetRenderFrame(
+        frameTimestampMs: Long = 0L,
+        widthPx: Int = targetWidthPx,
+        heightPx: Int = targetHeightPx
+    ) {
+        lastFrameTimestampMs = frameTimestampMs
+        if (widthPx > 0 && heightPx > 0 && (widthPx != targetWidthPx || heightPx != targetHeightPx)) {
+            notifyTargetResize(widthPx, heightPx)
+        }
+        onTargetFrameRendered?.invoke(frameTimestampMs, targetWidthPx, targetHeightPx)
+        for (element in mountedElements.toList()) {
+            element.onTargetRenderFrame(frameTimestampMs, targetWidthPx, targetHeightPx)
+        }
+    }
+
+    open fun notifyTargetResize(widthPx: Int, heightPx: Int) {
+        if (widthPx < 0 || heightPx < 0) return
+        targetWidthPx = widthPx
+        targetHeightPx = heightPx
+        if (widthPx > 0 && heightPx > 0) {
+            this.widthPx = widthPx
+            this.heightPx = heightPx
+        }
+        onTargetResized?.invoke(widthPx, heightPx)
+        for (element in mountedElements.toList()) {
+            element.onTargetResize(widthPx, heightPx)
         }
     }
 
@@ -205,7 +267,6 @@ abstract class AbstractOverlay(
         inputRouter.dispose()
         autoHideController.dispose()
         clearElements()
-        belowHostSlotContainer.dispose()
         super.dispose()
     }
 }

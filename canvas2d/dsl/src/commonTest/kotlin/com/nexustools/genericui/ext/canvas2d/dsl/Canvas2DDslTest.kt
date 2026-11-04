@@ -1,7 +1,7 @@
 package com.nexustools.genericui.ext.canvas2d.dsl
 
-import com.nexustools.genericui.ext.canvas2d.Canvas2DExtSurface
-import com.nexustools.genericui.ext.canvas2d.CurveEditorExt
+import com.nexustools.genericui.component.media.Canvas2D
+import com.nexustools.genericui.component.media.CurveEditor
 import com.nexustools.genericui.ext.canvas2d.ScrollCanvas2D
 import com.nexustools.genericui.ext.canvas2d.overlay.Canvas2DOverlayHost
 import com.nexustools.genericui.ext.canvas2d.overlay.ScrollCanvas2DOverlayHost
@@ -17,8 +17,8 @@ class Canvas2DDslTest {
         var lastScrollX = 0
         var lastScrollY = 0
         val root = buildDiv {
-            canvas2DExt(width = 640, height = 480, id = "c2d")
-            curveEditorExt(width = 200, height = 200, id = "curve")
+            canvas2D(width = 640, height = 480, id = "c2d")
+            curveEditor(width = 200, height = 200, id = "curve")
             scrollCanvas2D(
                 viewportWidth = 500,
                 viewportHeight = 400,
@@ -32,8 +32,8 @@ class Canvas2DDslTest {
             )
         }
         assertEquals(3, root.children.size)
-        val c2d = root.children[0] as Canvas2DExtSurface
-        val curve = root.children[1] as CurveEditorExt
+        val c2d = root.children[0] as Canvas2D
+        val curve = root.children[1] as CurveEditor
         val scroll2d = root.children[2] as ScrollCanvas2D
         assertEquals("c2d", c2d.id)
         assertEquals("curve", curve.id)

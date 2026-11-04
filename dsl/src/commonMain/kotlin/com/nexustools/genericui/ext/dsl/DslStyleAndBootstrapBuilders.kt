@@ -35,7 +35,7 @@ inline fun <T : AbstractComponent> T.style(
  * inside the `:extensions:dsl` builder.
  *
  * All Bootstrap enum utilities configured here are mapped to invisible enum classes on `:web`
- * (`WebDomElement.enumClassList`) and executed natively on all non-web backends, while remaining
+ * (`WebDomElement.enumClasses`) and executed natively on all non-web backends, while remaining
  * completely invisible to `getClasses()` and `hasClass()`.
  */
 inline fun <T : AbstractComponent> T.bootstrap(

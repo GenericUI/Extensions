@@ -1,22 +1,20 @@
 package com.nexustools.genericui.ext.canvas3d.dsl
 
 import com.nexustools.genericui.component.media.GLCanvas
+import com.nexustools.genericui.component.media.GLCanvasConfig
+import com.nexustools.genericui.component.media.GLContext
 import com.nexustools.genericui.component.media.VKCanvas
+import com.nexustools.genericui.component.media.VKCanvasConfig
+import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
-import com.nexustools.genericui.ext.canvas3d.GLCanvasExt
 import com.nexustools.genericui.ext.canvas3d.ScrollCanvas3D
 import com.nexustools.genericui.ext.canvas3d.ScrollCanvas3DListener
 import com.nexustools.genericui.ext.canvas3d.ScrollGLCanvas
 import com.nexustools.genericui.ext.canvas3d.ScrollVKCanvas
-import com.nexustools.genericui.ext.canvas3d.VKCanvasExt
 import com.nexustools.genericui.ext.canvas3d.overlay.Canvas3DOverlayHost
 import com.nexustools.genericui.ext.canvas3d.overlay.ScrollCanvas3DOverlayHost
 import com.nexustools.genericui.ext.dsl.GenericUiDslMarker
-import com.nexustools.genericui.ext.gpu.GLCanvasConfig
-import com.nexustools.genericui.ext.gpu.GLContext
-import com.nexustools.genericui.ext.gpu.VKCanvasConfig
-import com.nexustools.genericui.ext.gpu.VKContext
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 
 /**
@@ -148,37 +146,6 @@ fun AbstractContainer.scrollVkCanvas(
 }
 
 /**
- * In-place [GLCanvasExt] OpenGL ES 3D canvas builder.
- */
-fun AbstractContainer.glCanvasExt(
-    config: GLCanvasConfig = GLCanvasConfig(),
-    width: Int = 800,
-    height: Int = 600,
-    id: String? = null,
-    classes: String? = null,
-    onRender: ((GLContext, Double, Double, Long) -> Unit)? = null,
-    block: (@GenericUiDslMarker GLCanvasExt.() -> Unit)? = null
-): GLCanvasExt {
-    val canvas = GLCanvasExt(config = config, width = width, height = height)
-    if (!classes.isNullOrBlank()) {
-        canvas.addClass(classes)
-    }
-    if (!id.isNullOrBlank()) {
-        canvas.id = id
-    }
-    if (onRender != null) {
-        canvas.registerVBlankRender { ctx, deltaMs, elapsedMs, frameIdx ->
-            onRender(ctx, deltaMs, elapsedMs, frameIdx)
-        }
-    }
-    if (block != null) {
-        canvas.block()
-    }
-    addChild(canvas)
-    return canvas
-}
-
-/**
  * In-place [GLCanvas] OpenGL ES 3D canvas builder.
  */
 fun AbstractContainer.glCanvas(
@@ -191,37 +158,6 @@ fun AbstractContainer.glCanvas(
     block: (@GenericUiDslMarker GLCanvas.() -> Unit)? = null
 ): GLCanvas {
     val canvas = GLCanvas(config = config, width = width, height = height)
-    if (!classes.isNullOrBlank()) {
-        canvas.addClass(classes)
-    }
-    if (!id.isNullOrBlank()) {
-        canvas.id = id
-    }
-    if (onRender != null) {
-        canvas.registerVBlankRender { ctx, deltaMs, elapsedMs, frameIdx ->
-            onRender(ctx, deltaMs, elapsedMs, frameIdx)
-        }
-    }
-    if (block != null) {
-        canvas.block()
-    }
-    addChild(canvas)
-    return canvas
-}
-
-/**
- * In-place [VKCanvasExt] Vulkan 3D canvas builder.
- */
-fun AbstractContainer.vkCanvasExt(
-    config: VKCanvasConfig = VKCanvasConfig(),
-    width: Int = 800,
-    height: Int = 600,
-    id: String? = null,
-    classes: String? = null,
-    onRender: ((VKContext, Double, Double, Long) -> Unit)? = null,
-    block: (@GenericUiDslMarker VKCanvasExt.() -> Unit)? = null
-): VKCanvasExt {
-    val canvas = VKCanvasExt(config = config, width = width, height = height)
     if (!classes.isNullOrBlank()) {
         canvas.addClass(classes)
     }
@@ -272,7 +208,7 @@ fun AbstractContainer.vkCanvas(
 }
 
 /**
- * In-place [Canvas3DOverlayHost] builder wrapping an existing 3D [canvas] ([GLCanvasExt], [VKCanvasExt],
+ * In-place [Canvas3DOverlayHost] builder wrapping an existing 3D [canvas] ([GLCanvas], [VKCanvas],
  * or any [AbstractComponent]) with an optional [overlay] (`null` by default unless explicitly supplied).
  */
 fun AbstractContainer.canvas3DOverlayHost(
@@ -297,7 +233,7 @@ fun AbstractContainer.canvas3DOverlayHost(
 }
 
 /**
- * In-place [Canvas3DOverlayHost] builder wrapping a new [GLCanvasExt] with an optional [overlay]
+ * In-place [Canvas3DOverlayHost] builder wrapping a new [GLCanvas] with an optional [overlay]
  * (`null` by default unless explicitly supplied).
  */
 fun AbstractContainer.glCanvasOverlayHost(
@@ -310,7 +246,7 @@ fun AbstractContainer.glCanvasOverlayHost(
     onRender: ((GLContext, Double, Double, Long) -> Unit)? = null,
     block: (@GenericUiDslMarker Canvas3DOverlayHost.() -> Unit)? = null
 ): Canvas3DOverlayHost {
-    val canvas = GLCanvasExt(config = config, width = width, height = height)
+    val canvas = GLCanvas(config = config, width = width, height = height)
     if (onRender != null) {
         canvas.registerVBlankRender { ctx, deltaMs, elapsedMs, frameIdx ->
             onRender(ctx, deltaMs, elapsedMs, frameIdx)
@@ -326,7 +262,7 @@ fun AbstractContainer.glCanvasOverlayHost(
 }
 
 /**
- * In-place [Canvas3DOverlayHost] builder wrapping a new [VKCanvasExt] with an optional [overlay]
+ * In-place [Canvas3DOverlayHost] builder wrapping a new [VKCanvas] with an optional [overlay]
  * (`null` by default unless explicitly supplied).
  */
 fun AbstractContainer.vkCanvasOverlayHost(
@@ -339,7 +275,7 @@ fun AbstractContainer.vkCanvasOverlayHost(
     onRender: ((VKContext, Double, Double, Long) -> Unit)? = null,
     block: (@GenericUiDslMarker Canvas3DOverlayHost.() -> Unit)? = null
 ): Canvas3DOverlayHost {
-    val canvas = VKCanvasExt(config = config, width = width, height = height)
+    val canvas = VKCanvas(config = config, width = width, height = height)
     if (onRender != null) {
         canvas.registerVBlankRender { ctx, deltaMs, elapsedMs, frameIdx ->
             onRender(ctx, deltaMs, elapsedMs, frameIdx)

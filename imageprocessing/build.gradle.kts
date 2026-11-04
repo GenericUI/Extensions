@@ -31,7 +31,6 @@ kotlin {
     linuxX64()
     linuxArm64()
     macosArm64()
-    macosX64()
     iosArm64()
     iosSimulatorArm64()
 
@@ -64,9 +63,6 @@ kotlin {
             api(project(":extensions:imageprocessing:systemCommon"))
         }
         macosArm64Main.dependencies {
-            api(project(":extensions:imageprocessing:systemCommon"))
-        }
-        macosX64Main.dependencies {
             api(project(":extensions:imageprocessing:systemCommon"))
         }
         iosArm64Main.dependencies {

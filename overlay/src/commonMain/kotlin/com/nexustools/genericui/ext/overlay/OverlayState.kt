@@ -21,8 +21,6 @@ data class OverlayState(
     val subtitleCueText: String = "",
     val audioTracks: List<OverlayTrackItem> = emptyList(),
     val subtitleTracks: List<OverlayTrackItem> = emptyList(),
-    val topBadges: List<OverlayBadgeSpec> = emptyList(),
-    val belowHostBadges: List<OverlayBadgeSpec> = emptyList(),
     val customProperties: Map<String, Any?> = emptyMap()
 ) {
     /** Normalized playback progress in `[0.0, 1.0]`. */

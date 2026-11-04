@@ -1,6 +1,8 @@
 package com.nexustools.genericui.component.media
 
+import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.geometry.Point
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Interactive cubic-Bezier and spline curve editor widget built on [Canvas2D].
@@ -28,13 +30,49 @@ class CurveEditor(
 
     var onCurveChanged: ((Point, Point) -> Unit)? = null
 
+    init {
+        registerVBlankRender { ctx, _, _, _ ->
+            renderCurveOverlay(ctx)
+        }
+    }
+
     /**
      * Evaluates the cubic-Bezier curve Y value at normalized parameter `t` in `[0.0 .. 1.0]`.
      */
     fun sampleCurveY(t: Float): Float {
-        val u = 1f - t
-        return 3f * u * u * t * controlPoint1.y +
-            3f * u * t * t * controlPoint2.y +
-            t * t * t
+        val clamped = t.coerceIn(0f, 1f)
+        val u = 1f - clamped
+        return 3f * u * u * clamped * controlPoint1.y +
+            3f * u * clamped * clamped * controlPoint2.y +
+            clamped * clamped * clamped
+    }
+
+    /**
+     * Generates a normalized `[0.0 .. 1.0]` lookup table of length [size] from the current curve.
+     */
+    fun sampleLut(size: Int = 256): FloatArray {
+        val n = size.coerceAtLeast(2)
+        return FloatArray(n) { idx ->
+            sampleCurveY(idx.toFloat() / (n - 1).toFloat()).coerceIn(0f, 1f)
+        }
+    }
+
+    fun renderCurveOverlay(ctx: ImageBuffer2DContext) {
+        val w = ctx.width.toFloat()
+        val h = ctx.height.toFloat()
+        ctx.clearRect(0f, 0f, w, h)
+        ctx.setStrokeColor(RgbaColor(90, 160, 255, 255))
+        ctx.setLineWidth(2f)
+        ctx.beginPath()
+        ctx.moveTo(0f, h)
+        ctx.bezierCurveTo(
+            cp1x = controlPoint1.x * w,
+            cp1y = (1f - controlPoint1.y) * h,
+            cp2x = controlPoint2.x * w,
+            cp2y = (1f - controlPoint2.y) * h,
+            x = w,
+            y = 0f
+        )
+        ctx.stroke()
     }
 }

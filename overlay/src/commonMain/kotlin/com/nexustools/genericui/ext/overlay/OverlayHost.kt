@@ -1,14 +1,22 @@
 package com.nexustools.genericui.ext.overlay
 
-import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.LayeredContainer
+import com.nexustools.genericui.core.AbstractComponent
 
 /**
- * Contract implemented by [OverlayHostBox] and media/canvas components that host an [AbstractOverlay].
+ * Pure host contract that binds a target component (`VideoPlayer`, `Canvas2D`, `GLCanvas`,
+ * `VKCanvas`, or any [AbstractComponent]) to an optional [AbstractOverlay] without
+ * auto-attaching any default preset overlay or background scrim.
  */
 interface OverlayHost {
-    val overlayRoot: Container
-    val belowHostContainer: Container
+    val targetComponent: AbstractComponent
+    var overlay: AbstractOverlay?
     var activeOverlay: AbstractOverlay?
+        get() = overlay
+        set(value) {
+            overlay = value
+        }
+    val overlayRoot: LayeredContainer
     var state: OverlayState
     var actions: OverlayActions
     var isInPictureInPictureMode: Boolean
@@ -19,6 +27,10 @@ interface OverlayHost {
 
     fun attachOverlay(overlay: AbstractOverlay)
     fun detachOverlay()
+
+    fun syncWithTargetRender(frameTimestampMs: Long = 0L)
+    fun syncWithTargetResize(widthPx: Int, heightPx: Int)
+
     fun updateState(transform: (OverlayState) -> OverlayState)
     fun setPictureInPictureMode(enabled: Boolean)
 

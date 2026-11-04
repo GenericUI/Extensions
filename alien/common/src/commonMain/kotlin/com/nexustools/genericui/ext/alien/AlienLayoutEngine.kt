@@ -3,8 +3,10 @@ package com.nexustools.genericui.ext.alien
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
 import com.nexustools.genericui.enums.bootstrap.JustifyContent
+import com.nexustools.genericui.enums.css.CssVerticalAlign
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
+import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -15,16 +17,30 @@ import kotlin.math.roundToInt
  * Supports:
  * - Standard Bootstrap 5.3 block, inline-block, flex (`d-flex`, `flex-row`, `flex-column`, `flex: 1`,
  *   `justify-content-*`, `align-items-*`, `gap-*`), `display: table` / `table-cell`, `float: left` / `right`,
- *   and 12-column grid (`row` + `col-*`) layouts.
+ *   and responsive 12-column grid (`row` + `col-*` / `col-sm-*` / `col-md-*` / `col-lg-*` / `col-xl-*` / `col-xxl-*`) layouts.
+ * - Cross-axis shrink-to-siblings (`data-stack-shrink-cross="true"` / `StackConstraint.shrinkCrossAxis`).
  * - Percentage (`100%`, `80%`, `50%`), `px`, `em`, `rem`, `calc(...)`, `max-width`, `max-height`,
  *   `min-width`, `min-height`, `aspect-ratio` (`928 / 270`, `420 / 289`), and `margin: ... auto` centering.
- * - `position: absolute` / `fixed` with `%` and `px` offsets (`left: 50%; top: 50%`) and `transform: translate(-50%, -50%)`.
+ * - `position: relative` (`left` / `top` / `right` / `bottom` offsets) and `position: absolute` / `fixed` with
+ *   `%` and `px` offsets (`left: 50%; top: 50%`) and `transform: translate(-50%, -50%)`.
  * - Automatic bounds synchronization for [AlienWidgetNode.wrappedUnderlayNativeImpl] (`UnalienContainer` and
  *   extension surfaces attached below the `Canvas2D`).
  */
 class AlienLayoutEngine {
 
+    private var currentViewportWidthPx: Int = 1280
+    private var currentViewportHeightPx: Int = 720
+
     companion object {
+        private val BOOTSTRAP_COL_BREAKPOINTS: List<Pair<String, Int>> = listOf(
+            "" to 0,
+            "sm-" to 576,
+            "md-" to 768,
+            "lg-" to 992,
+            "xl-" to 1200,
+            "xxl-" to 1400
+        )
+
         fun layoutTree(
             root: AlienWidgetNode,
             viewportWidth: Float,
@@ -51,6 +67,8 @@ class AlienLayoutEngine {
     ) {
         val safeW = viewportWidth.coerceAtLeast(1)
         val safeH = viewportHeight.coerceAtLeast(1)
+        currentViewportWidthPx = safeW
+        currentViewportHeightPx = safeH
         measureNode(root, safeW, safeH)
         arrangeNode(root, Rect(0, 0, safeW, safeH), updateTracker)
     }
@@ -65,15 +83,37 @@ class AlienLayoutEngine {
             return node.measuredSize
         }
 
+        val isShrinkCross = isShrinkCrossAxisChild(node)
+        val parentIsHorizontal = node.parent?.let { isHorizontalContainer(it) } == true
+
+        val effectiveWidthCss = style.widthCss?.takeUnless {
+            isShrinkCross && !parentIsHorizontal && (it.trim() == "0" || it.trim() == "0px")
+        }
+        val effectiveHeightCss = style.heightCss?.takeUnless {
+            isShrinkCross && parentIsHorizontal && (it.trim() == "0" || it.trim() == "0px")
+        }
+        val effectiveMinWidthCss = style.minWidthCss?.takeUnless {
+            isShrinkCross && !parentIsHorizontal && it.trim() == "100%"
+        }
+        val effectiveMinHeightCss = style.minHeightCss?.takeUnless {
+            isShrinkCross && parentIsHorizontal && it.trim() == "100%"
+        }
+        val effectiveMaxWidthCss = style.maxWidthCss?.takeUnless {
+            isShrinkCross && !parentIsHorizontal && it.trim() == "100%"
+        }
+        val effectiveMaxHeightCss = style.maxHeightCss?.takeUnless {
+            isShrinkCross && parentIsHorizontal && it.trim() == "100%"
+        }
+
         val explicitPref = node.preferredSize
-        val cssW = resolveCssDimensionPx(style.widthCss, availableWidth, style.fontSizePx)
+        val cssW = resolveCssDimensionPx(effectiveWidthCss, availableWidth, style.fontSizePx)
             ?: explicitPref?.width?.takeIf { it > 0 }
-        val cssH = resolveCssDimensionPx(style.heightCss, availableHeight, style.fontSizePx)
+        val cssH = resolveCssDimensionPx(effectiveHeightCss, availableHeight, style.fontSizePx)
             ?: explicitPref?.height?.takeIf { it > 0 }
-        val minW = resolveCssDimensionPx(style.minWidthCss, availableWidth, style.fontSizePx) ?: 0
-        val minH = resolveCssDimensionPx(style.minHeightCss, availableHeight, style.fontSizePx) ?: 0
-        val maxW = resolveCssDimensionPx(style.maxWidthCss, availableWidth, style.fontSizePx)
-        val maxH = resolveCssDimensionPx(style.maxHeightCss, availableHeight, style.fontSizePx)
+        val minW = resolveCssDimensionPx(effectiveMinWidthCss, availableWidth, style.fontSizePx) ?: 0
+        val minH = resolveCssDimensionPx(effectiveMinHeightCss, availableHeight, style.fontSizePx) ?: 0
+        val maxW = resolveCssDimensionPx(effectiveMaxWidthCss, availableWidth, style.fontSizePx)
+        val maxH = resolveCssDimensionPx(effectiveMaxHeightCss, availableHeight, style.fontSizePx)
 
         // Effective available space for children
         var containerTargetW = cssW ?: maxW ?: availableWidth
@@ -84,16 +124,28 @@ class AlienLayoutEngine {
             if (cssH == null && containerTargetW > 0) {
                 val aspectH = (containerTargetW / style.aspectRatio).roundToInt()
                 containerTargetH = if (maxH != null) min(aspectH, maxH) else aspectH
+            } else if (cssW == null && containerTargetH > 0) {
+                val aspectW = (containerTargetH * style.aspectRatio).roundToInt()
+                containerTargetW = if (maxW != null) min(aspectW, maxW) else aspectW
             }
         }
 
         val innerAvailW = (containerTargetW - style.padding.left - style.padding.right).coerceAtLeast(0)
         val innerAvailH = (containerTargetH - style.padding.top - style.padding.bottom).coerceAtLeast(0)
 
+        val isRow = node.componentClassPrefix == "row" || "row" in node.styleSnapshot.customClasses
+        val viewportW = resolveViewportWidth(node)
+
         for (child in node.children) {
             val childStyle = child.resolveVisualStyle()
             if (isNodeRendered(child, childStyle)) {
-                measureNode(child, innerAvailW, innerAvailH)
+                val childAvailW = if (isRow && innerAvailW > 0) {
+                    val colSpan = resolveBootstrapColSpan(child, viewportW)
+                    if (colSpan != null) ((innerAvailW * colSpan) / 12f).toInt().coerceAtLeast(1) else innerAvailW
+                } else {
+                    innerAvailW
+                }
+                measureNode(child, childAvailW, innerAvailH)
             } else {
                 child.measuredSize = Size(0, 0)
             }
@@ -108,6 +160,8 @@ class AlienLayoutEngine {
 
         var finalW = when {
             cssW != null && cssW > 0 -> cssW
+            cssH != null && cssH > 0 && style.aspectRatio != null && style.aspectRatio > 0f && customMeasureFn == null ->
+                (cssH * style.aspectRatio).roundToInt().coerceAtLeast(1)
             node.isUnderlayExtensionSlot -> {
                 val nativeBounds = node.wrappedUnderlayNativeImpl?.getBounds()
                 if (nativeBounds != null && nativeBounds.width > 0) nativeBounds.width else max(rawMeasured.width, 160)
@@ -132,7 +186,7 @@ class AlienLayoutEngine {
 
         // If aspect-ratio was constrained by maxH, adjust finalW to preserve aspect ratio when width wasn't fixed in px
         if (style.aspectRatio != null && style.aspectRatio > 0f && maxH != null && finalH == maxH &&
-            (style.widthCss == null || style.widthCss.endsWith("%"))
+            (effectiveWidthCss == null || effectiveWidthCss.endsWith("%"))
         ) {
             val ratioW = (finalH * style.aspectRatio).roundToInt()
             finalW = if (maxW != null) min(ratioW, maxW) else ratioW
@@ -161,34 +215,58 @@ class AlienLayoutEngine {
             return
         }
 
+        val effectiveBounds = if (style.position == "relative") {
+            val parentW = (node.parent?.contentBounds?.width ?: assignedBounds.width).coerceAtLeast(1)
+            val parentH = (node.parent?.contentBounds?.height ?: assignedBounds.height).coerceAtLeast(1)
+            val dx = resolveSignedCssDimensionPx(style.leftCss, parentW, style.fontSizePx)
+                ?: resolveSignedCssDimensionPx(style.rightCss, parentW, style.fontSizePx)?.let { -it }
+                ?: 0
+            val dy = resolveSignedCssDimensionPx(style.topCss, parentH, style.fontSizePx)
+                ?: resolveSignedCssDimensionPx(style.bottomCss, parentH, style.fontSizePx)?.let { -it }
+                ?: 0
+            if (dx != 0 || dy != 0) {
+                Rect(assignedBounds.x + dx, assignedBounds.y + dy, assignedBounds.width, assignedBounds.height)
+            } else {
+                assignedBounds
+            }
+        } else {
+            assignedBounds
+        }
+
         val oldBounds = node.bounds
-        node.bounds = assignedBounds
+        node.bounds = effectiveBounds
         node.layoutDirty = false
 
-        if (oldBounds != assignedBounds) {
-            updateTracker?.markBoundsTransitionDirty(oldBounds, assignedBounds)
+        if (oldBounds != effectiveBounds) {
+            updateTracker?.markBoundsTransitionDirty(oldBounds, effectiveBounds)
         }
 
         // Synchronize underlay native widget bounds if this is an UnalienContainer or Extension slot
         val underlay = node.wrappedUnderlayNativeImpl
         if (underlay != null) {
-            underlay.setPreferredSize(Size(assignedBounds.width.coerceAtLeast(1), assignedBounds.height.coerceAtLeast(1)))
+            underlay.setPreferredSize(Size(effectiveBounds.width.coerceAtLeast(1), effectiveBounds.height.coerceAtLeast(1)))
         }
 
         if (node.children.isEmpty()) return
 
-        val contentX = assignedBounds.x + style.padding.left - node.scrollOffsetX
-        val contentY = assignedBounds.y + style.padding.top - node.scrollOffsetY
-        val contentW = (assignedBounds.width - style.padding.left - style.padding.right).coerceAtLeast(0)
-        val contentH = (assignedBounds.height - style.padding.top - style.padding.bottom).coerceAtLeast(0)
+        for (child in node.children) {
+            if (!isNodeRendered(child)) {
+                clearUnrenderedSubtreeBounds(child, updateTracker)
+            }
+        }
+
+        val contentX = effectiveBounds.x + style.padding.left - node.scrollOffsetX
+        val contentY = effectiveBounds.y + style.padding.top - node.scrollOffsetY
+        val contentW = (effectiveBounds.width - style.padding.left - style.padding.right).coerceAtLeast(0)
+        val contentH = (effectiveBounds.height - style.padding.top - style.padding.bottom).coerceAtLeast(0)
 
         val isHorizontal = isHorizontalContainer(node, style)
         val gapPx = resolveGapPx(node, isHorizontal, style)
 
         if (isHorizontal) {
-            arrangeHorizontal(node, style, assignedBounds, contentX, contentY, contentW, contentH, gapPx, updateTracker)
+            arrangeHorizontal(node, style, effectiveBounds, contentX, contentY, contentW, contentH, gapPx, updateTracker)
         } else {
-            arrangeVertical(node, style, assignedBounds, contentX, contentY, contentW, contentH, gapPx, updateTracker)
+            arrangeVertical(node, style, effectiveBounds, contentX, contentY, contentW, contentH, gapPx, updateTracker)
         }
     }
 
@@ -228,15 +306,110 @@ class AlienLayoutEngine {
             )
         }
 
+        val hasNonShrinkingFlowChild = flowChildren.any { !isShrinkCrossAxisChild(it) }
+
         if (isHorizontal) {
-            for ((idx, child) in flowChildren.withIndex()) {
-                val childStyle = child.resolveVisualStyle()
-                val cw = child.measuredSize.width + childStyle.margin.left + childStyle.margin.right
-                val ch = child.measuredSize.height + childStyle.margin.top + childStyle.margin.bottom
-                accumW += cw + (if (idx > 0) gapPx else 0)
-                accumH = max(accumH, ch)
+            val isRow = node.componentClassPrefix == "row" || "row" in node.styleSnapshot.customClasses
+            if (isRow) {
+                val viewportW = resolveViewportWidth(node)
+                val rowGap = if (style.rowGapPx > 0f) style.rowGapPx.roundToInt() else gapPx
+                var currentLineSpan = 0
+                var currentLineW = 0
+                var currentLineH = 0
+                var lineCount = 0
+
+                for (child in flowChildren) {
+                    val childStyle = child.resolveVisualStyle()
+                    val colSpan = resolveBootstrapColSpan(child, viewportW) ?: 12
+                    val cw = child.measuredSize.width + childStyle.margin.left + childStyle.margin.right
+                    val ch = child.measuredSize.height + childStyle.margin.top + childStyle.margin.bottom
+                    if (currentLineSpan > 0 && currentLineSpan + colSpan > 12) {
+                        accumW = max(accumW, currentLineW)
+                        accumH += currentLineH + (if (lineCount > 0) rowGap else 0)
+                        lineCount++
+                        currentLineSpan = 0
+                        currentLineW = 0
+                        currentLineH = 0
+                    }
+                    currentLineW += cw + (if (currentLineSpan > 0) gapPx else 0)
+                    currentLineH = max(currentLineH, ch)
+                    currentLineSpan += colSpan
+                }
+                if (currentLineSpan > 0 || flowChildren.isNotEmpty()) {
+                    accumW = max(accumW, currentLineW)
+                    accumH += currentLineH + (if (lineCount > 0) rowGap else 0)
+                }
+            } else {
+                for (child in flowChildren) {
+                    if (hasNonShrinkingFlowChild && isShrinkCrossAxisChild(child)) continue
+                    val childStyle = child.resolveVisualStyle()
+                    val ch = child.measuredSize.height + childStyle.margin.top + childStyle.margin.bottom
+                    accumH = max(accumH, ch)
+                }
+                if (hasNonShrinkingFlowChild && accumH > 0) {
+                    for (child in flowChildren) {
+                        if (!isShrinkCrossAxisChild(child)) continue
+                        val cs = child.resolveVisualStyle()
+                        val targetCrossH = (accumH - cs.margin.top - cs.margin.bottom).coerceAtLeast(1)
+                        measureNode(child, innerAvailW, targetCrossH)
+                    }
+                }
+                val isTable = style.display == "table" || "d-table" in node.styleSnapshot.customClasses
+                val effectiveGap = if (isTable) style.columnGapPx.roundToInt().coerceAtLeast(0) else gapPx
+                for ((idx, child) in flowChildren.withIndex()) {
+                    val childStyle = child.resolveVisualStyle()
+                    val cw = child.measuredSize.width + childStyle.margin.left + childStyle.margin.right
+                    val ch = child.measuredSize.height + childStyle.margin.top + childStyle.margin.bottom
+                    accumW += cw + (if (idx > 0) effectiveGap else 0)
+                    if (!hasNonShrinkingFlowChild || !isShrinkCrossAxisChild(child)) {
+                        accumH = max(accumH, ch)
+                    }
+                }
             }
         } else {
+            var nonShrinkW = 0
+            if (hasNonShrinkingFlowChild) {
+                var scanIdx = 0
+                while (scanIdx < flowChildren.size) {
+                    val child = flowChildren[scanIdx]
+                    val childStyle = child.resolveVisualStyle()
+                    if (isInlineFlowChild(child, childStyle)) {
+                        var rowW = 0
+                        while (scanIdx < flowChildren.size) {
+                            val c = flowChildren[scanIdx]
+                            val cs = c.resolveVisualStyle()
+                            if (!isInlineFlowChild(c, cs)) break
+                            if (!isShrinkCrossAxisChild(c)) {
+                                val cw = c.measuredSize.width + cs.margin.left + cs.margin.right
+                                if (innerAvailW > 0 && rowW > 0 && rowW + cw > innerAvailW) {
+                                    nonShrinkW = max(nonShrinkW, rowW)
+                                    rowW = 0
+                                }
+                                rowW += cw + (if (rowW > 0) gapPx else 0)
+                            }
+                            scanIdx++
+                        }
+                        nonShrinkW = max(nonShrinkW, rowW)
+                    } else {
+                        if (!isShrinkCrossAxisChild(child)) {
+                            val isHr = child.tagName == "hr" || child.componentClassPrefix == "hr"
+                            val cw = (if (isHr && style.widthCss == null && !shouldStretchHorizontally(node, style)) 0 else child.measuredSize.width) +
+                                childStyle.margin.left + childStyle.margin.right
+                            nonShrinkW = max(nonShrinkW, cw)
+                        }
+                        scanIdx++
+                    }
+                }
+                if (nonShrinkW > 0) {
+                    for (child in flowChildren) {
+                        if (!isShrinkCrossAxisChild(child)) continue
+                        val cs = child.resolveVisualStyle()
+                        val targetCrossW = (nonShrinkW - cs.margin.left - cs.margin.right).coerceAtLeast(1)
+                        measureNode(child, targetCrossW, innerAvailH)
+                    }
+                }
+            }
+
             var idx = 0
             while (idx < flowChildren.size) {
                 val child = flowChildren[idx]
@@ -251,12 +424,14 @@ class AlienLayoutEngine {
                         val cw = c.measuredSize.width + cs.margin.left + cs.margin.right
                         val ch = c.measuredSize.height + cs.margin.top + cs.margin.bottom
                         if (innerAvailW > 0 && rowW > 0 && rowW + cw > innerAvailW) {
-                            accumW = max(accumW, rowW)
+                            if (!hasNonShrinkingFlowChild) accumW = max(accumW, rowW)
                             accumH += rowH + gapPx
                             rowW = 0
                             rowH = 0
                         }
-                        rowW += cw + (if (rowW > 0) gapPx else 0)
+                        if (!hasNonShrinkingFlowChild || !isShrinkCrossAxisChild(c)) {
+                            rowW += cw + (if (rowW > 0) gapPx else 0)
+                        }
                         rowH = max(rowH, ch)
                         idx++
                     }
@@ -267,10 +442,15 @@ class AlienLayoutEngine {
                     val cw = (if (isHr && style.widthCss == null && !shouldStretchHorizontally(node, style)) 0 else child.measuredSize.width) +
                         childStyle.margin.left + childStyle.margin.right
                     val ch = child.measuredSize.height + childStyle.margin.top + childStyle.margin.bottom
-                    accumW = max(accumW, cw)
+                    if (!hasNonShrinkingFlowChild || !isShrinkCrossAxisChild(child)) {
+                        accumW = max(accumW, cw)
+                    }
                     accumH += ch + (if (idx > 0) gapPx else 0)
                     idx++
                 }
+            }
+            if (hasNonShrinkingFlowChild && nonShrinkW > 0) {
+                accumW = nonShrinkW
             }
         }
 
@@ -375,6 +555,7 @@ class AlienLayoutEngine {
                     contentX = contentX,
                     startY = cursorY,
                     contentW = contentW,
+                    contentH = contentH,
                     gapPx = gapPx,
                     updateTracker = updateTracker
                 )
@@ -382,17 +563,37 @@ class AlienLayoutEngine {
             }
 
             val m = childStyle.margin
+            val isShrinkCross = isShrinkCrossAxisChild(child)
+            val isChildTable = childStyle.display == "table" || "d-table" in child.styleSnapshot.customClasses
             val stretchWidth = shouldStretchHorizontally(child, childStyle)
+            val effectiveWidthCss = childStyle.widthCss?.takeUnless {
+                isShrinkCross && (it.trim() == "0" || it.trim() == "0px")
+            }
             var childW = when {
-                childStyle.widthCss != null ->
-                    resolveCssDimensionPx(childStyle.widthCss, contentW, childStyle.fontSizePx) ?: child.measuredSize.width
+                isShrinkCross ->
+                    (contentW - m.left - m.right).coerceAtLeast(1)
+                effectiveWidthCss != null ->
+                    resolveCssDimensionPx(effectiveWidthCss, contentW, childStyle.fontSizePx) ?: child.measuredSize.width
+                isChildTable ->
+                    child.measuredSize.width.coerceAtLeast(1)
                 stretchWidth ->
                     (contentW - m.left - m.right).coerceAtLeast(child.measuredSize.width.coerceAtMost(contentW))
                 else ->
                     child.measuredSize.width.coerceAtLeast(1)
             }
-            resolveCssDimensionPx(childStyle.maxWidthCss, contentW, childStyle.fontSizePx)?.let { maxW ->
-                childW = childW.coerceAtMost(maxW)
+            val effectiveMaxWidthCss = childStyle.maxWidthCss?.takeUnless {
+                isShrinkCross && it.trim() == "100%"
+            }
+            if (!isChildTable) {
+                resolveCssDimensionPx(effectiveMaxWidthCss, contentW, childStyle.fontSizePx)?.let { maxW ->
+                    childW = childW.coerceAtMost(maxW)
+                }
+            }
+
+            if (childW != child.measuredSize.width && child.customMeasure != null &&
+                (childStyle.heightCss == null || childStyle.heightCss.trim().equals("auto", ignoreCase = true))
+            ) {
+                child.measuredSize = child.customMeasure!!.invoke(childW, contentH, childStyle)
             }
 
             var childH = if (totalFlexGrow > 0f && childStyle.flexGrow > 0f) {
@@ -432,6 +633,7 @@ class AlienLayoutEngine {
         contentX: Int,
         startY: Int,
         contentW: Int,
+        contentH: Int = 0,
         gapPx: Int,
         updateTracker: AlienUpdateRegionTracker?
     ): Int {
@@ -472,6 +674,14 @@ class AlienLayoutEngine {
                     normalTotalW += sz.width + cs.margin.left + cs.margin.right
                 }
             }
+            val effectiveLineH = if (lines.size == 1 &&
+                (parentStyle.verticalAlign == CssVerticalAlign.BOTTOM || parentStyle.verticalAlign == CssVerticalAlign.MIDDLE) &&
+                contentH > lineH
+            ) {
+                contentH
+            } else {
+                lineH
+            }
 
             var leftFloatCursor = contentX
             var rightFloatCursor = contentX + contentW
@@ -483,7 +693,12 @@ class AlienLayoutEngine {
 
             for ((c, cs, sz) in line) {
                 val m = cs.margin
-                val cy = cursorY + m.top
+                val alignMode = if (cs.verticalAlign != CssVerticalAlign.BASELINE) cs.verticalAlign else parentStyle.verticalAlign
+                val cy = when (alignMode) {
+                    CssVerticalAlign.BOTTOM -> cursorY + (effectiveLineH - sz.height - m.bottom).coerceAtLeast(m.top)
+                    CssVerticalAlign.MIDDLE -> cursorY + ((effectiveLineH - sz.height - m.top - m.bottom) / 2).coerceAtLeast(0) + m.top
+                    else -> cursorY + m.top
+                }
                 val cx = when (cs.floatMode) {
                     "left" -> {
                         val x = leftFloatCursor + m.left
@@ -503,7 +718,7 @@ class AlienLayoutEngine {
                 }
                 arrangeNode(c, Rect(cx, cy, sz.width, sz.height), updateTracker)
             }
-            cursorY += lineH + gapPx
+            cursorY += effectiveLineH + gapPx
         }
         return cursorY
     }
@@ -544,10 +759,10 @@ class AlienLayoutEngine {
             absH = absH.coerceAtLeast(minH)
         }
 
-        val leftPx = resolveCssDimensionPx(childStyle.leftCss, availW, childStyle.fontSizePx)
-        val rightPx = resolveCssDimensionPx(childStyle.rightCss, availW, childStyle.fontSizePx)
-        val topPx = resolveCssDimensionPx(childStyle.topCss, availH, childStyle.fontSizePx)
-        val bottomPx = resolveCssDimensionPx(childStyle.bottomCss, availH, childStyle.fontSizePx)
+        val leftPx = resolveSignedCssDimensionPx(childStyle.leftCss, availW, childStyle.fontSizePx)
+        val rightPx = resolveSignedCssDimensionPx(childStyle.rightCss, availW, childStyle.fontSizePx)
+        val topPx = resolveSignedCssDimensionPx(childStyle.topCss, availH, childStyle.fontSizePx)
+        val bottomPx = resolveSignedCssDimensionPx(childStyle.bottomCss, availH, childStyle.fontSizePx)
 
         var absX = when {
             leftPx != null -> parentBounds.x + leftPx
@@ -605,30 +820,109 @@ class AlienLayoutEngine {
             return
         }
 
-        // Check if this is a `display: table` (e.g. `.a4 .steps`) or Bootstrap 12-column `.row`
-        val isTable = style.display == "table"
-        val isRow = node.componentClassPrefix == "row" || "row" in node.styleSnapshot.customClasses
-        if (isTable || isRow) {
+        // Handle CSS `display: table` (e.g. `.a4 .steps`) with `display: table-cell` children
+        val isTable = style.display == "table" || "d-table" in node.styleSnapshot.customClasses
+        if (isTable) {
             var cursorX = contentX
-            val count = flowChildren.size.coerceAtLeast(1)
-            val effectiveGap = if (isTable) 0 else gapPx
-            val totalGap = effectiveGap * (count - 1).coerceAtLeast(0)
-            val availColsW = (contentW - totalGap).coerceAtLeast(0)
+            val effectiveGap = style.columnGapPx.roundToInt().coerceAtLeast(0)
             for (child in flowChildren) {
-                val colSpan = if (isRow) parseBootstrapColSpan(child) else null
-                val childW = if (colSpan != null) {
-                    ((availColsW * colSpan) / 12f).toInt().coerceAtLeast(1)
-                } else {
-                    (availColsW / count).coerceAtLeast(1)
+                val cs = child.resolveVisualStyle()
+                val m = cs.margin
+                val childW = (resolveCssDimensionPx(cs.widthCss, contentW, cs.fontSizePx) ?: child.measuredSize.width).coerceAtLeast(1)
+                val childH = max(child.measuredSize.height, (contentH - m.top - m.bottom).coerceAtLeast(1))
+                val childX = cursorX + m.left
+                val childY = contentY + m.top
+                arrangeNode(child, Rect(childX, childY, childW, childH), updateTracker)
+                cursorX = childX + childW + m.right + effectiveGap
+            }
+            return
+        }
+
+        // Handle Bootstrap 12-column `.row` with responsive `col-*`..`col-xxl-*` wrapping
+        val isRow = node.componentClassPrefix == "row" || "row" in node.styleSnapshot.customClasses
+        if (isRow) {
+            val viewportW = resolveViewportWidth(node)
+            val lines = mutableListOf<MutableList<Pair<AlienWidgetNode, Int?>>>()
+            var currentLine = mutableListOf<Pair<AlienWidgetNode, Int?>>()
+            var currentSpan = 0
+
+            for (child in flowChildren) {
+                val span = resolveBootstrapColSpan(child, viewportW)
+                val effectiveSpan = span ?: 12
+                if (currentLine.isNotEmpty() && currentSpan + effectiveSpan > 12) {
+                    lines.add(currentLine)
+                    currentLine = mutableListOf()
+                    currentSpan = 0
                 }
-                val childH = max(child.measuredSize.height, contentH.coerceAtMost(max(child.measuredSize.height, 32)))
-                arrangeNode(child, Rect(cursorX, contentY, childW, childH), updateTracker)
-                cursorX += childW + effectiveGap
+                currentLine.add(child to span)
+                currentSpan += effectiveSpan
+            }
+            if (currentLine.isNotEmpty()) {
+                lines.add(currentLine)
+            }
+
+            val rowGap = if (style.rowGapPx > 0f) style.rowGapPx.roundToInt() else gapPx
+            var cursorY = contentY
+            for (line in lines) {
+                val count = line.size.coerceAtLeast(1)
+                val totalGap = gapPx * (count - 1).coerceAtLeast(0)
+                val availColsW = (contentW - totalGap).coerceAtLeast(0)
+
+                val itemWidths = IntArray(line.size)
+                var maxMeasuredH = 0
+                for ((idx, pair) in line.withIndex()) {
+                    val (child, colSpan) = pair
+                    val cs = child.resolveVisualStyle()
+                    val m = cs.margin
+                    val cellW = if (colSpan != null) {
+                        ((availColsW * colSpan) / 12f).toInt().coerceAtLeast(1)
+                    } else {
+                        (availColsW / count).coerceAtLeast(1)
+                    }
+                    val childW = (cellW - m.left - m.right).coerceAtLeast(1)
+                    itemWidths[idx] = childW
+                    if (childW != child.measuredSize.width) {
+                        measureNode(child, childW, contentH)
+                    }
+                    maxMeasuredH = max(maxMeasuredH, child.measuredSize.height + m.top + m.bottom)
+                }
+
+                val lineH = if (lines.size == 1) {
+                    max(maxMeasuredH, contentH.coerceAtMost(max(maxMeasuredH, 32)))
+                } else {
+                    maxMeasuredH.coerceAtLeast(1)
+                }
+
+                var cursorX = contentX
+                for ((idx, pair) in line.withIndex()) {
+                    val (child, _) = pair
+                    val cs = child.resolveVisualStyle()
+                    val m = cs.margin
+                    val childW = itemWidths[idx]
+                    val childH = max(child.measuredSize.height, (lineH - m.top - m.bottom).coerceAtLeast(1))
+                    val childX = cursorX + m.left
+                    val childY = cursorY + m.top
+                    arrangeNode(child, Rect(childX, childY, childW, childH), updateTracker)
+                    cursorX = childX + childW + m.right + gapPx
+                }
+                cursorY += lineH + rowGap
             }
             return
         }
 
         // Standard HStack / Flex-Row
+        for (child in flowChildren) {
+            if (!isShrinkCrossAxisChild(child)) continue
+            val cs = child.resolveVisualStyle()
+            val m = cs.margin
+            val targetH = (contentH - m.top - m.bottom).coerceAtLeast(1)
+            if (targetH != child.measuredSize.height && child.customMeasure != null &&
+                (cs.widthCss == null || cs.widthCss.trim().equals("auto", ignoreCase = true))
+            ) {
+                child.measuredSize = child.customMeasure!!.invoke(contentW, targetH, cs)
+            }
+        }
+
         val totalFlexGrow = flowChildren.sumOf { it.resolveVisualStyle().flexGrow.toDouble() }.toFloat()
         val fixedChildrenW = flowChildren.sumOf { c ->
             val cs = c.resolveVisualStyle()
@@ -648,14 +942,28 @@ class AlienLayoutEngine {
         for (child in flowChildren) {
             val cs = child.resolveVisualStyle()
             val m = cs.margin
+            val isShrinkCross = isShrinkCrossAxisChild(child)
             val childX = cursorX + m.left
             val childY = contentY + m.top
+            var childH = if (isShrinkCross) {
+                (contentH - m.top - m.bottom).coerceAtLeast(1)
+            } else {
+                max(child.measuredSize.height, 1)
+            }
+            val effectiveMaxHeightCss = cs.maxHeightCss?.takeUnless { isShrinkCross && it.trim() == "100%" }
+            resolveCssDimensionPx(effectiveMaxHeightCss, contentH, cs.fontSizePx)?.let { maxH ->
+                childH = childH.coerceAtMost(maxH)
+            }
+            if (childH != child.measuredSize.height && child.customMeasure != null &&
+                (cs.widthCss == null || cs.widthCss.trim().equals("auto", ignoreCase = true))
+            ) {
+                child.measuredSize = child.customMeasure!!.invoke(contentW, childH, cs)
+            }
             val childW = if (totalFlexGrow > 0f && cs.flexGrow > 0f) {
                 ((remainingFlexW * (cs.flexGrow / totalFlexGrow)).roundToInt()).coerceAtLeast(child.measuredSize.width.coerceAtLeast(1))
             } else {
                 child.measuredSize.width.coerceAtLeast(1)
             }
-            val childH = max(child.measuredSize.height, 1)
             arrangeNode(child, Rect(childX, childY, childW, childH), updateTracker)
             cursorX = childX + childW + m.right + gapPx
         }
@@ -666,6 +974,24 @@ class AlienLayoutEngine {
         style: AlienResolvedVisualStyle = node.resolveVisualStyle()
     ): Boolean = node.visible && style.display != "none"
 
+    private fun clearUnrenderedSubtreeBounds(
+        node: AlienWidgetNode,
+        updateTracker: AlienUpdateRegionTracker?
+    ) {
+        val oldBounds = node.bounds
+        if (oldBounds.width > 0 || oldBounds.height > 0) {
+            node.bounds = Rect(0, 0, 0, 0)
+            updateTracker?.markBoundsTransitionDirty(oldBounds, node.bounds)
+        }
+        node.layoutDirty = false
+        for (child in node.children) {
+            clearUnrenderedSubtreeBounds(child, updateTracker)
+        }
+    }
+
+    private fun isShrinkCrossAxisChild(node: AlienWidgetNode): Boolean =
+        node.attributes["data-stack-shrink-cross"] == "true"
+
     private fun isInlineFlowChild(child: AlienWidgetNode, style: AlienResolvedVisualStyle): Boolean {
         if (style.floatMode == "left" || style.floatMode == "right") return true
         return style.display == "inline-block" || style.display == "inline"
@@ -675,7 +1001,7 @@ class AlienLayoutEngine {
         node: AlienWidgetNode,
         style: AlienResolvedVisualStyle = node.resolveVisualStyle()
     ): Boolean {
-        if (style.display == "table") return true
+        if (style.display == "table" || "d-table" in node.styleSnapshot.customClasses) return true
         val prefix = node.componentClassPrefix.lowercase()
         val classes = node.styleSnapshot.customClasses
         val rawFlexDir = node.computedStyle?.rawDeclarations?.get("flex-direction")?.lowercase()
@@ -716,15 +1042,29 @@ class AlienLayoutEngine {
         child: AlienWidgetNode,
         style: AlienResolvedVisualStyle
     ): Boolean {
+        if (isShrinkCrossAxisChild(child)) return true
+        if (style.display == "table" || "d-table" in child.styleSnapshot.customClasses) return false
         if (style.position == "absolute" || style.position == "fixed") {
             return !style.leftCss.isNullOrBlank() && !style.rightCss.isNullOrBlank()
         }
         if (child.preferredSize != null && child.preferredSize!!.width > 0) return false
         if (style.widthCss != null) return style.widthCss.trim() == "100%"
+        if ("w-100" in child.styleSnapshot.customClasses) return true
         if (style.marginLeftAuto || style.marginRightAuto) return false
-        if (style.display == "inline-block" || style.display == "inline" || style.floatMode != "none") return false
+        if (style.display == "inline-block" || style.display == "inline" ||
+            style.display == "inline-flex" || style.display == "inline-grid" ||
+            style.floatMode != "none"
+        ) {
+            return false
+        }
+        if (child.children.any { isShrinkCrossAxisChild(it) } && child.styleSnapshot.width == null) {
+            return false
+        }
         val prefix = child.componentClassPrefix.lowercase()
-        if (prefix == "btn" || prefix == "badge" || prefix == "spinner-border" || prefix == "form-check" || child.tagName == "img") {
+        if (child.tagName.equals("img", ignoreCase = true) || prefix == "img-fluid") {
+            return "w-100" in child.styleSnapshot.customClasses || child.styleSnapshot.width != null
+        }
+        if (prefix == "btn" || prefix == "badge" || prefix == "spinner-border" || prefix == "form-check") {
             return style.display == "block" || "w-100" in child.styleSnapshot.customClasses || child.styleSnapshot.width != null
         }
         return true
@@ -756,13 +1096,34 @@ class AlienLayoutEngine {
         return if (prefix == "vstack" || prefix == "hstack") 8 else 0
     }
 
-    private fun parseBootstrapColSpan(child: AlienWidgetNode): Int? {
-        for (cls in child.styleSnapshot.customClasses) {
-            if (cls.startsWith("col-")) {
-                val tail = cls.substringAfterLast('-')
-                tail.toIntOrNull()?.let { if (it in 1..12) return it }
+    private fun resolveViewportWidth(node: AlienWidgetNode): Int =
+        (node.session?.viewportWidth?.takeIf { it > 0 } ?: currentViewportWidthPx).coerceAtLeast(1)
+
+    internal fun resolveBootstrapColSpan(child: AlienWidgetNode, viewportWidthPx: Int): Int? {
+        val classes = child.styleSnapshot.customClasses
+        if (classes.isEmpty()) return null
+        var resolvedSpan: Int? = null
+        var hasEqualWidthCol = false
+        for ((bpPrefix, minWidthPx) in BOOTSTRAP_COL_BREAKPOINTS) {
+            if (viewportWidthPx < minWidthPx) continue
+            val bareClass = if (bpPrefix.isEmpty()) "col" else "col-${bpPrefix.removeSuffix("-")}"
+            if (bareClass in classes) {
+                resolvedSpan = null
+                hasEqualWidthCol = true
+            }
+            val spanPrefix = "col-$bpPrefix"
+            for (n in 1..12) {
+                if ("$spanPrefix$n" in classes) {
+                    resolvedSpan = n
+                }
+            }
+            if ("${spanPrefix}auto" in classes) {
+                resolvedSpan = null
+                hasEqualWidthCol = true
             }
         }
+        if (resolvedSpan != null) return resolvedSpan
+        if (hasEqualWidthCol) return null
         return null
     }
 
@@ -783,6 +1144,28 @@ class AlienLayoutEngine {
                 val left = resolveCssDimensionPx(expr.substring(0, plusIdx), availablePx, fontSizePx) ?: 0
                 val right = resolveCssDimensionPx(expr.substring(plusIdx + 3), availablePx, fontSizePx) ?: 0
                 return (left + right).coerceAtLeast(0)
+            }
+        }
+        return AlienCssStyleResolver.parseLengthPx(cleaned, fontSizePx, availablePx.toFloat())?.roundToInt()
+    }
+
+    internal fun resolveSignedCssDimensionPx(raw: String?, availablePx: Int, fontSizePx: Float): Int? {
+        if (raw.isNullOrBlank()) return null
+        val cleaned = raw.replace("!important", "").trim().lowercase()
+        if (cleaned == "auto" || cleaned == "none") return null
+        if (cleaned.startsWith("calc(") && cleaned.endsWith(")")) {
+            val expr = cleaned.removePrefix("calc(").removeSuffix(")").trim()
+            val minusIdx = expr.indexOf(" - ")
+            if (minusIdx > 0) {
+                val left = resolveSignedCssDimensionPx(expr.substring(0, minusIdx), availablePx, fontSizePx) ?: 0
+                val right = resolveSignedCssDimensionPx(expr.substring(minusIdx + 3), availablePx, fontSizePx) ?: 0
+                return left - right
+            }
+            val plusIdx = expr.indexOf(" + ")
+            if (plusIdx > 0) {
+                val left = resolveSignedCssDimensionPx(expr.substring(0, plusIdx), availablePx, fontSizePx) ?: 0
+                val right = resolveSignedCssDimensionPx(expr.substring(plusIdx + 3), availablePx, fontSizePx) ?: 0
+                return left + right
             }
         }
         return AlienCssStyleResolver.parseLengthPx(cleaned, fontSizePx, availablePx.toFloat())?.roundToInt()

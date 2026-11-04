@@ -33,6 +33,11 @@ object DesktopVlcMediaExtensionProvider {
             },
             mediaSessionManager = {
                 DesktopMediaSessionManagerNativeImpl(backendToolkit = platformName)
+            },
+            seekBar = {
+                DesktopSeekBarNativeImpl(
+                    nativeWidget = DesktopNativeWidget(platformName, "SeekBar")
+                )
             }
         )
     }

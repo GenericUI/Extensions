@@ -10,7 +10,7 @@ package com.nexustools.genericui.nativeimpl.media
  *   `<div>` sized to `(contentWidth, contentHeight)`, and an HTML `<canvas>` overtop the `<div>`
  *   with `position: absolute; left: 0; top: 0; width: 0; height: 0;`.
  * - On **System targets** (`:desktop`, `:mobile`, `:swing`), `ScrollCanvas3D` composes the
- *   viewport-sized 3D canvas (`GLCanvasExt` / `VKCanvasExt`) with right and bottom scrollbar components (`RangeSlider`).
+ *   viewport-sized 3D canvas (`GLCanvas` / `VKCanvas`) with right and bottom scrollbar components (`RangeSlider`).
  */
 interface ScrollCanvas3DNativeImpl<out W, C> : AbstractCanvasNativeImpl<W, C> {
     val isWebScrollContainer: Boolean

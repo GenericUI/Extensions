@@ -17,6 +17,8 @@ class AndroidAudioPlayerImpl : AndroidBaseNativeImpl("android.view.View", "audio
     private var onTimeUpdate: ((Double) -> Unit)? = null
     private var onEnded: (() -> Unit)? = null
     private var onError: ((String) -> Unit)? = null
+    private var onMediaReady: (() -> Unit)? = null
+    private var mediaReady: Boolean = false
 
     override fun getSupportedAudioCodecs(): Set<AudioCodec> =
         setOf(AudioCodec.MP3, AudioCodec.AAC, AudioCodec.VORBIS, AudioCodec.OPUS, AudioCodec.PCM, AudioCodec.FLAC)
@@ -25,6 +27,10 @@ class AndroidAudioPlayerImpl : AndroidBaseNativeImpl("android.view.View", "audio
         sourceUrl = url
         currentPositionSeconds = seekOffsetSeconds.coerceAtLeast(0.0)
         nativeWidget.attributes["src"] = url
+        mediaReady = url.isNotBlank()
+        if (mediaReady) {
+            onMediaReady?.invoke()
+        }
     }
 
     override fun play() {
@@ -62,4 +68,9 @@ class AndroidAudioPlayerImpl : AndroidBaseNativeImpl("android.view.View", "audio
     override fun setOnTimeUpdate(listener: ((Double) -> Unit)?) { onTimeUpdate = listener }
     override fun setOnEnded(listener: (() -> Unit)?) { onEnded = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { onError = listener }
+    override fun setOnMediaReady(listener: (() -> Unit)?) {
+        onMediaReady = listener
+        if (mediaReady) listener?.invoke()
+    }
+    override fun isMediaReady(): Boolean = mediaReady
 }

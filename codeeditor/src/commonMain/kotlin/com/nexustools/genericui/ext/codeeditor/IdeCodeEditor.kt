@@ -2,8 +2,8 @@ package com.nexustools.genericui.ext.codeeditor
 
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.HStack
+import com.nexustools.genericui.component.media.Canvas2D
 import com.nexustools.genericui.event.KeyEvent
-import com.nexustools.genericui.ext.canvas2d.Canvas2DExtSurface
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.style.color.RgbaColor
@@ -71,7 +71,7 @@ class IdeCodeEditor(
     private var onTextChangedListener: ((String) -> Unit)? = null
     private var onCursorChangedListener: ((CursorPosition) -> Unit)? = null
 
-    val editorCanvas: Canvas2DExtSurface = Canvas2DExtSurface(width = (width - 96).coerceAtLeast(320), height = height)
+    val editorCanvas: Canvas2D = Canvas2D(width = (width - 96).coerceAtLeast(320), height = height)
     val minimap: CodeMinimap = CodeMinimap(
         document = document,
         tokenizer = tokenizer,

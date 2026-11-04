@@ -9,7 +9,7 @@ import com.nexustools.genericui.ext.overlay.OverlayTrackItem
 import kotlin.math.roundToInt
 
 /**
- * Synchronizes a [VideoPlayer] (or [com.nexustools.genericui.ext.media.VideoPlayerExt]) with an [OverlayHost],
+ * Synchronizes a [VideoPlayer] with an [OverlayHost],
  * pushing playback state, buffered ranges, tracks, and active WebVTT/SRT subtitle cues into
  * [OverlayHost.updateState], maintaining a 1000ms repeating UI timer while playing, and wiring
  * [com.nexustools.genericui.ext.overlay.OverlayActions] back to the [VideoPlayer].
@@ -147,7 +147,7 @@ class VideoPlayerOverlayBinder(
             val volPercent = (videoPlayer.volume * 100f).roundToInt().coerceIn(0, 200)
             val muted = videoPlayer.isMuted
             val speed = (videoPlayer.playbackSpeed * 100f).roundToInt() / 100.0
-            val fullscreen = videoPlayer.isFullscreen
+            val fullscreen = videoPlayer.isFullscreen()
             val pip = videoPlayer.isInPictureInPictureMode
             val audioItems = videoPlayer.getAudioTracks().map { track ->
                 OverlayTrackItem(
@@ -189,6 +189,7 @@ class VideoPlayerOverlayBinder(
                 )
             }
 
+            host.syncWithTargetRender((posSec * 1000.0).toLong().coerceAtLeast(0L))
             updatePollingTimer(playing)
         } finally {
             syncingState = false

@@ -1,25 +1,27 @@
 package com.nexustools.genericui.ext.canvas3d
 
+import com.nexustools.genericui.component.media.GLBuffer
+import com.nexustools.genericui.component.media.GLCanvas
+import com.nexustools.genericui.component.media.GLCanvasConfig
+import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.GLFramebuffer
+import com.nexustools.genericui.component.media.GLProgram
+import com.nexustools.genericui.component.media.GLShader
+import com.nexustools.genericui.component.media.GLTexture
+import com.nexustools.genericui.component.media.GLUniformLocation
+import com.nexustools.genericui.component.media.VKCanvas
+import com.nexustools.genericui.component.media.VKCanvasConfig
+import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.enums.media.ShaderType
-import com.nexustools.genericui.ext.gpu.GLBuffer
-import com.nexustools.genericui.ext.gpu.GLCanvasConfig
-import com.nexustools.genericui.ext.gpu.GLContext
-import com.nexustools.genericui.ext.gpu.GLFramebuffer
-import com.nexustools.genericui.ext.gpu.GLProgram
-import com.nexustools.genericui.ext.gpu.GLShader
-import com.nexustools.genericui.ext.gpu.GLTexture
-import com.nexustools.genericui.ext.gpu.GLUniformLocation
 import com.nexustools.genericui.ext.gpu.GpuDevice
 import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
-import com.nexustools.genericui.ext.gpu.VKCanvasConfig
-import com.nexustools.genericui.ext.gpu.VKContext
 import com.nexustools.genericui.nativeimpl.media.GLCanvasNativeImpl
 import com.nexustools.genericui.nativeimpl.media.ScrollCanvas3DNativeImpl
 import com.nexustools.genericui.nativeimpl.media.VKCanvasNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor
 
 /**
- * Extension coordinator for `:extensions:canvas3d` bridging [VKCanvasExt], [GLCanvasExt],
+ * Extension coordinator for `:extensions:canvas3d` bridging [VKCanvas], [GLCanvas],
  * [ScrollCanvas3D], [ScrollGLCanvas], and [ScrollVKCanvas]
  * with `:extensions:gpu` ([GpuDevice], [GpuOffscreenContext], [VKContext], and [GLContext]).
  */

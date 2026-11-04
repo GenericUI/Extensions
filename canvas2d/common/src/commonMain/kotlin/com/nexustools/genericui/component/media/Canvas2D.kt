@@ -2,10 +2,12 @@ package com.nexustools.genericui.component.media
 
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtension
+import com.nexustools.genericui.ext.canvas2d.overlay.Canvas2DOverlayHost
 import com.nexustools.genericui.ext.gpu.VBlankWatcher
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBufferDirtyListener
+import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.nativeimpl.media.Canvas2DNativeImpl
 
 /**
@@ -131,7 +133,57 @@ open class Canvas2D(
         onSurfacePresented?.invoke()
     }
 
-    override fun resolveRenderingContext(): ImageBuffer2DContext? {
+    /**
+     * Draws an [com.nexustools.genericui.image.ImageBuffer] directly onto this 2D canvas surface at `(dx, dy)` using `:extensions:imageprocessing`.
+     */
+    fun drawImage(buffer: com.nexustools.genericui.image.ImageBuffer, dx: Float = 0f, dy: Float = 0f) {
+        val ctx = resolveRenderingContext() ?: return
+        Canvas2DExtension.drawImage(ctx, buffer, dx, dy)
+    }
+
+    /**
+     * Extracts the current 2D canvas framebuffer as an [com.nexustools.genericui.image.ImageBuffer] via `:extensions:imageprocessing`.
+     */
+    fun toImageBuffer(): com.nexustools.genericui.image.ImageBuffer {
+        val ctx = resolveRenderingContext()
+            ?: return com.nexustools.genericui.image.ImageBuffer(surfaceWidth.coerceAtLeast(1), surfaceHeight.coerceAtLeast(1))
+        return Canvas2DExtension.extractImageBuffer(ctx, 0, 0, ctx.width, ctx.height)
+    }
+
+    /**
+     * Returns `true` when this surface is backed by an attached platform `Canvas2DNativeImpl`.
+     */
+    fun hasNativeRenderingContext(): Boolean = typedCanvasNative()?.getRenderingContext() != null
+
+    /**
+     * Synchronizes both the logical [widthPx]/[heightPx] and the underlying [imageBuffer] surface dimensions.
+     */
+    fun syncSurfaceSize(width: Int, height: Int) {
+        val safeW = width.coerceAtLeast(1)
+        val safeH = height.coerceAtLeast(1)
+        if (widthPx != safeW || heightPx != safeH) {
+            widthPx = safeW
+            heightPx = safeH
+        }
+        val ctx = resolveRenderingContext()
+        if (ctx != null && (ctx.width != safeW || ctx.height != safeH)) {
+            ctx.resizeSurface(safeW, safeH)
+        }
+    }
+
+    /**
+     * Wraps this [Canvas2D] in a [Canvas2DOverlayHost] with the given [overlay] attached.
+     */
+    fun attachOverlay(overlay: AbstractOverlay): Canvas2DOverlayHost =
+        Canvas2DOverlayHost(canvas = this, initialOverlay = overlay)
+
+    /**
+     * Wraps this [Canvas2D] in a [Canvas2DOverlayHost] with an optional [overlay] (`null` by default).
+     */
+    fun withOverlay(overlay: AbstractOverlay? = null): Canvas2DOverlayHost =
+        Canvas2DOverlayHost(canvas = this, initialOverlay = overlay)
+
+    public override fun resolveRenderingContext(): ImageBuffer2DContext? {
         super.resolveRenderingContext()?.let {
             it.antialias = antialias
             ensureDirtyListenerAttached(it.imageBuffer)
@@ -142,7 +194,7 @@ open class Canvas2D(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): Canvas2DNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): Canvas2DNativeImpl<*> =
         Canvas2DExtension.createCanvas2DNative(
             width = (widthPx ?: 800).coerceAtLeast(1),
             height = (heightPx ?: 600).coerceAtLeast(1)

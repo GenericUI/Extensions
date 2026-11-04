@@ -15,7 +15,6 @@ kotlin {
 
     // Desktop Native targets — uses Chromium Blink engine + NJS (:common)
     macosArm64()
-    macosX64()
     mingwX64()
     linuxX64()
     linuxArm64()

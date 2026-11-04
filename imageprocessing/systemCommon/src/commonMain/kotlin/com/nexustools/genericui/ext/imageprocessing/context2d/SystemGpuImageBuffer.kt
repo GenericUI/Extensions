@@ -10,7 +10,7 @@ import com.nexustools.genericui.ext.gpu.system.SystemGpuShaderCache
 import com.nexustools.genericui.ext.gpu.system.SystemVBlankSurfaceSynchronizer
 import com.nexustools.genericui.image.ImageColorSpace
 import com.nexustools.genericui.image.PixelFormat
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.max
 import kotlin.math.min
 
