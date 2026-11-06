@@ -1,13 +1,15 @@
 package com.nexustools.genericui.ext.canvas3d
 
-import com.nexustools.genericui.component.media.GLCanvasConfig
+import com.nexustools.genericui.component.media.Canvas3DConfig
 import com.nexustools.genericui.component.media.GLContext
-import com.nexustools.genericui.component.media.VKCanvasConfig
+import com.nexustools.genericui.component.media.GpuRenderContext
 import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.enums.bootstrap.*
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.event.WheelEvent
+import com.nexustools.genericui.ext.gpu.GpuAccelerationPolicy
+import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
@@ -16,18 +18,18 @@ import com.nexustools.genericui.style.css.ComputedStyle
 
 /**
  * System fallback implementation of [ScrollCanvas3DNativeImpl] for non-Web targets (`:desktop`,
- * `:mobile`, `:swing`) where [ScrollCanvas3D], [ScrollGLCanvas], and [ScrollVKCanvas] compose a
- * viewport-sized 3D canvas with right and bottom scrollbar components (`RangeSlider`).
+ * `:mobile`, `:swing`) where [ScrollCanvas3D] composes a viewport-sized [com.nexustools.genericui.component.media.Canvas3D]
+ * with right and bottom scrollbar components (`RangeSlider`).
  */
 class SystemScrollCanvas3DNativeImpl(
     initialViewportWidth: Int = 800,
     initialViewportHeight: Int = 600,
     initialContentWidth: Int = initialViewportWidth,
     initialContentHeight: Int = initialViewportHeight,
-    val preferVulkan: Boolean = true,
-    val glConfig: GLCanvasConfig = GLCanvasConfig(),
-    val vkConfig: VKCanvasConfig = VKCanvasConfig()
-) : ScrollCanvas3DNativeImpl<Any, Any> {
+    val backend: GpuBackendType = GpuBackendType.VULKAN,
+    val acceleration: GpuAccelerationPolicy = GpuAccelerationPolicy.HARDWARE_PREFERRED,
+    val config: Canvas3DConfig = Canvas3DConfig()
+) : ScrollCanvas3DNativeImpl<Any, GpuRenderContext> {
 
     override val nativeWidget: Any = "system-scroll-canvas-3d"
     override val componentClassPrefix: String = "scroll-canvas-3d"
@@ -50,11 +52,11 @@ class SystemScrollCanvas3DNativeImpl(
     private var preferredSizeVal: Size? = null
 
     val glContext: GLContext by lazy {
-        Canvas3DExtension.createGLContext(glConfig, viewportW, viewportH)
+        Canvas3DExtension.createGLContext(config, viewportW, viewportH)
     }
 
     val vkContext: VKContext by lazy {
-        Canvas3DExtension.createVKContext(vkConfig, viewportW, viewportH)
+        Canvas3DExtension.createVKContext(config, viewportW, viewportH)
     }
 
     override fun setScrollableContentSize(contentWidth: Int, contentHeight: Int) {
@@ -94,7 +96,8 @@ class SystemScrollCanvas3DNativeImpl(
         scrollListener = listener
     }
 
-    override fun getRenderingContext(): Any = if (preferVulkan) vkContext else glContext
+    override fun getRenderingContext(): GpuRenderContext =
+        if (backend == GpuBackendType.VULKAN) vkContext else glContext
 
     override fun setVBlankLoopActive(active: Boolean, onVBlankFrame: (explicitTimestampMs: Double?) -> Unit) {
         vblankCallback = if (active) onVBlankFrame else null

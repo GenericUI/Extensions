@@ -3,10 +3,10 @@ package com.nexustools.genericui.android
 import com.nexustools.genericui.nativeimpl.media.SeekBarNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor
 
-class AndroidSeekBarImpl : AndroidBaseNativeImpl<AndroidNativeView>(
-    nativeWidget = AndroidNativeView("SeekBar"),
+class AndroidSeekBarImpl : AndroidBaseNativeImpl(
+    viewClassName = "android.widget.SeekBar",
     componentClassPrefix = "seek-bar"
-), SeekBarNativeImpl<AndroidNativeView> {
+), SeekBarNativeImpl<AndroidViewHandle> {
 
     private var minVal: Double = 0.0
     private var maxVal: Double = 100.0
@@ -78,15 +78,6 @@ class AndroidSeekBarImpl : AndroidBaseNativeImpl<AndroidNativeView>(
 
     override fun setOnValueChanged(listener: ((Double) -> Unit)?) {
         this.onValueChangedListener = listener
-        nativeWidget.eventCallbacks["valueChanged"] = { payload ->
-            val v = (payload as? Number)?.toDouble()
-                ?: payload?.toString()?.toDoubleOrNull()
-            if (v != null) {
-                currentValue = v.coerceIn(minVal, maxVal)
-                syncAttributes()
-                listener?.invoke(currentValue)
-            }
-        }
     }
 
     override fun setOnSeekStart(listener: ((Double) -> Unit)?) {
@@ -124,7 +115,7 @@ class AndroidSeekBarImpl : AndroidBaseNativeImpl<AndroidNativeView>(
         nativeWidget.attributes["trackHeightPx"] = trackHeightPx.toString()
         nativeWidget.attributes["thumbRadiusPx"] = thumbRadiusPx.toString()
         nativeWidget.attributes["thumbInsetPx"] = thumbInsetPx.toString()
-        nativeWidget.styleProperties["padding-left"] = "${thumbInsetPx}px"
-        nativeWidget.styleProperties["padding-right"] = "${thumbInsetPx}px"
+        nativeWidget.attributes["padding-left"] = "${thumbInsetPx}px"
+        nativeWidget.attributes["padding-right"] = "${thumbInsetPx}px"
     }
 }

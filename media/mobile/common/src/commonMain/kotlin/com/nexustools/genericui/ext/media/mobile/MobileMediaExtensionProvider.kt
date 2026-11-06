@@ -14,7 +14,7 @@ import com.nexustools.genericui.nativeimpl.system.MediaSessionManagerNativeImpl
 object MobileMediaExtensionProvider {
     fun install(
         videoPlayer: (() -> VideoPlayerNativeImpl<*>)? = null,
-        audioPlayer: (() -> AudioPlayerNativeImpl<*>)? = null,
+        audioPlayer: (() -> AudioPlayerNativeImpl)? = null,
         audioAnalyzer: ((Int) -> AudioAnalyzerNativeImpl)? = null,
         mediaSessionManager: (() -> MediaSessionManagerNativeImpl)? = null,
         seekBar: (() -> SeekBarNativeImpl<*>)? = null
@@ -30,7 +30,7 @@ object MobileMediaExtensionProvider {
 
     fun install(
         videoPlayerFactory: () -> VideoPlayerNativeImpl<*>,
-        audioPlayerFactory: () -> AudioPlayerNativeImpl<*>,
+        audioPlayerFactory: () -> AudioPlayerNativeImpl,
         audioAnalyzerFactory: () -> AudioAnalyzerNativeImpl,
         mediaSessionManagerFactory: () -> MediaSessionManagerNativeImpl,
         seekBarFactory: (() -> SeekBarNativeImpl<*>)? = null

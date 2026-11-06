@@ -8,13 +8,14 @@ import com.nexustools.genericui.image.PixelFormat
 /**
  * Singleton registry and factory for acquiring the active [GpuOffscreenContext].
  *
- * Always prioritizes **Vulkan (`[GpuBackendType.VULKAN]`)** as the primary GPU backend,
+ * Prioritizes **Vulkan (`[GpuBackendType.VULKAN]`)** as the primary GPU backend,
  * falling back to **OpenGL ES / Google ANGLE (`[GpuBackendType.OPENGL_ES]`)** when Vulkan
  * is unavailable, and finally to a deterministic in-memory software fallback context for headless tests.
  */
 object GpuDevice {
     private var vulkanProvider: (() -> GpuOffscreenContext?)? = null
     private var openGlEsProvider: (() -> GpuOffscreenContext?)? = null
+    private var customFactory: ((Int, Int, Boolean) -> GpuOffscreenContext)? = null
     private var cachedVulkanContext: GpuOffscreenContext? = null
     private var cachedOpenGlEsContext: GpuOffscreenContext? = null
     private val softwareFallbackContext: GpuOffscreenContext by lazy { createSoftwareFallbackContext() }
@@ -32,14 +33,23 @@ object GpuDevice {
                 openGlEsProvider = provider
                 cachedOpenGlEsContext = null
             }
-            GpuBackendType.SOFTWARE_FALLBACK -> Unit
         }
+    }
+
+    /**
+     * Registers a unified factory `(width, height, preferVulkan) -> GpuOffscreenContext`.
+     */
+    fun registerProvider(factory: (width: Int, height: Int, preferVulkan: Boolean) -> GpuOffscreenContext) {
+        customFactory = factory
+        cachedVulkanContext = null
+        cachedOpenGlEsContext = null
     }
 
     /**
      * Acquires the active [GpuOffscreenContext], preferring Vulkan as primary and OpenGL ES / ANGLE as fallback.
      */
     fun acquireOffscreenContext(preferVulkan: Boolean = true): GpuOffscreenContext {
+        customFactory?.let { return it(800, 600, preferVulkan) }
         if (preferVulkan) {
             cachedVulkanContext?.let { return it }
             vulkanProvider?.invoke()?.let { ctx ->
@@ -62,11 +72,26 @@ object GpuDevice {
         return softwareFallbackContext
     }
 
+    fun acquireOffscreenContext(
+        width: Int,
+        height: Int,
+        preferVulkan: Boolean = true
+    ): GpuOffscreenContext {
+        customFactory?.let { return it(width.coerceAtLeast(1), height.coerceAtLeast(1), preferVulkan) }
+        return acquireOffscreenContext(preferVulkan)
+    }
+
     val activeBackendType: GpuBackendType
         get() = acquireOffscreenContext().backendType
 
     fun hasRegisteredProviders(): Boolean =
-        vulkanProvider != null || openGlEsProvider != null
+        customFactory != null || vulkanProvider != null || openGlEsProvider != null
+
+    fun hasProvider(): Boolean = hasRegisteredProviders()
+
+    fun clearProvider() {
+        resetProviders()
+    }
 
     fun ensureDefaultSystemProvidersInstalled(
         enableVulkan: Boolean = true,
@@ -94,6 +119,7 @@ object GpuDevice {
     }
 
     fun resetProviders() {
+        customFactory = null
         vulkanProvider = null
         openGlEsProvider = null
         cachedVulkanContext = null
@@ -101,7 +127,7 @@ object GpuDevice {
     }
 
     private fun createSoftwareFallbackContext(
-        type: GpuBackendType = GpuBackendType.SOFTWARE_FALLBACK,
+        type: GpuBackendType = GpuBackendType.VULKAN,
         name: String = "GenericUI Headless Software GPU Fallback",
         version: String = "Vulkan 1.3 / GLES 3.0 Emulated"
     ): GpuOffscreenContext = object : GpuOffscreenContext {

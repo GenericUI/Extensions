@@ -4,6 +4,8 @@ import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.LayerConstraint
 import com.nexustools.genericui.component.layout.LayeredContainer
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.FramePresentTarget
+import com.nexustools.genericui.core.NativeImpl
 
 /**
  * Pure, background-free [LayeredContainer] implementing [OverlayHost].
@@ -98,7 +100,14 @@ open class OverlayHostBox(
             overlay?.themeColorHex = value
         }
 
+    private var boundPresentTarget: FramePresentTarget? = null
+    private val beforePresentListener: (Long, Double) -> Unit = { frameIndex, timestampMs ->
+        dispatchBeforeTargetFramePresent(frameIndex, timestampMs)
+    }
+
     init {
+        setAttribute("data-overlay-host", "true")
+        overlayRoot.setAttribute("data-overlay-root", "true")
         setStyleProperty("width", "100%")
         setStyleProperty("height", "100%")
         setStyleProperty("background", "transparent")
@@ -111,8 +120,21 @@ open class OverlayHostBox(
             overlayRoot.widthPx = initW
             overlayRoot.heightPx = initH
         }
+        if (content is FramePresentTarget) {
+            bindToFramePresentTarget(content)
+        }
         if (initialOverlay != null) {
             attachOverlay(initialOverlay)
+        }
+    }
+
+    protected override fun onAttachNative(impl: NativeImpl<*>) {
+        super.onAttachNative(impl)
+        impl.setOnBeforeTargetFramePresent { sc, ts ->
+            dispatchBeforeTargetFramePresent(sc, ts ?: 0.0)
+        }
+        overlayRoot.ensureNativeImpl()?.setOnBeforeTargetFramePresent { sc, ts ->
+            dispatchBeforeTargetFramePresent(sc, ts ?: 0.0)
         }
     }
 
@@ -125,6 +147,12 @@ open class OverlayHostBox(
         val currentTarget = targetComponent
         removeLayer(currentTarget)
         contentComponent = component
+        if (component is FramePresentTarget) {
+            bindToFramePresentTarget(component)
+        } else {
+            boundPresentTarget?.removeBeforeFramePresentListener(beforePresentListener)
+            boundPresentTarget = null
+        }
         if (component == null && fallbackTarget == null) {
             fallbackTarget = Container("genericui-overlay-host-target").apply {
                 setStyleProperty("width", "100%")
@@ -189,6 +217,18 @@ open class OverlayHostBox(
         overlay?.notifyTargetRenderFrame(frameTimestampMs, targetW, targetH)
     }
 
+    override fun dispatchBeforeTargetFramePresent(frameIndex: Long, timestampMs: Double) {
+        overlay?.onBeforeTargetFramePresent(frameIndex, timestampMs)
+        syncWithTargetRender(timestampMs.toLong().coerceAtLeast(0L))
+    }
+
+    override fun bindToFramePresentTarget(target: FramePresentTarget) {
+        if (boundPresentTarget === target) return
+        boundPresentTarget?.removeBeforeFramePresentListener(beforePresentListener)
+        boundPresentTarget = target
+        target.addBeforeFramePresentListener(beforePresentListener)
+    }
+
     override fun syncWithTargetResize(widthPx: Int, heightPx: Int) {
         if (widthPx > 0 && heightPx > 0) {
             overlayRoot.widthPx = widthPx
@@ -209,6 +249,8 @@ open class OverlayHostBox(
     }
 
     override fun dispose() {
+        boundPresentTarget?.removeBeforeFramePresentListener(beforePresentListener)
+        boundPresentTarget = null
         val current = overlay
         detachOverlay()
         current?.dispose()

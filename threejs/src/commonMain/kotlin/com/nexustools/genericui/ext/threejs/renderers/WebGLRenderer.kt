@@ -1,16 +1,33 @@
 package com.nexustools.genericui.ext.threejs.renderers
 
+import com.nexustools.genericui.component.media.Canvas3D
 import com.nexustools.genericui.component.media.GLBuffer
-import com.nexustools.genericui.component.media.GLCanvas
+import com.nexustools.genericui.component.media.GLBufferTarget
+import com.nexustools.genericui.component.media.GLBufferUsage
+import com.nexustools.genericui.component.media.GLCapability
+import com.nexustools.genericui.component.media.GLClearBuffer
+import com.nexustools.genericui.component.media.GLCompareFunction
 import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.GLDataType
+import com.nexustools.genericui.component.media.GLFaceSide
 import com.nexustools.genericui.component.media.GLFramebuffer
+import com.nexustools.genericui.component.media.GLFramebufferAttachment
+import com.nexustools.genericui.component.media.GLFramebufferTarget
+import com.nexustools.genericui.component.media.GLIndexType
+import com.nexustools.genericui.component.media.GLPrimitive
 import com.nexustools.genericui.component.media.GLProgram
 import com.nexustools.genericui.component.media.GLTexture
+import com.nexustools.genericui.component.media.GLTextureFormat
+import com.nexustools.genericui.component.media.GLTextureTarget
+import com.nexustools.genericui.component.media.GLVertexAttribLayout
 import com.nexustools.genericui.component.media.VBlankSubscription
-import com.nexustools.genericui.component.media.VKCanvas
 import com.nexustools.genericui.component.media.VKContext
+import com.nexustools.genericui.component.media.VKLoadOp
+import com.nexustools.genericui.component.media.VKRenderPassDescriptor
 import com.nexustools.genericui.enums.media.ShaderType
 import com.nexustools.genericui.ext.canvas3d.Canvas3DExtension
+import com.nexustools.genericui.ext.gpu.GpuAccelerationPolicy
+import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.threejs.cameras.Camera
 import com.nexustools.genericui.ext.threejs.core.BufferGeometry
 import com.nexustools.genericui.ext.threejs.core.Object3D
@@ -40,16 +57,20 @@ import com.nexustools.genericui.ext.threejs.textures.Texture
 import com.nexustools.genericui.style.color.RgbaColor
 
 /**
- * Hardware-accelerated Three.js 3D Renderer backed by `:extensions:canvas3d` ([GLCanvas] / [VKCanvas])
+ * Hardware-accelerated Three.js 3D Renderer backed by `:extensions:canvas3d` ([Canvas3D])
  * and `:extensions:gpu` ([GLContext] / [VKContext]).
  *
- * Supports OpenGL ES 3.0 (including Google ANGLE on Windows) via [GLCanvas] as well as Vulkan 1.3 via [VKCanvas],
+ * Supports OpenGL ES 3.0 (including Google ANGLE on Windows) and Vulkan 1.3 via [Canvas3D],
  * with hardware VBlank animation loops (`setAnimationLoop { deltaMs, elapsedTimeMs -> ... }`).
  */
 class WebGLRenderer(
     val config: WebGLRendererConfig = WebGLRendererConfig(),
-    val glCanvas: GLCanvas = GLCanvas(width = 800, height = 600),
-    val vkCanvas: VKCanvas? = null
+    val canvas: Canvas3D = Canvas3D(
+        backend = if (config.preferVulkanWhenAvailable) GpuBackendType.VULKAN else GpuBackendType.OPENGL_ES,
+        acceleration = GpuAccelerationPolicy.HARDWARE_PREFERRED,
+        width = 800,
+        height = 600
+    )
 ) {
     val info: WebGLRenderInfo = WebGLRenderInfo()
 
@@ -84,20 +105,18 @@ class WebGLRenderer(
     private val frustum = Frustum()
 
     init {
-        glCanvas.onSurfaceCreated = { ctx, w, h ->
-            activeGlContext = ctx
+        canvas.onSurfaceCreated = { ctx, w, h ->
+            when (ctx) {
+                is GLContext -> activeGlContext = ctx
+                is VKContext -> activeVkContext = ctx
+            }
             setSize(w, h)
         }
-        glCanvas.onSurfaceResized = { ctx, w, h ->
-            activeGlContext = ctx
-            setSize(w, h)
-        }
-        vkCanvas?.onSurfaceCreated = { ctx, w, h ->
-            activeVkContext = ctx
-            setSize(w, h)
-        }
-        vkCanvas?.onSurfaceResized = { ctx, w, h ->
-            activeVkContext = ctx
+        canvas.onSurfaceResized = { ctx, w, h ->
+            when (ctx) {
+                is GLContext -> activeGlContext = ctx
+                is VKContext -> activeVkContext = ctx
+            }
             setSize(w, h)
         }
     }
@@ -139,7 +158,7 @@ class WebGLRenderer(
         activeRenderTarget = renderTarget
         val gl = resolveGlContext()
         if (renderTarget == null) {
-            gl.bindFramebuffer(GLContext.GL_FRAMEBUFFER, null)
+            gl.bindFramebuffer(GLFramebufferTarget.FRAMEBUFFER, null)
             gl.viewport(
                 viewport.x.toInt(),
                 viewport.y.toInt(),
@@ -150,17 +169,17 @@ class WebGLRenderer(
             val fb = renderTargetFramebuffers.getOrPut(renderTarget.id) {
                 val createdFb = gl.createFramebuffer()
                 val tex = ensureTextureUploaded(gl, renderTarget.texture)
-                gl.bindFramebuffer(GLContext.GL_FRAMEBUFFER, createdFb)
+                gl.bindFramebuffer(GLFramebufferTarget.FRAMEBUFFER, createdFb)
                 gl.framebufferTexture2D(
-                    GLContext.GL_FRAMEBUFFER,
-                    GLContext.GL_COLOR_ATTACHMENT0,
-                    GLContext.GL_TEXTURE_2D,
+                    GLFramebufferTarget.FRAMEBUFFER,
+                    GLFramebufferAttachment.COLOR_ATTACHMENT0,
+                    GLTextureTarget.TEXTURE_2D,
                     tex,
                     0
                 )
                 createdFb
             }
-            gl.bindFramebuffer(GLContext.GL_FRAMEBUFFER, fb)
+            gl.bindFramebuffer(GLFramebufferTarget.FRAMEBUFFER, fb)
             gl.viewport(0, 0, renderTarget.width, renderTarget.height)
         }
     }
@@ -168,11 +187,11 @@ class WebGLRenderer(
     fun clear(color: Boolean = true, depth: Boolean = true, stencil: Boolean = true) {
         val gl = resolveGlContext()
         gl.clearColor(clearColor.r, clearColor.g, clearColor.b, clearAlpha)
-        var mask = 0
-        if (color) mask = mask or GLContext.GL_COLOR_BUFFER_BIT
-        if (depth) mask = mask or GLContext.GL_DEPTH_BUFFER_BIT
-        if (stencil) mask = mask or GLContext.GL_STENCIL_BUFFER_BIT
-        if (mask != 0) gl.clear(mask)
+        val buffers = mutableSetOf<GLClearBuffer>()
+        if (color) buffers.add(GLClearBuffer.COLOR)
+        if (depth) buffers.add(GLClearBuffer.DEPTH)
+        if (stencil) buffers.add(GLClearBuffer.STENCIL)
+        if (buffers.isNotEmpty()) gl.clear(buffers)
     }
 
     fun setAnimationLoop(callback: ((deltaMs: Double, elapsedTimeMs: Double) -> Unit)?) {
@@ -180,17 +199,12 @@ class WebGLRenderer(
         vblankSubscription = null
         if (callback == null) return
 
-        val vk = vkCanvas
-        if (vk != null) {
-            vblankSubscription = vk.registerVBlankRender { ctx, deltaMs, totalElapsedMs, _ ->
-                activeVkContext = ctx
-                callback(deltaMs, totalElapsedMs)
+        vblankSubscription = canvas.registerVBlankRender { ctx, deltaMs, totalElapsedMs, _ ->
+            when (ctx) {
+                is GLContext -> activeGlContext = ctx
+                is VKContext -> activeVkContext = ctx
             }
-        } else {
-            vblankSubscription = glCanvas.registerVBlankRender { ctx, deltaMs, totalElapsedMs, _ ->
-                activeGlContext = ctx
-                callback(deltaMs, totalElapsedMs)
-            }
+            callback(deltaMs, totalElapsedMs)
         }
     }
 
@@ -222,7 +236,7 @@ class WebGLRenderer(
             }
         }
 
-        val vk = activeVkContext
+        val vk = activeVkContext ?: canvas.vkContext
         if (vk != null) {
             renderWithVulkan(vk, scene, camera, renderables)
             return
@@ -239,8 +253,8 @@ class WebGLRenderer(
             clear(autoClearColor, autoClearDepth, autoClearStencil)
         }
 
-        gl.enable(GLContext.GL_DEPTH_TEST)
-        gl.depthFunc(GLContext.GL_LEQUAL)
+        gl.enable(GLCapability.DEPTH_TEST)
+        gl.depthFunc(GLCompareFunction.LEQUAL)
 
         for (obj in renderables) {
             renderObjectGL(gl, obj, camera, lights)
@@ -261,7 +275,13 @@ class WebGLRenderer(
             (bg.b * 255f).toInt().coerceIn(0, 255),
             (clearAlpha * 255f).toInt().coerceIn(0, 255)
         )
-        vk.beginRenderPass(clearRgba, 1.0f)
+        vk.beginRenderPass(
+            VKRenderPassDescriptor(
+                loadOp = VKLoadOp.CLEAR,
+                clearColor = clearRgba,
+                clearDepth = 1.0f
+            )
+        )
         for (obj in renderables) {
             val geometry = when (obj) {
                 is Mesh -> obj.geometry
@@ -311,14 +331,14 @@ class WebGLRenderer(
 
         when (material.side) {
             Side.FRONT -> {
-                gl.enable(GLContext.GL_CULL_FACE)
-                gl.cullFace(GLContext.GL_BACK)
+                gl.enable(GLCapability.CULL_FACE)
+                gl.cullFace(GLFaceSide.BACK)
             }
             Side.BACK -> {
-                gl.enable(GLContext.GL_CULL_FACE)
-                gl.cullFace(GLContext.GL_FRONT)
+                gl.enable(GLCapability.CULL_FACE)
+                gl.cullFace(GLFaceSide.FRONT)
             }
-            Side.DOUBLE -> gl.disable(GLContext.GL_CULL_FACE)
+            Side.DOUBLE -> gl.disable(GLCapability.CULL_FACE)
         }
         gl.depthMask(material.depthWrite)
 
@@ -350,8 +370,8 @@ class WebGLRenderer(
         }
         if (mapTex != null) {
             val glTex = ensureTextureUploaded(gl, mapTex)
-            gl.activeTexture(GLContext.GL_TEXTURE0)
-            gl.bindTexture(GLContext.GL_TEXTURE_2D, glTex)
+            gl.activeTexture(0)
+            gl.bindTexture(GLTextureTarget.TEXTURE_2D, glTex)
             gl.getUniformLocation(program, "uMap")?.let { gl.uniform1i(it, 0) }
             gl.getUniformLocation(program, "uUseMap")?.let { gl.uniform1i(it, 1) }
         } else {
@@ -403,21 +423,21 @@ class WebGLRenderer(
         val indexArr = geometry.index
 
         val drawMode = when (obj) {
-            is LineSegments -> GLContext.GL_LINES
-            is Line -> GLContext.GL_LINE_STRIP
-            is Points -> GLContext.GL_POINTS
-            else -> if (material.wireframe) GLContext.GL_LINES else GLContext.GL_TRIANGLES
+            is LineSegments -> GLPrimitive.LINES
+            is Line -> GLPrimitive.LINE_STRIP
+            is Points -> GLPrimitive.POINTS
+            else -> if (material.wireframe) GLPrimitive.LINES else GLPrimitive.TRIANGLES
         }
 
         info.calls++
         if (indexArr != null) {
             val idxBuffer = ensureIndexBuffer(gl, geometry, indexArr)
-            gl.bindBuffer(GLContext.GL_ELEMENT_ARRAY_BUFFER, idxBuffer)
+            gl.bindBuffer(GLBufferTarget.ELEMENT_ARRAY_BUFFER, idxBuffer)
             if (obj is InstancedMesh) {
-                gl.drawElementsInstanced(drawMode, indexArr.size, GLContext.GL_UNSIGNED_INT, 0, obj.count)
+                gl.drawElementsInstanced(drawMode, indexArr.size, GLIndexType.UNSIGNED_INT, 0, obj.count)
                 info.triangles += (indexArr.size / 3) * obj.count
             } else {
-                gl.drawElements(drawMode, indexArr.size, GLContext.GL_UNSIGNED_INT, 0)
+                gl.drawElements(drawMode, indexArr.size, GLIndexType.UNSIGNED_INT, 0)
                 when (obj) {
                     is Line -> info.lines += indexArr.size / 2
                     is Points -> info.points += indexArr.size
@@ -450,9 +470,18 @@ class WebGLRenderer(
         val buffer = attrBuffers[name] ?: return
         val loc = gl.getAttribLocation(program, name)
         if (loc < 0) return
-        gl.bindBuffer(GLContext.GL_ARRAY_BUFFER, buffer)
+        gl.bindBuffer(GLBufferTarget.ARRAY_BUFFER, buffer)
         gl.enableVertexAttribArray(loc)
-        gl.vertexAttribPointer(loc, attr.itemSize, GLContext.GL_FLOAT, attr.normalized, 0, 0)
+        gl.vertexAttribPointer(
+            GLVertexAttribLayout(
+                index = loc,
+                size = attr.itemSize,
+                type = GLDataType.FLOAT,
+                normalized = attr.normalized,
+                stride = 0,
+                offset = 0
+            )
+        )
     }
 
     private fun ensureProgram(gl: GLContext, material: Material): GLProgram {
@@ -480,8 +509,8 @@ class WebGLRenderer(
             val map = mutableMapOf<String, GLBuffer>()
             for ((name, attr) in geometry.attributes) {
                 val buf = gl.createBuffer()
-                gl.bindBuffer(GLContext.GL_ARRAY_BUFFER, buf)
-                gl.bufferDataFloat(GLContext.GL_ARRAY_BUFFER, attr.array, GLContext.GL_STATIC_DRAW)
+                gl.bindBuffer(GLBufferTarget.ARRAY_BUFFER, buf)
+                gl.bufferData(GLBufferTarget.ARRAY_BUFFER, attr.array, GLBufferUsage.STATIC_DRAW)
                 map[name] = buf
             }
             map
@@ -491,8 +520,8 @@ class WebGLRenderer(
     private fun ensureIndexBuffer(gl: GLContext, geometry: BufferGeometry, intIndices: IntArray): GLBuffer {
         return indexBufferCache.getOrPut(geometry.id) {
             val buf = gl.createBuffer()
-            gl.bindBuffer(GLContext.GL_ELEMENT_ARRAY_BUFFER, buf)
-            gl.bufferDataInt(GLContext.GL_ELEMENT_ARRAY_BUFFER, intIndices, GLContext.GL_STATIC_DRAW)
+            gl.bindBuffer(GLBufferTarget.ELEMENT_ARRAY_BUFFER, buf)
+            gl.bufferData(GLBufferTarget.ELEMENT_ARRAY_BUFFER, intIndices, GLBufferUsage.STATIC_DRAW)
             buf
         }
     }
@@ -506,20 +535,27 @@ class WebGLRenderer(
             textureCache[texture.id] = it
             info.texturesCount++
         }
-        gl.bindTexture(GLContext.GL_TEXTURE_2D, glTex)
+        gl.bindTexture(GLTextureTarget.TEXTURE_2D, glTex)
         val img = texture.image
         if (img != null) {
             val rgba = img.toRgba8888()
-            gl.texImage2DRgba(GLContext.GL_TEXTURE_2D, 0, rgba.width, rgba.height, rgba.bytes)
+            gl.texImage2D(GLTextureTarget.TEXTURE_2D, 0, GLTextureFormat.RGBA8, rgba.width, rgba.height, rgba.bytes)
         } else if (texture is DataTexture) {
-            gl.texImage2DRgba(GLContext.GL_TEXTURE_2D, 0, texture.width, texture.height, texture.data)
+            gl.texImage2D(GLTextureTarget.TEXTURE_2D, 0, GLTextureFormat.RGBA8, texture.width, texture.height, texture.data)
         } else if (texture.rgbaBytes != null) {
-            gl.texImage2DRgba(GLContext.GL_TEXTURE_2D, 0, texture.width, texture.height, texture.rgbaBytes)
+            gl.texImage2D(GLTextureTarget.TEXTURE_2D, 0, GLTextureFormat.RGBA8, texture.width, texture.height, texture.rgbaBytes)
         } else {
-            gl.texImage2DRgba(GLContext.GL_TEXTURE_2D, 0, texture.width.coerceAtLeast(1), texture.height.coerceAtLeast(1), null)
+            gl.texImage2D(
+                GLTextureTarget.TEXTURE_2D,
+                0,
+                GLTextureFormat.RGBA8,
+                texture.width.coerceAtLeast(1),
+                texture.height.coerceAtLeast(1),
+                null
+            )
         }
         if (texture.generateMipmaps) {
-            gl.generateMipmap(GLContext.GL_TEXTURE_2D)
+            gl.generateMipmap(GLTextureTarget.TEXTURE_2D)
         }
         texture.needsUpdate = false
         return glTex
@@ -527,7 +563,7 @@ class WebGLRenderer(
 
     private fun resolveGlContext(): GLContext {
         activeGlContext?.let { return it }
-        glCanvas.gpuContext.glContext?.let {
+        canvas.glContext?.let {
             activeGlContext = it
             return it
         }

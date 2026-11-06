@@ -2,7 +2,7 @@
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Fragments & Windows (`../../docs/fragments-and-windows.md`)**](../../docs/fragments-and-windows.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:gpu` is the foundational **Multi-Module Project-of-Projects** GPU compute, shader compilation, texture/buffer allocation, VBlank synchronization (`VBlankWatcher`, `VBlankTimer`), and double-buffered surface extension for GenericUI. It enforces a strict **Vulkan 1.2+ SPIR-V Primary + OpenGL ES 3.0+ Fallback** architecture across Desktop, Mobile, Swing, and Web, and powers [`:extensions:imageprocessing`](imageprocessing.md), [`:extensions:canvas2d`](canvas2d.md), [`:extensions:canvas3d`](canvas3d.md), [`:extensions:threejs`](threejs.md), [`:extensions:box3d`](box3d.md), and [`:extensions:alien`](alien.md).
+`:extensions:gpu` is the foundational **Multi-Module Project-of-Projects** GPU compute, shader compilation, texture/buffer allocation, VBlank synchronization (`VBlankWatcher`, `VBlankTimer`), and double-buffered surface extension for GenericUI. It enforces a strict **Vulkan 1.2+ SPIR-V Primary + OpenGL ES 3.0+ Fallback** architecture across Desktop, Mobile, Swing, and Web, with typed `GpuAcceleration` (`HARDWARE`, `SOFTWARE`) and `GpuAccelerationPolicy` (`PREFER_HARDWARE`, `REQUIRE_HARDWARE`, `SOFTWARE_ONLY`), and powers [`:extensions:imageprocessing`](imageprocessing.md), [`:extensions:canvas2d`](canvas2d.md), [`:extensions:canvas3d`](canvas3d.md), [`:extensions:threejs`](threejs.md), [`:extensions:box3d`](box3d.md), and [`:extensions:alien`](alien.md).
 
 ---
 
@@ -12,21 +12,21 @@
 
 ```mermaid
 flowchart LR
-    GpuDevice["GpuDevice.acquireOffscreenContext(preferVulkan = true)"]
+    GpuDevice["GpuDevice.acquireOffscreenContext(preferVulkan = true, policy = PREFER_HARDWARE)"]
     Primary["1. Primary Backend: GpuBackendType.VULKAN<br/>(Vulkan 1.2+ SPIR-V / MoltenVK / WebGPU)"]
     Fallback["2. Secondary Fallback: GpuBackendType.OPENGL_ES<br/>(OpenGL ES 3.0+ / Google ANGLE D3D11 / WebGL2)"]
-    Software["3. Headless Test Fallback: GpuBackendType.SOFTWARE_FALLBACK<br/>(Deterministic CPU RGBA Buffer Emulation)"]
+    Software["3. Software Emulation: GpuAcceleration.SOFTWARE<br/>(Deterministic CPU Shader & Rasterization Pipeline)"]
 
     GpuDevice --> Primary
     Primary -->|If Vulkan unavailable| Fallback
-    Fallback -->|If no GPU driver| Software
+    Fallback -->|If hardware unavailable & policy allows| Software
 ```
 
 | Target Family | Submodule | Primary GPU Pipeline (`GpuBackendType.VULKAN`) | Secondary Fallback (`GpuBackendType.OPENGL_ES`) | Backend Documentation |
 | :--- | :--- | :--- | :--- | :--- |
-| **Windows (`mingwX64`)** | `:extensions:gpu:desktop:nativeCommon` | Native `vulkan-1.dll` (`DesktopVulkanGpuContext` + `shaderc` GLSL `#version 450` $\rightarrow$ SPIR-V) | **Google ANGLE** (`libEGL.dll` + `libGLESv2.dll` over Direct3D 11 via `DesktopAngleGlesGpuContext`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **Windows (`mingwX64`)** | `:extensions:gpu:desktop:nativeCommon` | Native `vulkan-1.dll` (`DesktopVKContextImpl` + `DesktopGpuDynamicLoader`) | **Google ANGLE** (`libEGL.dll` + `libGLESv2.dll` over Direct3D 11 via `DesktopGLContextImpl`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
 | **macOS (`macosArm64`, `macosX64`)** | `:extensions:gpu:desktop:nativeCommon` | **MoltenVK** (`libMoltenVK.dylib` over Apple Metal) | Native Metal-backed OpenGL ES / CGL | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
-| **Linux GTK4 & Qt6 (`linuxX64`, `linuxArm64`)** | `:extensions:gpu:desktop:nativeCommon` | Native `libvulkan.so.1` (`VKContext`) | Native `libEGL.so` + `libGLESv2.so` (`GLContext`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
+| **Linux GTK4 & Qt6 (`linuxX64`, `linuxArm64`)** | `:extensions:gpu:desktop:nativeCommon` | Native `libvulkan.so.1` (`VKContext`) | Native `libEGL.so.1` + `libGLESv2.so.2` (`GLContext`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
 | **Desktop JVM (`:swing`)** | `:extensions:gpu:desktop:swing` | **LWJGL 3 Vulkan** (`org.lwjgl.vulkan` + `org.lwjgl.shaderc` via `SwingLwjglGpuContext`) | **LWJGL 3 OpenGL / GLES** (`org.lwjgl.opengl` / `org.lwjgl.opengles`) | [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) |
 | **Android (`:android`)** | `:extensions:gpu:mobile:android` (+ `:mobile:common`) | Android NDK Vulkan 1.1/1.3 (`AndroidVKContextImpl`) | Android `EGL14` / `GLES30` (`AndroidGLContextImpl`) | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
 | **iOS (`:ios`)** | `:extensions:gpu:mobile:ios` (+ `:mobile:common`) | **MoltenVK** over Metal (`IosVKContextImpl`) | Apple `EAGLContext` OpenGL ES 3.0 (`IosGLContextImpl`) | [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) |
@@ -61,21 +61,19 @@ genericui {
 
 ---
 
-## 3. Core API Reference (`com.nexustools.genericui.ext.gpu`)
+## 3. Core API Reference (`com.nexustools.genericui.ext.gpu` & `component.media`)
 
 | Class / Interface / Enum | Description & Key Members |
 | :--- | :--- |
-| `GpuDevice` | Singleton factory & provider registry. Key methods: `acquireOffscreenContext(preferVulkan: Boolean = true): GpuOffscreenContext`, `activeBackendType: GpuBackendType`, `registerProvider(backendType, provider)`, `resetProviders()`. |
+| `GpuDevice` | Singleton factory & provider registry. Key methods: `querySupport(backendType): GpuBackendSupport`, `isSupported(backendType): Boolean`, `isHardwareAccelerated(backendType): Boolean`, `acquireOffscreenContext(preferVulkan: Boolean = true, accelerationPolicy: GpuAccelerationPolicy = GpuAccelerationPolicy.PREFER_HARDWARE): GpuOffscreenContext`, `createGLContext(width, height, attributes, accelerationPolicy): GLContext`, `createVKContext(width, height, attributes, accelerationPolicy): VKContext`. |
+| `GpuBackendType` | Enum identifying the GPU API family: `VULKAN` (Vulkan 1.2+ / MoltenVK / WebGPU), `OPENGL_ES` (OpenGL ES 3.0+ / ANGLE / WebGL2). |
+| `GpuAcceleration` | Enum identifying the execution path: `HARDWARE` (native GPU driver), `SOFTWARE` (CPU software rasterizer/emulator). |
+| `GpuAccelerationPolicy` | Enum specifying acceleration requirement: `PREFER_HARDWARE`, `REQUIRE_HARDWARE`, `SOFTWARE_ONLY`. |
+| `GpuBackendSupport` | Value descriptor reporting runtime support (`backendType`, `isSupported`, `isHardwareAccelerated`, `isSoftwareAvailable`, `driverDescription`). |
 | `GpuOffscreenContext` | Cross-platform headless/offscreen GPU compute & fragment shader context. Key members: `backendType`, `deviceName`, `apiVersion`, `vkContext: VKContext?`, `glContext: GLContext?`, `uploadTexture(imageBuffer): GpuTexture`, `updateTexture(texture, imageBuffer)`, `createEmptyTexture(width, height, pixelFormat): GpuTexture`, `downloadTexture(texture): ImageBuffer`, `destroyTexture(texture)`, `createBuffer(sizeBytes, usage): GpuBuffer`, `uploadBufferFloats(buffer, data)`, `destroyBuffer(buffer)`, `compileComputeOrFragmentKernel(vulkanGlsl450, gles300Shader): GpuShaderProgram`, `dispatchImageKernel(program, inputs, output, uniforms)`, `destroyShaderProgram(program)`. |
-| `GpuBackendType` | Enum identifying the active GPU pipeline: `VULKAN` (primary), `OPENGL_ES` (secondary fallback), `SOFTWARE_FALLBACK` (headless test fallback). |
-| `GpuTexture` | Value descriptor for an allocated 2D GPU texture (`id: Long`, `width: Int`, `height: Int`, `pixelFormat: PixelFormat`, `backendType: GpuBackendType`). |
-| `GpuBuffer` | Value descriptor for an allocated GPU device buffer (`id: Long`, `sizeBytes: Long`, `usage: GpuBufferUsage`, `backendType: GpuBackendType`). |
-| `GpuBufferUsage` | Enum specifying buffer binding role: `VERTEX`, `INDEX`, `UNIFORM`, `STORAGE`. |
-| `GpuShaderProgram` | Compiled dual-target shader program (`id: Long`, `vulkanGlsl450Source: String`, `gles300ShaderSource: String`, `stage: GpuShaderStage`, `backendType: GpuBackendType`, `vulkanModuleHandle: Long`, `glesProgramId: Int`). |
-| `GpuShaderStage` | Enum for shader stage: `VERTEX`, `FRAGMENT`, `COMPUTE`. |
-| `GpuDoubleBufferedSurface` | Lock-free front/back double-buffered GPU surface (`width`, `height`, `frontTexture`, `backTexture`, `swapBuffers()`, `resize(newWidth, newHeight)`). |
-| `VKContext` / `VKCanvasConfig` | Low-level Vulkan 1.2+ context (`deviceName`, `apiVersion`, `createShaderModuleFromGlsl`, `createBuffer`, `createTextureImageRgba`, `beginFrame`, `endFrameAndPresent`) and swapchain configuration (`enableValidationLayers`, `preferDiscreteGpu`, `srgbSwapchain`, `vsync`). |
-| `GLContext` / `GLCanvasConfig` | Low-level OpenGL ES 3.0+ / ANGLE context (`createShader`, `createProgram`, `createBuffer`, `createTexture`, `createFramebuffer`, `texImage2DRgba`, `drawArrays`, `drawElements`) and configuration (`versionMajor`, `versionMinor`, `depthBits`, `stencilBits`, `msaaSamples`, `preferAngleOnWindows`). |
+| `GpuRenderContext` | Common super-interface for `GLContext` and `VKContext` (`backendType`, `acceleration`, `surfaceWidth`, `surfaceHeight`, `resizeSurface`, `readPixels`, `dispose`). |
+| `GLContext` / `GLContextAttributes` | Strongly-typed WebGL2-style OpenGL ES 3.0+ / ANGLE context (`contextInfo: GLContextInfo`, `compileShader`, `createProgram`, `createBuffer`, `createTexture`, `createFramebuffer`, `texImage2D`, `drawArrays`, `drawElements`, `readPixels`) using typed enums (`GLClearBuffer`, `GLCapability`, `GLBlendFactor`, `GLBlendEquation`, `GLCompareFunction`, `GLBufferTarget`, `GLBufferUsage`, `GLDataType`, `GLTextureTarget`, `GLTextureFormat`, `GLPrimitive`, `GLIndexType`, etc.). |
+| `VKContext` / `VKDeviceAttributes` | Strongly-typed WebGPU-style Vulkan 1.2+ / MoltenVK / WebGPU context (`contextInfo: VKContextInfo`, `createShaderModule`, `createRenderPipeline`, `createBuffer`, `writeBuffer`, `createTexture`, `writeTexture`, `createSampler`, `createBindGroup`, `beginRenderPass`, `setPipeline`, `setVertexBuffer`, `setIndexBuffer`, `setBindGroup`, `draw`, `drawIndexed`, `endRenderPass`, `readPixels`). |
 
 ---
 
@@ -189,29 +187,30 @@ fun setupDoubleBufferedGpuSurface() {
 
 ## 5. Declarative `:dsl` Integration
 
-While `:extensions:gpu` is a device/context API without its own UI widgets, its `GpuDevice`, `VKCanvasConfig`, and `GLCanvasConfig` types integrate directly into [`:extensions:dsl`](dsl.md) and [`:extensions:canvas3d:dsl`](canvas3d.md):
+While `:extensions:gpu` is a device/context API without its own UI widgets, its `GpuDevice`, `VKDeviceAttributes`, and `GLContextAttributes` types integrate directly into [`:extensions:dsl`](dsl.md) and [`:extensions:canvas3d:dsl`](canvas3d.md):
 
 ```kotlin
-import com.nexustools.genericui.ext.canvas3d.dsl.vkCanvasExt
+import com.nexustools.genericui.component.media.VKDeviceAttributes
+import com.nexustools.genericui.component.media.VKRenderPassDescriptor
+import com.nexustools.genericui.ext.canvas3d.dsl.canvas3DVK
 import com.nexustools.genericui.ext.dsl.buildDiv
 import com.nexustools.genericui.ext.dsl.h3
 import com.nexustools.genericui.ext.dsl.span
 import com.nexustools.genericui.ext.gpu.GpuDevice
-import com.nexustools.genericui.ext.gpu.VKCanvasConfig
 
 val gpuStatusPanel = buildDiv(classes = "p-3") {
     val ctx = GpuDevice.acquireOffscreenContext(preferVulkan = true)
     h3("Active GPU: ${ctx.deviceName}")
     span("Backend: ${ctx.backendType} • API: ${ctx.apiVersion}")
 
-    vkCanvasExt(
-        config = VKCanvasConfig(preferDiscreteGpu = true, srgbSwapchain = true, vsync = true),
+    canvas3DVK(
+        attributes = VKDeviceAttributes(srgbSwapchain = true),
         width = 800,
         height = 450,
         onRender = { vkCtx, _, _, _ ->
-            vkCtx.beginFrame()
+            vkCtx.beginRenderPass(VKRenderPassDescriptor())
             // Issue Vulkan draw calls synchronized to VBlank
-            vkCtx.endFrameAndPresent()
+            vkCtx.endRenderPass()
         }
     )
 }
@@ -224,7 +223,7 @@ val gpuStatusPanel = buildDiv(classes = "p-3") {
 - **Consumer Extensions**:
   - [`:extensions:imageprocessing` (`imageprocessing.md`)](imageprocessing.md) — Uses `GpuOffscreenContext` for hardware-accelerated `ImageBuffer2DContext`, multi-pass GPU image filters, and layer compositing.
   - [`:extensions:canvas2d` (`canvas2d.md`)](canvas2d.md) — Uses `AbstractCanvas`, `VBlankWatcher`, and `ImageBuffer2DContext` for tear-free 2D rendering.
-  - [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Exposes interactive `GLCanvasExt`, `VKCanvasExt`, and `ScrollCanvas3D` widgets backed by `:extensions:gpu`.
+  - [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Exposes interactive `Canvas3D` and `ScrollCanvas3D` widgets backed by `:extensions:gpu`.
   - [`:extensions:threejs` (`threejs.md`)](threejs.md) — Renders 3D PBR scene graphs atop `:extensions:canvas3d` and `:extensions:gpu`.
   - [`:extensions:box3d` (`box3d.md`)](box3d.md) — Uses `:extensions:threejs` and `:extensions:canvas3d` for 3D rigid-body visualization.
   - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Declarative Kotlin UI & Style DSL.

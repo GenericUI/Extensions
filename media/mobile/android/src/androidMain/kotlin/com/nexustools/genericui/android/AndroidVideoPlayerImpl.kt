@@ -1,5 +1,7 @@
 package com.nexustools.genericui.android
 
+import android.media.MediaCodecList
+import android.os.Build
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.component.media.MediaCapabilitiesReport
 import com.nexustools.genericui.component.media.MediaTrackInfo
@@ -44,30 +46,76 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
         nativeWidget.attributes["antialiasing"] = "true"
     }
 
-    override fun getMediaCapabilities(): MediaCapabilitiesReport = MediaCapabilitiesReport(
-        videoCodecs = mapOf(
-            VideoCodec.H264 to CodecSupportLevel.HARDWARE_ACCELERATED,
-            VideoCodec.HEVC to CodecSupportLevel.HARDWARE_ACCELERATED,
-            VideoCodec.VP8 to CodecSupportLevel.HARDWARE_ACCELERATED,
-            VideoCodec.VP9 to CodecSupportLevel.HARDWARE_ACCELERATED,
-            VideoCodec.AV1 to CodecSupportLevel.HARDWARE_ACCELERATED
-        ),
-        audioCodecs = mapOf(
-            AudioCodec.AAC to CodecSupportLevel.HARDWARE_ACCELERATED,
-            AudioCodec.MP3 to CodecSupportLevel.HARDWARE_ACCELERATED,
-            AudioCodec.OPUS to CodecSupportLevel.HARDWARE_ACCELERATED,
-            AudioCodec.VORBIS to CodecSupportLevel.SOFTWARE_ONLY,
-            AudioCodec.FLAC to CodecSupportLevel.HARDWARE_ACCELERATED,
-            AudioCodec.PCM to CodecSupportLevel.HARDWARE_ACCELERATED
-        ),
-        containers = setOf(MediaContainer.MP4, MediaContainer.MKV, MediaContainer.WEBM, MediaContainer.HLS, MediaContainer.DASH),
-        supportsHdr10 = true,
-        supportsHlg = true,
-        supportsDolbyVision = true,
-        supportsAudioTrackSelection = true,
-        supportsSubtitleTrackSelection = true,
-        hardwareAccelerationBackend = "Android MediaCodec / ExoPlayer"
-    )
+    private fun queryAndroidDecoderSupportLevel(mimeTypes: Set<String>): CodecSupportLevel {
+        return runCatching {
+            val codecInfos = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos ?: return CodecSupportLevel.UNSUPPORTED
+            var foundSoftware = false
+            for (info in codecInfos) {
+                if (info.isEncoder) continue
+                val supported = info.supportedTypes ?: continue
+                val matches = supported.any { supportedMime ->
+                    mimeTypes.any { targetMime -> supportedMime.equals(targetMime, ignoreCase = true) }
+                }
+                if (matches) {
+                    val isHardware = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        info.isHardwareAccelerated
+                    } else {
+                        val lowerName = info.name.lowercase()
+                        !lowerName.startsWith("omx.google.") &&
+                            !lowerName.startsWith("c2.android.") &&
+                            !lowerName.contains(".sw.")
+                    }
+                    if (isHardware) {
+                        return CodecSupportLevel.HARDWARE_ACCELERATED
+                    }
+                    foundSoftware = true
+                }
+            }
+            if (foundSoftware) CodecSupportLevel.SOFTWARE_ONLY else CodecSupportLevel.UNSUPPORTED
+        }.getOrDefault(CodecSupportLevel.UNSUPPORTED)
+    }
+
+    override fun isVideoCodecSupported(codec: VideoCodec): Boolean =
+        queryAndroidDecoderSupportLevel(codec.mimeTypes) != CodecSupportLevel.UNSUPPORTED
+
+    override fun isAudioCodecSupported(codec: AudioCodec): Boolean =
+        queryAndroidDecoderSupportLevel(codec.mimeTypes) != CodecSupportLevel.UNSUPPORTED
+
+    override fun getSupportedVideoCodecs(): Set<VideoCodec> =
+        VideoCodec.entries.filterTo(linkedSetOf()) { isVideoCodecSupported(it) }
+
+    override fun getSupportedAudioCodecs(): Set<AudioCodec> =
+        AudioCodec.entries.filterTo(linkedSetOf()) { isAudioCodecSupported(it) }
+
+    override fun getMediaCapabilities(): MediaCapabilitiesReport {
+        val videoMap = linkedMapOf<VideoCodec, CodecSupportLevel>()
+        for (codec in VideoCodec.entries) {
+            val level = queryAndroidDecoderSupportLevel(codec.mimeTypes)
+            if (level != CodecSupportLevel.UNSUPPORTED) {
+                videoMap[codec] = level
+            }
+        }
+        val audioMap = linkedMapOf<AudioCodec, CodecSupportLevel>()
+        for (codec in AudioCodec.entries) {
+            val level = queryAndroidDecoderSupportLevel(codec.mimeTypes)
+            if (level != CodecSupportLevel.UNSUPPORTED) {
+                audioMap[codec] = level
+            }
+        }
+        return MediaCapabilitiesReport(
+            videoCodecs = videoMap,
+            audioCodecs = audioMap,
+            containers = setOf(MediaContainer.MP4, MediaContainer.MKV, MediaContainer.WEBM, MediaContainer.HLS, MediaContainer.DASH),
+            supportsHdr10 = VideoCodec.HEVC in videoMap || VideoCodec.VP9 in videoMap || VideoCodec.AV1 in videoMap,
+            supportsHlg = VideoCodec.HEVC in videoMap || VideoCodec.VP9 in videoMap || VideoCodec.AV1 in videoMap,
+            supportsDolbyVision = queryAndroidDecoderSupportLevel(setOf("video/dolby-vision")) != CodecSupportLevel.UNSUPPORTED,
+            supportsSurround51 = AudioCodec.AC3 in audioMap || AudioCodec.EAC3 in audioMap || AudioCodec.AAC in audioMap,
+            supportsSurround71 = AudioCodec.EAC3 in audioMap || AudioCodec.TRUEHD in audioMap || AudioCodec.DTS_HD in audioMap,
+            supportsAudioTrackSelection = true,
+            supportsSubtitleTrackSelection = true,
+            hardwareAccelerationBackend = "Android MediaCodecList"
+        )
+    }
 
     override fun supportsAudioTrackSelection(): Boolean = true
     override fun supportsSubtitleTrackSelection(): Boolean = true

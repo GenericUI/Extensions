@@ -26,10 +26,10 @@ class WebGpuAndWebGl2Context(
     override val glContext: GLContext? = if (backendType == GpuBackendType.OPENGL_ES) WebGLContextImpl() else null
 ) : GpuOffscreenContext {
     override val deviceName: String
-        get() = vkContext?.deviceName ?: glContext?.rendererString ?: "WebGPU / WebGL2 Offscreen Context"
+        get() = vkContext?.contextInfo?.deviceName ?: glContext?.contextInfo?.renderer ?: "WebGPU / WebGL2 Offscreen Context"
 
     override val apiVersion: String
-        get() = vkContext?.apiVersionString ?: glContext?.versionString ?: "WebGPU 1.0 / WebGL 2.0"
+        get() = vkContext?.contextInfo?.apiVersion?.name ?: glContext?.contextInfo?.version?.name ?: "WebGPU 1.0 / WebGL 2.0"
 
     private var nextHandle = 1L
     private val textures = mutableMapOf<Long, ImageBuffer>()

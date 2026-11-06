@@ -1,7 +1,8 @@
 package com.nexustools.genericui.ext.box3d
 
-import com.nexustools.genericui.component.media.GLCanvas
-import com.nexustools.genericui.component.media.VBlankSubscription
+import com.nexustools.genericui.component.media.Canvas3D
+import com.nexustools.genericui.ext.gpu.GpuAccelerationPolicy
+import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.threejs.cameras.Camera
 import com.nexustools.genericui.ext.threejs.core.BufferAttribute
 import com.nexustools.genericui.ext.threejs.core.BufferGeometry
@@ -19,7 +20,7 @@ import com.nexustools.genericui.ext.threejs.scenes.Scene
 
 /**
  * 3D Physics Debug Renderer bridging `:extensions:box3d` ([World3D]) with `:extensions:threejs`
- * ([Scene], [Group], [WebGLRenderer]) and `:extensions:canvas3d` ([GLCanvas]).
+ * ([Scene], [Group], [WebGLRenderer]) and `:extensions:canvas3d` ([Canvas3D]).
  *
  * Generates and updates wireframe meshes for 3D colliders, AABBs, joints, and contact normals.
  */
@@ -124,7 +125,7 @@ class Box3DDebugRenderer(
     }
 
     /**
-     * Starts an automatic VBlank simulation and rendering loop on [renderer] (backed by [GLCanvas]),
+     * Starts an automatic VBlank simulation and rendering loop on [renderer] (backed by [Canvas3D]),
      * stepping [world], updating debug wireframes, and rendering [scene] from [camera] on every frame.
      */
     fun startSimulationLoop(
@@ -142,13 +143,16 @@ class Box3DDebugRenderer(
     }
 
     /**
-     * Convenience helper creating a [WebGLRenderer] bound to [glCanvas] and running the physics + debug render loop.
+     * Convenience helper creating a [WebGLRenderer] bound to [canvas] and running the physics + debug render loop.
      */
     fun bindToCanvas3D(
         camera: Camera,
-        glCanvas: GLCanvas = GLCanvas()
+        canvas: Canvas3D = Canvas3D(
+            backend = GpuBackendType.OPENGL_ES,
+            acceleration = GpuAccelerationPolicy.HARDWARE_PREFERRED
+        )
     ): WebGLRenderer {
-        val renderer = WebGLRenderer(glCanvas = glCanvas)
+        val renderer = WebGLRenderer(canvas = canvas)
         startSimulationLoop(renderer, camera)
         return renderer
     }

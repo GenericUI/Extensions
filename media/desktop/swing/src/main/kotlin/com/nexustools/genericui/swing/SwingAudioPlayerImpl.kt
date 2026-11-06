@@ -3,17 +3,16 @@ package com.nexustools.genericui.swing
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
+import com.sun.jna.Pointer
 import uk.co.caprica.vlcj.player.base.MediaPlayer
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
+import uk.co.caprica.vlcj.player.base.callback.AudioCallbackAdapter
 import uk.co.caprica.vlcj.player.component.AudioPlayerComponent
-import javax.swing.JComponent
-import javax.swing.JPanel
 
 /**
  * Java Swing [AudioPlayerNativeImpl] backed by `libvlcj` ([AudioPlayerComponent]).
  */
-class SwingAudioPlayerImpl : SwingBaseNativeImpl(JPanel(), "vlcj-audio-player"), AudioPlayerNativeImpl<JComponent> {
-    override val nativeWidget: JPanel = super.nativeWidget as JPanel
+class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
 
     private val vlcjAudioComponent: AudioPlayerComponent? = runCatching {
         AudioPlayerComponent()
@@ -22,10 +21,15 @@ class SwingAudioPlayerImpl : SwingBaseNativeImpl(JPanel(), "vlcj-audio-player"),
     private val vlcjPlayer: MediaPlayer?
         get() = vlcjAudioComponent?.mediaPlayer()
 
+    private var analyzerTapComponent: AudioPlayerComponent? = null
+    private var currentSourceUrl: String = ""
     private var currentSecFallback: Double = 0.0
     private var playingFallback: Boolean = false
     private var volumeVal: Float = 1.0f
+    private var attachedAnalyzer: AudioAnalyzer? = null
     private var timeUpdateListener: ((Double) -> Unit)? = null
+    private var durationChangedListener: ((Double) -> Unit)? = null
+    private var bufferedRangesChangedListener: ((List<Pair<Double, Double>>) -> Unit)? = null
     private var endedListener: (() -> Unit)? = null
     private var errorListener: ((String) -> Unit)? = null
     private var mediaReadyListener: (() -> Unit)? = null
@@ -37,6 +41,12 @@ class SwingAudioPlayerImpl : SwingBaseNativeImpl(JPanel(), "vlcj-audio-player"),
                 if (!mediaReady) {
                     mediaReady = true
                     mediaReadyListener?.invoke()
+                }
+            }
+
+            override fun lengthChanged(mediaPlayer: MediaPlayer, newLength: Long) {
+                if (newLength > 0L) {
+                    durationChangedListener?.invoke(newLength / 1000.0)
                 }
             }
 
@@ -58,10 +68,50 @@ class SwingAudioPlayerImpl : SwingBaseNativeImpl(JPanel(), "vlcj-audio-player"),
         })
     }
 
+    private fun ensureAnalyzerTapPlayer(): MediaPlayer? {
+        if (attachedAnalyzer == null) return null
+        val existing = analyzerTapComponent?.mediaPlayer()
+        if (existing != null) return existing
+        val comp = runCatching { AudioPlayerComponent() }.getOrNull() ?: return null
+        val mp = comp.mediaPlayer()
+        runCatching {
+            mp.audio().callback("S16N", 44100, 2, object : AudioCallbackAdapter() {
+                override fun play(mediaPlayer: MediaPlayer, samples: Pointer, sampleCount: Int, pts: Long) {
+                    val analyzer = attachedAnalyzer ?: return
+                    val byteCount = (sampleCount * 4).coerceIn(0, 65536)
+                    if (byteCount > 0) {
+                        val bytes = samples.getByteArray(0L, byteCount)
+                        analyzer.pushPcmS16Le(
+                            bytes = bytes,
+                            byteCount = byteCount,
+                            channels = 2,
+                            volumeScale = volumeVal
+                        )
+                    }
+                }
+            })
+        }
+        analyzerTapComponent = comp
+        return mp
+    }
+
+    private fun syncAnalyzerTapMedia(url: String, seekOffsetSeconds: Double) {
+        if (attachedAnalyzer == null || url.isBlank()) return
+        val tapPlayer = ensureAnalyzerTapPlayer() ?: return
+        val options = if (seekOffsetSeconds > 0.0) {
+            arrayOf(":no-video", ":start-time=$seekOffsetSeconds")
+        } else {
+            arrayOf(":no-video")
+        }
+        runCatching { tapPlayer.media().prepare(url, *options) }
+    }
+
     override fun getSupportedAudioCodecs(): Set<AudioCodec> = AudioCodec.entries.toSet()
 
+    override fun isAudioCodecSupported(codec: AudioCodec): Boolean = true
+
     override fun setSource(url: String, seekOffsetSeconds: Double) {
-        nativeWidget.putClientProperty("audioUri", url)
+        currentSourceUrl = url
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
         mediaReady = false
         val options = if (seekOffsetSeconds > 0.0) {
@@ -70,6 +120,9 @@ class SwingAudioPlayerImpl : SwingBaseNativeImpl(JPanel(), "vlcj-audio-player"),
             emptyArray()
         }
         vlcjPlayer?.media()?.prepare(url, *options)
+        if (attachedAnalyzer != null) {
+            syncAnalyzerTapMedia(url, seekOffsetSeconds)
+        }
         if (url.isNotBlank()) {
             mediaReady = true
             mediaReadyListener?.invoke()
@@ -79,23 +132,30 @@ class SwingAudioPlayerImpl : SwingBaseNativeImpl(JPanel(), "vlcj-audio-player"),
     override fun play() {
         playingFallback = true
         vlcjPlayer?.controls()?.play()
+        if (attachedAnalyzer != null && currentSourceUrl.isNotBlank()) {
+            ensureAnalyzerTapPlayer()?.controls()?.play()
+        }
     }
 
     override fun pause() {
         playingFallback = false
         vlcjPlayer?.controls()?.setPause(true)
+        analyzerTapComponent?.mediaPlayer()?.controls()?.setPause(true)
     }
 
     override fun stop() {
         playingFallback = false
         currentSecFallback = 0.0
         vlcjPlayer?.controls()?.stop()
+        analyzerTapComponent?.mediaPlayer()?.controls()?.stop()
     }
 
     override fun seekTo(seconds: Double) {
         val clamped = seconds.coerceAtLeast(0.0)
         currentSecFallback = clamped
-        vlcjPlayer?.controls()?.setTime((clamped * 1000.0).toLong())
+        val targetMs = (clamped * 1000.0).toLong()
+        vlcjPlayer?.controls()?.setTime(targetMs)
+        analyzerTapComponent?.mediaPlayer()?.controls()?.setTime(targetMs)
         timeUpdateListener?.invoke(clamped)
     }
 
@@ -119,9 +179,24 @@ class SwingAudioPlayerImpl : SwingBaseNativeImpl(JPanel(), "vlcj-audio-player"),
 
     override fun getVolume(): Float = volumeVal
 
-    override fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {}
+    override fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {
+        attachedAnalyzer = analyzer
+        if (analyzer != null && currentSourceUrl.isNotBlank()) {
+            val offset = getCurrentTimeSeconds().coerceAtLeast(0.0)
+            syncAnalyzerTapMedia(currentSourceUrl, offset)
+            if (isPlaying()) {
+                ensureAnalyzerTapPlayer()?.controls()?.play()
+            }
+        } else if (analyzer == null) {
+            analyzerTapComponent?.mediaPlayer()?.controls()?.stop()
+        }
+    }
 
     override fun setOnTimeUpdate(listener: ((Double) -> Unit)?) { timeUpdateListener = listener }
+    override fun setOnDurationChanged(listener: ((Double) -> Unit)?) { durationChangedListener = listener }
+    override fun setOnBufferedRangesChanged(listener: ((List<Pair<Double, Double>>) -> Unit)?) {
+        bufferedRangesChangedListener = listener
+    }
     override fun setOnEnded(listener: ((() -> Unit))?) { endedListener = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { errorListener = listener }
     override fun setOnMediaReady(listener: (() -> Unit)?) {
@@ -131,7 +206,8 @@ class SwingAudioPlayerImpl : SwingBaseNativeImpl(JPanel(), "vlcj-audio-player"),
     override fun isMediaReady(): Boolean = mediaReady
 
     override fun dispose() {
+        runCatching { analyzerTapComponent?.release() }
+        analyzerTapComponent = null
         vlcjAudioComponent?.release()
-        super.dispose()
     }
 }

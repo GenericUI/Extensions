@@ -1,31 +1,40 @@
 package com.nexustools.genericui.ext.box3d.dsl
 
-import com.nexustools.genericui.component.media.GLCanvas
+import com.nexustools.genericui.component.media.Canvas3D
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.ext.box3d.Vec3
 import com.nexustools.genericui.ext.box3d.World3D
 import com.nexustools.genericui.ext.dsl.GenericUiDslMarker
+import com.nexustools.genericui.ext.gpu.GpuAccelerationPolicy
+import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.threejs.cameras.PerspectiveCamera
 import com.nexustools.genericui.ext.threejs.scenes.Scene
 
 /**
- * In-place 3D physics debug canvas builder backed by [GLCanvas], [World3D], and [Box3DDebugRenderer].
+ * In-place 3D physics debug canvas builder backed by [Canvas3D], [World3D], and [com.nexustools.genericui.ext.box3d.Box3DDebugRenderer].
  */
 fun AbstractContainer.box3dDebugCanvas(
     world: World3D = World3D(),
     scene: Scene = Scene(),
+    backend: GpuBackendType = GpuBackendType.OPENGL_ES,
+    acceleration: GpuAccelerationPolicy = GpuAccelerationPolicy.HARDWARE_PREFERRED,
     width: Int = 800,
     height: Int = 600,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker Box3DWorldDslScope.() -> Unit)? = null
-): GLCanvas {
-    val glCanvas = GLCanvas(width = width, height = height)
+): Canvas3D {
+    val canvas = Canvas3D(
+        backend = backend,
+        acceleration = acceleration,
+        width = width,
+        height = height
+    )
     if (!classes.isNullOrBlank()) {
-        glCanvas.addClass(classes)
+        canvas.addClass(classes)
     }
     if (!id.isNullOrBlank()) {
-        glCanvas.id = id
+        canvas.id = id
     }
     val aspect = width.coerceAtLeast(1).toFloat() / height.coerceAtLeast(1).toFloat()
     val scope = Box3DWorldDslScope(
@@ -39,9 +48,9 @@ fun AbstractContainer.box3dDebugCanvas(
         scope.block()
     }
     scope.debugRenderer.update()
-    scope.debugRenderer.bindToCanvas3D(camera = scope.camera, glCanvas = glCanvas)
-    addChild(glCanvas)
-    return glCanvas
+    scope.debugRenderer.bindToCanvas3D(camera = scope.camera, canvas = canvas)
+    addChild(canvas)
+    return canvas
 }
 
 /**

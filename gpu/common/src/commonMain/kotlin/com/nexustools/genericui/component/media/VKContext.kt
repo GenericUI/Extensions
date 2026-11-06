@@ -1,55 +1,60 @@
 package com.nexustools.genericui.component.media
 
-import com.nexustools.genericui.enums.media.ShaderType
-import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.ext.gpu.GpuAcceleration
+import com.nexustools.genericui.ext.gpu.GpuBackendType
 
 /**
- * Cross-platform Vulkan 1.1 / 1.2 / 1.3 rendering context exposed by [VKCanvas].
- *
- * Maps to:
- * - Native `VkInstance`, `VkPhysicalDevice`, `VkDevice`, `VkQueue`, `VkSwapchainKHR`, and `VkCommandBuffer`
- *   on `:windows` (`VK_KHR_win32_surface`), `:gtk`/`qt` (`VK_KHR_wayland_surface` / `VK_KHR_xlib_surface`),
- *   `:android` (`VK_KHR_android_surface`), and `:swing` (via optional LWJGL `lwjgl-vulkan`).
- * - `MoltenVK` (`VK_EXT_metal_surface`) on `:macos` and `:ios`.
- * - `WebGPU` (`GPUDevice` / `GPUCommandEncoder`) on `:web`.
+ * Typed WebGPU / Vulkan rendering context interface.
  */
-interface VKContext {
-    val deviceName: String
-    val apiVersionString: String
+interface VKContext : GpuRenderContext {
+    override val backendType: GpuBackendType
+        get() = GpuBackendType.VULKAN
+    val contextInfo: VKContextInfo
+    override val acceleration: GpuAcceleration
+        get() = contextInfo.acceleration
     val swapchainWidth: Int
     val swapchainHeight: Int
     val currentImageIndex: Int
-    val isMoltenVk: Boolean
 
-    fun beginRenderPass(clearColor: RgbaColor = RgbaColor.BLACK, clearDepth: Float = 1f)
+    fun beginRenderPass(descriptor: VKRenderPassDescriptor = VKRenderPassDescriptor())
     fun endRenderPass()
 
     fun setViewport(x: Float, y: Float, width: Float, height: Float, minDepth: Float = 0f, maxDepth: Float = 1f)
     fun setScissor(x: Int, y: Int, width: Int, height: Int)
 
-    fun createShaderModuleFromSpirv(stage: ShaderType, spirvBytes: ByteArray): Long
-    fun createShaderModuleFromGlsl(stage: ShaderType, glslSource: String): Long
-    fun destroyShaderModule(moduleHandle: Long)
+    fun createShaderModule(source: GpuShaderStageSource): VKShaderModule
+    fun destroyShaderModule(module: VKShaderModule)
 
-    fun createGraphicsPipeline(vertexShaderHandle: Long, fragmentShaderHandle: Long, vertexStrideBytes: Int): Long
-    fun bindPipeline(pipelineHandle: Long)
-    fun destroyPipeline(pipelineHandle: Long)
+    fun createRenderPipeline(descriptor: VKRenderPipelineDescriptor): VKPipeline
+    fun bindPipeline(pipeline: VKPipeline)
+    fun destroyPipeline(pipeline: VKPipeline)
 
-    fun createDeviceBuffer(sizeBytes: Long, usageFlags: Int): Long
-    fun uploadBufferData(bufferHandle: Long, data: ByteArray, offsetBytes: Long = 0L)
-    fun uploadBufferFloats(bufferHandle: Long, data: FloatArray, offsetBytes: Long = 0L)
-    fun destroyDeviceBuffer(bufferHandle: Long)
+    fun createBuffer(descriptor: VKBufferDescriptor): VKBuffer
+    fun writeBuffer(buffer: VKBuffer, data: ByteArray, offsetBytes: Long = 0L)
+    fun writeBuffer(buffer: VKBuffer, data: FloatArray, offsetBytes: Long = 0L)
+    fun destroyBuffer(buffer: VKBuffer)
 
-    fun createTextureImageRgba(width: Int, height: Int, rgbaBytes: ByteArray?): Long
-    fun updateTextureImageRgba(imageHandle: Long, width: Int, height: Int, rgbaBytes: ByteArray)
-    fun destroyTextureImage(imageHandle: Long)
+    fun createTexture(descriptor: VKTextureDescriptor, initialRgbaBytes: ByteArray? = null): VKTexture
+    fun writeTexture(texture: VKTexture, width: Int, height: Int, rgbaBytes: ByteArray)
+    fun destroyTexture(texture: VKTexture)
 
-    fun bindVertexBuffer(bufferHandle: Long, binding: Int = 0, offsetBytes: Long = 0L)
-    fun bindIndexBuffer(bufferHandle: Long, indexTypeUint32: Boolean = true, offsetBytes: Long = 0L)
-    fun pushConstantsFloat(pipelineHandle: Long, values: FloatArray)
+    fun createSampler(descriptor: VKSamplerDescriptor = VKSamplerDescriptor()): VKSampler
+    fun destroySampler(sampler: VKSampler)
+
+    fun createRenderTarget(width: Int, height: Int, format: VKTextureFormat = VKTextureFormat.RGBA8_UNORM): VKRenderTarget
+    fun destroyRenderTarget(target: VKRenderTarget)
+
+    fun createBindGroup(descriptor: VKBindGroupDescriptor): VKBindGroup
+    fun setBindGroup(index: Int, bindGroup: VKBindGroup)
+    fun destroyBindGroup(bindGroup: VKBindGroup)
+
+    fun bindVertexBuffer(buffer: VKBuffer, binding: Int = 0, offsetBytes: Long = 0L)
+    fun bindIndexBuffer(buffer: VKBuffer, indexType: GLIndexType = GLIndexType.UNSIGNED_INT, offsetBytes: Long = 0L)
+    fun pushConstants(pipeline: VKPipeline, values: FloatArray)
 
     fun draw(vertexCount: Int, instanceCount: Int = 1, firstVertex: Int = 0, firstInstance: Int = 0)
     fun drawIndexed(indexCount: Int, instanceCount: Int = 1, firstIndex: Int = 0, vertexOffset: Int = 0, firstInstance: Int = 0)
 
+    fun readPixels(x: Int, y: Int, width: Int, height: Int): ByteArray
     fun waitIdle()
 }

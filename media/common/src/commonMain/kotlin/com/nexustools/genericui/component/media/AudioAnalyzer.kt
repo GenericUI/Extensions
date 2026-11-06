@@ -9,45 +9,97 @@ import com.nexustools.genericui.nativeimpl.media.AudioAnalyzerNativeImpl
  * to [AudioPlayer] or [VideoPlayer].
  */
 class AudioAnalyzer(
-    fftSize: Int = 2048
+    config: AudioAnalyzerConfig = AudioAnalyzerConfig()
 ) : Disposable {
-    private var nativeImpl: AudioAnalyzerNativeImpl? = MediaExtension.createAudioAnalyzerNative(fftSize)
 
-    var fftSize: Int = fftSize
+    constructor(fftSize: Int) : this(
+        AudioAnalyzerConfig(fftSize = AudioFftSize.fromSampleCount(fftSize))
+    )
+
+    var config: AudioAnalyzerConfig = config
         set(value) {
             field = value
-            ensureImpl()?.fftSize = value
+            val newFftSize = value.fftSize.sampleCount
+            if (fftSize != newFftSize) {
+                fftSize = newFftSize
+            } else {
+                nativeImpl?.fftSize = newFftSize
+            }
+        }
+
+    private var nativeImpl: AudioAnalyzerNativeImpl? = null
+
+    var fftSize: Int = config.fftSize.sampleCount
+        set(value) {
+            field = value
+            val resolvedEnum = AudioFftSize.fromSampleCount(value)
+            if (config.fftSize != resolvedEnum) {
+                config = config.copy(fftSize = resolvedEnum)
+            }
+            nativeImpl?.fftSize = value
+        }
+
+    var smoothingTimeConstant: Float
+        get() = config.smoothingTimeConstant
+        set(value) {
+            config = config.copy(smoothingTimeConstant = value.coerceIn(0f, 0.99f))
+        }
+
+    var minDecibels: Float
+        get() = config.minDecibels
+        set(value) {
+            config = config.copy(minDecibels = value)
+        }
+
+    var maxDecibels: Float
+        get() = config.maxDecibels
+        set(value) {
+            config = config.copy(maxDecibels = value)
         }
 
     val frequencyBinCount: Int
-        get() = ensureImpl()?.frequencyBinCount ?: (fftSize / 2)
+        get() = nativeImpl?.frequencyBinCount ?: (fftSize / 2)
 
     fun getByteTimeDomainData(destination: ByteArray) {
-        ensureImpl()?.getByteTimeDomainData(destination)
+        ensureImpl().getByteTimeDomainData(destination)
     }
 
     fun getFloatTimeDomainData(destination: FloatArray) {
-        ensureImpl()?.getFloatTimeDomainData(destination)
+        ensureImpl().getFloatTimeDomainData(destination)
     }
 
     fun getByteFrequencyData(destination: ByteArray) {
-        ensureImpl()?.getByteFrequencyData(destination)
+        ensureImpl().getByteFrequencyData(destination)
     }
 
     fun getFloatFrequencyData(destination: FloatArray) {
-        ensureImpl()?.getFloatFrequencyData(destination)
+        ensureImpl().getFloatFrequencyData(destination)
     }
 
     fun computeEnergyBands(): AudioEnergyBands =
-        ensureImpl()?.computeEnergyBands() ?: AudioEnergyBands()
+        ensureImpl().computeEnergyBands()
 
-    private fun ensureImpl(): AudioAnalyzerNativeImpl? {
-        if (nativeImpl == null) {
-            nativeImpl = MediaExtension.createAudioAnalyzerNative(fftSize)?.also {
-                it.fftSize = fftSize
-            }
+    fun pushPcmSamples(samples: FloatArray, channels: Int = 1) {
+        ensureImpl().pushPcmSamples(samples, channels)
+    }
+
+    fun pushPcmS16Le(
+        bytes: ByteArray,
+        byteCount: Int = bytes.size,
+        channels: Int = 2,
+        volumeScale: Float = 1.0f
+    ) {
+        ensureImpl().pushPcmS16Le(bytes, byteCount, channels, volumeScale)
+    }
+
+    private fun ensureImpl(): AudioAnalyzerNativeImpl {
+        val existing = nativeImpl
+        if (existing != null) return existing
+        val created = MediaExtension.createAudioAnalyzerNative(fftSize).also {
+            it.fftSize = fftSize
         }
-        return nativeImpl
+        nativeImpl = created
+        return created
     }
 
     override fun dispose() {

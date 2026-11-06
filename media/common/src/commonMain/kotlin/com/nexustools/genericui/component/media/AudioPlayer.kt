@@ -1,7 +1,5 @@
 package com.nexustools.genericui.component.media
 
-import com.nexustools.genericui.core.AbstractComponent
-import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.ext.media.MediaExtension
@@ -11,50 +9,70 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /**
- * Cross-platform audio player component supporting seek offsets, volume control,
- * and real-time [AudioAnalyzer] attachment.
+ * Cross-platform non-visual audio player implementing [Player], supporting seek offsets,
+ * volume control, and real-time [AudioAnalyzer] attachment across all backends without
+ * requiring mounting in a UI component tree.
  */
 class AudioPlayer(
     sourceUrl: String? = null
-) : AbstractComponent() {
-    var sourceUrl: String? = sourceUrl
+) : Player {
+    private var nativeImpl: AudioPlayerNativeImpl? = null
+    private var nativeSourceSynced: Boolean = false
+
+    override var sourceUrl: String? = sourceUrl
         private set
 
-    var seekOffsetSeconds: Double = 0.0
+    override var seekOffsetSeconds: Double = 0.0
+        private set
+
+    override var durationOverrideSeconds: Double? = null
         private set
 
     private var nativeReportedDurationSeconds: Double = 0.0
     private var playingFallbackState: Boolean = false
     internal val stateChangeObservers = mutableListOf<() -> Unit>()
 
-    var volume: Float = 1.0f
+    override var volume: Float = 1.0f
         set(value) {
             field = value.coerceIn(0f, 2f)
-            typedNative<AudioPlayerNativeImpl<*>>()?.setVolume(field)
+            ensureImpl()?.setVolume(if (isMuted) 0f else field)
             notifyStateChangeObservers()
         }
 
-    var preloadMode: MediaPreloadMode = MediaPreloadMode.AUTO
+    override var isMuted: Boolean = false
         set(value) {
             field = value
-            typedNative<AudioPlayerNativeImpl<*>>()?.setPreloadMode(value)
+            ensureImpl()?.setVolume(if (value) 0f else volume)
             notifyStateChangeObservers()
         }
 
-    var adaptivePreloadBufferingEnabled: Boolean = true
+    override var playbackSpeed: Float = 1.0f
+        set(value) {
+            field = value.coerceIn(0.1f, 8.0f)
+            notifyStateChangeObservers()
+        }
+
+    override var preloadMode: MediaPreloadMode = MediaPreloadMode.AUTO
         set(value) {
             field = value
-            typedNative<AudioPlayerNativeImpl<*>>()?.setAdaptivePreloadBufferingEnabled(value)
+            ensureImpl()?.setPreloadMode(value)
+            notifyStateChangeObservers()
+        }
+
+    override var adaptivePreloadBufferingEnabled: Boolean = true
+        set(value) {
+            field = value
+            ensureImpl()?.setAdaptivePreloadBufferingEnabled(value)
             notifyStateChangeObservers()
         }
 
     private var mediaReadyFallbackState: Boolean = false
     private val mediaReadyWaiters = mutableListOf<() -> Unit>()
 
-    val isMediaReady: Boolean
-        get() = typedNative<AudioPlayerNativeImpl<*>>()?.isMediaReady() == true || mediaReadyFallbackState
+    override val isMediaReady: Boolean
+        get() = ensureImpl()?.isMediaReady() == true || mediaReadyFallbackState
 
-    var onMediaReady: (() -> Unit)? = null
+    override var onMediaReady: (() -> Unit)? = null
 
     internal fun notifyMediaReady() {
         val wasReady = mediaReadyFallbackState
@@ -74,7 +92,7 @@ class AudioPlayer(
      * Suspends until the current audio [sourceUrl] has loaded metadata/buffer and is ready to play,
      * or until [timeoutMs] elapses. Returns `true` if media is ready.
      */
-    suspend fun awaitMediaReady(timeoutMs: Long = 8_000L): Boolean {
+    override suspend fun awaitMediaReady(timeoutMs: Long): Boolean {
         if (isMediaReady) return true
         val result = withTimeoutOrNull(timeoutMs.coerceAtLeast(1L)) {
             if (isMediaReady) return@withTimeoutOrNull true
@@ -99,39 +117,103 @@ class AudioPlayer(
         return result ?: isMediaReady
     }
 
-    var bufferedRanges: List<Pair<Double, Double>> = emptyList()
+    override var isBuffering: Boolean = false
+        private set
+
+    override var bufferedRanges: List<Pair<Double, Double>> = emptyList()
         get() {
             if (field.isNotEmpty()) return field
-            return typedNative<AudioPlayerNativeImpl<*>>()?.getBufferedRanges().orEmpty()
+            return ensureImpl()?.getBufferedRanges().orEmpty()
         }
         private set
 
-    val bufferedEndSeconds: Double
+    override val bufferedEndSeconds: Double
         get() = bufferedRanges.maxOfOrNull { it.second } ?: 0.0
 
-    val estimatedNetworkSpeedRatio: Double
-        get() = typedNative<AudioPlayerNativeImpl<*>>()?.getEstimatedNetworkSpeedRatio() ?: 1.0
+    override val estimatedNetworkSpeedRatio: Double
+        get() = ensureImpl()?.getEstimatedNetworkSpeedRatio() ?: 1.0
 
-    fun getRequiredSafeBufferSeconds(): Double =
-        typedNative<AudioPlayerNativeImpl<*>>()?.getRequiredSafeBufferSeconds() ?: 0.0
+    override fun getRequiredSafeBufferSeconds(): Double =
+        ensureImpl()?.getRequiredSafeBufferSeconds() ?: 0.0
 
-    val currentTimeSeconds: Double
-        get() = typedNative<AudioPlayerNativeImpl<*>>()?.getCurrentTimeSeconds() ?: seekOffsetSeconds
+    override val currentTimeSeconds: Double
+        get() = ensureImpl()?.getCurrentTimeSeconds() ?: seekOffsetSeconds
 
-    val durationSeconds: Double
-        get() = typedNative<AudioPlayerNativeImpl<*>>()?.getDurationSeconds()?.takeIf { it > 0.0 }
+    override val durationSeconds: Double
+        get() = durationOverrideSeconds
+            ?: ensureImpl()?.getDurationSeconds()?.takeIf { it > 0.0 }
             ?: nativeReportedDurationSeconds
 
-    val isPlaying: Boolean
-        get() = typedNative<AudioPlayerNativeImpl<*>>()?.isPlaying() ?: playingFallbackState
+    override val isPlaying: Boolean
+        get() = ensureImpl()?.isPlaying() ?: playingFallbackState
 
-    var onTimeUpdate: ((Double) -> Unit)? = null
-    var onDurationChanged: ((Double) -> Unit)? = null
-    var onBufferedRangesChanged: ((List<Pair<Double, Double>>) -> Unit)? = null
-    var onEnded: (() -> Unit)? = null
-    var onError: ((String) -> Unit)? = null
+    override var onTimeUpdate: ((Double) -> Unit)? = null
+    override var onDurationChanged: ((Double) -> Unit)? = null
+    override var onPlayingStateChanged: ((Boolean) -> Unit)? = null
+    override var onBufferingChanged: ((Boolean) -> Unit)? = null
+    override var onBufferedRangesChanged: ((List<Pair<Double, Double>>) -> Unit)? = null
+    override var onEnded: (() -> Unit)? = null
+    override var onError: ((String) -> Unit)? = null
 
     private var attachedAnalyzer: AudioAnalyzer? = null
+
+    init {
+        if (!sourceUrl.isNullOrBlank()) {
+            setSource(sourceUrl, 0.0, null)
+        }
+    }
+
+    private fun ensureImpl(): AudioPlayerNativeImpl? {
+        val existing = nativeImpl
+        if (existing != null) return existing
+        val created = MediaExtension.createAudioPlayerNative() ?: return null
+        nativeImpl = created
+        created.setPreloadMode(preloadMode)
+        created.setAdaptivePreloadBufferingEnabled(adaptivePreloadBufferingEnabled)
+        created.setVolume(if (isMuted) 0f else volume)
+        created.setOnMediaReady {
+            notifyMediaReady()
+        }
+        created.setOnTimeUpdate { timeSec ->
+            seekOffsetSeconds = timeSec
+            onTimeUpdate?.invoke(timeSec)
+            notifyStateChangeObservers()
+        }
+        created.setOnDurationChanged { durSec ->
+            nativeReportedDurationSeconds = durSec
+            if (durSec > 0.0 && !mediaReadyFallbackState) {
+                notifyMediaReady()
+            }
+            onDurationChanged?.invoke(durSec)
+            notifyStateChangeObservers()
+        }
+        created.setOnBufferedRangesChanged { ranges ->
+            bufferedRanges = ranges.toList()
+            onBufferedRangesChanged?.invoke(bufferedRanges)
+            notifyStateChangeObservers()
+        }
+        created.setOnEnded {
+            playingFallbackState = false
+            onPlayingStateChanged?.invoke(false)
+            onEnded?.invoke()
+            notifyStateChangeObservers()
+        }
+        created.setOnError { err ->
+            playingFallbackState = false
+            onError?.invoke(err)
+            notifyStateChangeObservers()
+        }
+        attachedAnalyzer?.let { created.attachAudioAnalyzer(it) }
+        val pendingUrl = sourceUrl
+        if (!pendingUrl.isNullOrBlank() && !nativeSourceSynced) {
+            nativeSourceSynced = true
+            created.setSource(pendingUrl, seekOffsetSeconds)
+            if (created.isMediaReady()) {
+                notifyMediaReady()
+            }
+        }
+        return created
+    }
 
     internal fun addStateChangeObserver(observer: () -> Unit) {
         if (observer !in stateChangeObservers) {
@@ -149,49 +231,86 @@ class AudioPlayer(
         }
     }
 
-    fun getSupportedAudioCodecs(): Set<AudioCodec> =
-        typedNative<AudioPlayerNativeImpl<*>>()?.getSupportedAudioCodecs() ?: emptySet()
+    override fun getSupportedAudioCodecs(): Set<AudioCodec> =
+        ensureImpl()?.getSupportedAudioCodecs() ?: emptySet()
 
-    fun setSource(url: String, seekOffsetSeconds: Double = 0.0) {
+    override fun isAudioCodecSupported(codec: AudioCodec): Boolean =
+        ensureImpl()?.isAudioCodecSupported(codec) ?: false
+
+    override fun setSource(url: String, seekOffsetSeconds: Double, durationOverrideSeconds: Double?) {
         this.sourceUrl = url
-        this.seekOffsetSeconds = seekOffsetSeconds
+        this.seekOffsetSeconds = seekOffsetSeconds.coerceAtLeast(0.0)
+        this.durationOverrideSeconds = durationOverrideSeconds
         this.mediaReadyFallbackState = false
-        val impl = typedNative<AudioPlayerNativeImpl<*>>()
+        this.nativeSourceSynced = true
+        val impl = ensureImpl()
         if (impl != null) {
-            impl.setSource(url, seekOffsetSeconds)
+            impl.setSource(url, this.seekOffsetSeconds)
+            if (durationOverrideSeconds != null) {
+                onDurationChanged?.invoke(durationOverrideSeconds)
+            }
             if (impl.isMediaReady()) {
                 notifyMediaReady()
             }
-        } else if (url.isNotBlank()) {
-            notifyMediaReady()
+        } else {
+            this.nativeSourceSynced = false
+            if (durationOverrideSeconds != null) {
+                nativeReportedDurationSeconds = durationOverrideSeconds
+                onDurationChanged?.invoke(durationOverrideSeconds)
+            }
+            if (url.isNotBlank()) {
+                notifyMediaReady()
+            }
         }
         notifyStateChangeObservers()
     }
 
-    fun play() {
+    override fun play() {
         playingFallbackState = true
-        typedNative<AudioPlayerNativeImpl<*>>()?.play()
+        val impl = ensureImpl()
+        if (impl != null) {
+            impl.play()
+        }
+        onPlayingStateChanged?.invoke(true)
         notifyStateChangeObservers()
     }
 
-    fun pause() {
+    override fun pause() {
         playingFallbackState = false
-        typedNative<AudioPlayerNativeImpl<*>>()?.pause()
+        val impl = ensureImpl()
+        if (impl != null) {
+            impl.pause()
+        }
+        onPlayingStateChanged?.invoke(false)
         notifyStateChangeObservers()
     }
 
-    fun stop() {
+    override fun togglePlayPause() {
+        if (isPlaying) {
+            pause()
+        } else {
+            play()
+        }
+    }
+
+    override fun stop() {
         playingFallbackState = false
         seekOffsetSeconds = 0.0
-        typedNative<AudioPlayerNativeImpl<*>>()?.stop()
+        val impl = ensureImpl()
+        if (impl != null) {
+            impl.stop()
+        } else {
+            onTimeUpdate?.invoke(0.0)
+        }
+        onPlayingStateChanged?.invoke(false)
         notifyStateChangeObservers()
     }
 
-    fun seekTo(seconds: Double) {
+    override fun seekTo(seconds: Double) {
         val dur = durationSeconds
         val clamped = if (dur > 0.0) seconds.coerceIn(0.0, dur) else seconds.coerceAtLeast(0.0)
         seekOffsetSeconds = clamped
-        val impl = typedNative<AudioPlayerNativeImpl<*>>()
+        val impl = ensureImpl()
         if (impl != null) {
             impl.seekTo(clamped)
         } else {
@@ -200,58 +319,35 @@ class AudioPlayer(
         notifyStateChangeObservers()
     }
 
-    fun updateBufferedRanges(ranges: List<Pair<Double, Double>>) {
+    override fun skipDelta(deltaSeconds: Double) {
+        seekTo(currentTimeSeconds + deltaSeconds)
+    }
+
+    override fun setBufferingState(buffering: Boolean) {
+        isBuffering = buffering
+        onBufferingChanged?.invoke(buffering)
+        notifyStateChangeObservers()
+    }
+
+    override fun updateBufferedRanges(ranges: List<Pair<Double, Double>>) {
         bufferedRanges = ranges.toList()
         onBufferedRangesChanged?.invoke(bufferedRanges)
         notifyStateChangeObservers()
     }
 
-    fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {
+    override fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {
         attachedAnalyzer = analyzer
-        typedNative<AudioPlayerNativeImpl<*>>()?.attachAudioAnalyzer(analyzer)
+        ensureImpl()?.attachAudioAnalyzer(analyzer)
     }
 
-    protected override fun createNativeImpl(factory: NativeFactory): AudioPlayerNativeImpl<*> =
-        MediaExtension.createAudioPlayerNativeOrFallback()
+    override var isDisposed: Boolean = false
+        private set
 
-    override fun syncStateToNative() {
-        super.syncStateToNative()
-        val impl = typedNative<AudioPlayerNativeImpl<*>>() ?: return
-        impl.setPreloadMode(preloadMode)
-        impl.setAdaptivePreloadBufferingEnabled(adaptivePreloadBufferingEnabled)
-        impl.setVolume(volume)
-        impl.setOnMediaReady {
-            notifyMediaReady()
-        }
-        impl.setOnTimeUpdate { timeSec ->
-            seekOffsetSeconds = timeSec
-            onTimeUpdate?.invoke(timeSec)
-            notifyStateChangeObservers()
-        }
-        impl.setOnDurationChanged { durSec ->
-            nativeReportedDurationSeconds = durSec
-            if (durSec > 0.0 && !mediaReadyFallbackState) {
-                notifyMediaReady()
-            }
-            onDurationChanged?.invoke(durSec)
-            notifyStateChangeObservers()
-        }
-        impl.setOnBufferedRangesChanged { ranges ->
-            bufferedRanges = ranges.toList()
-            onBufferedRangesChanged?.invoke(bufferedRanges)
-            notifyStateChangeObservers()
-        }
-        impl.setOnEnded {
-            playingFallbackState = false
-            onEnded?.invoke()
-            notifyStateChangeObservers()
-        }
-        impl.setOnError { err ->
-            playingFallbackState = false
-            onError?.invoke(err)
-            notifyStateChangeObservers()
-        }
-        attachedAnalyzer?.let { impl.attachAudioAnalyzer(it) }
-        sourceUrl?.let { impl.setSource(it, seekOffsetSeconds) }
+    override fun dispose() {
+        isDisposed = true
+        stop()
+        nativeImpl?.dispose()
+        nativeImpl = null
+        nativeSourceSynced = false
     }
 }

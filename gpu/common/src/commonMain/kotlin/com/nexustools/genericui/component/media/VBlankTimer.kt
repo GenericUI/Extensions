@@ -3,7 +3,7 @@ package com.nexustools.genericui.component.media
 import kotlin.time.TimeSource
 
 /**
- * High-resolution monotonic frame timer used by [AbstractCanvas] (`Canvas2D`, `GLCanvas`, `VKCanvas`)
+ * High-resolution monotonic frame timer used by [AbstractCanvas] (`Canvas2D` and `Canvas3D`)
  * and `VBlankWatcher` to compute exact `deltaMs` and `totalElapsedMs` between VBlank render callbacks.
  *
  * When the platform supplies an explicit hardware/DOM VBlank timestamp (such as `DOMHighResTimeStamp`

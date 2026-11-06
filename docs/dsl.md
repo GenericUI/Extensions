@@ -74,13 +74,13 @@ flowchart TD
 
     OverlayDsl[":extensions:overlay:dsl<br/>(overlayHostBox, presetOverlay, trackSeekBar, sliderSeekBar, ...)"]
     C2DDsl[":extensions:canvas2d:dsl<br/>(canvas2DExt, canvas2DOverlayHost, scrollCanvas2DOverlayHost, curveEditorExt)"]
-    C3DDsl[":extensions:canvas3d:dsl<br/>(glCanvasExt, vkCanvasExt, canvas3DOverlayHost, scrollCanvas3DOverlayHost)"]
+    C3DDsl[":extensions:canvas3d:dsl<br/>(canvas3D, canvas3DGL, canvas3DVK, canvas3DOverlayHost, scrollCanvas3DOverlayHost)"]
     MediaDsl[":extensions:media:dsl<br/>(videoPlayerExt, videoOverlayHost, audioPlayerExt, audioAnalyzerExt)"]
     MediaControlsDsl[":extensions:mediacontrols:dsl<br/>(mediaControlsSession, metadata, buttons, onEvent)"]
     WebViewDsl[":extensions:webview:dsl<br/>(webViewExt, webView)"]
     CodeDsl[":extensions:codeeditor:dsl<br/>(codeEditor, ideCodeEditor, codeMinimap)"]
     AiDsl[":extensions:aichat:dsl<br/>(aiChat, aiChatMessageView, aiChatToolCallCard)"]
-    ThreeDsl[":extensions:threejs:dsl<br/>(threeJsGlCanvas, threeJsVkCanvas, scene)"]
+    ThreeDsl[":extensions:threejs:dsl<br/>(threeJsCanvas, scene)"]
     Box2DDsl[":extensions:box2d:dsl<br/>(box2dDebugCanvas, world2D)"]
     Box3DDsl[":extensions:box3d:dsl<br/>(box3dDebugCanvas, world3D)"]
     AlienDsl[":extensions:alien:dsl<br/>(alienContainer, unalienContainer)"]
@@ -134,13 +134,13 @@ genericui {
 | :--- | :--- | :--- | :--- |
 | **`:extensions:overlay:dsl`** | `com.nexustools.genericui.ext.overlay.dsl` | `overlayHostBox`, `defaultOverlayPreset`, `mobileOverlayPreset`, `webSystemOverlayPreset`, `gradientScrim`, `metadataHeader`, `overlayBadgeStrip`, `centerTransportCluster`, `trackSeekBar`, `sliderSeekBar`, `volumeControl`, `subtitleCueView`, `overlayPopoverPanel`, `overlayModalDialog`, `overlayCurtain` | [`overlay.md`](overlay.md) |
 | **`:extensions:canvas2d:dsl`** | `com.nexustools.genericui.ext.canvas2d.dsl` | `canvas2DExt`, `canvas2D`, `canvas2DOverlayHost`, `scrollCanvas2DOverlayHost`, `curveEditorExt`, `curveEditor` | [`canvas2d.md`](canvas2d.md) |
-| **`:extensions:canvas3d:dsl`** | `com.nexustools.genericui.ext.canvas3d.dsl` | `glCanvasExt`, `glCanvas`, `vkCanvasExt`, `vkCanvas`, `canvas3DOverlayHost`, `glCanvasOverlayHost`, `vkCanvasOverlayHost`, `scrollCanvas3DOverlayHost` | [`canvas3d.md`](canvas3d.md) |
+| **`:extensions:canvas3d:dsl`** | `com.nexustools.genericui.ext.canvas3d.dsl` | `canvas3D`, `canvas3DGL`, `canvas3DVK`, `canvas3DOverlayHost`, `scrollCanvas3D`, `scrollCanvas3DOverlayHost` | [`canvas3d.md`](canvas3d.md) |
 | **`:extensions:media:dsl`** | `com.nexustools.genericui.ext.media.dsl` | `videoPlayerExt`, `videoPlayer`, `videoOverlayHost`, `audioPlayerExt`, `audioPlayer`, `audioAnalyzerExt`, `audioAnalyzer` | [`media.md`](media.md) |
 | **`:extensions:mediacontrols:dsl`** | `com.nexustools.genericui.ext.mediacontrols.dsl` | `mediaControlsSession`, `metadata`, `playbackStatus`, `buttons`, `onEvent`, `onPlay`, `onPause`, `onTogglePlayPause`, `onStop`, `onNextTrack`, `onPreviousTrack`, `onSeekForward`, `onSeekBackward`, `onSeekTo` | [`mediacontrols.md`](mediacontrols.md) |
 | **`:extensions:webview:dsl`** | `com.nexustools.genericui.ext.webview.dsl` | `webViewExt`, `webView` | [`webview.md`](webview.md) |
 | **`:extensions:codeeditor:dsl`** | `com.nexustools.genericui.ext.codeeditor.dsl` | `codeEditor`, `ideCodeEditor`, `codeMinimap` | [`codeeditor.md`](codeeditor.md) |
 | **`:extensions:aichat:dsl`** | `com.nexustools.genericui.ext.aichat.dsl` | `aiChat`, `aiChatContainer`, `aiChatMessageView`, `aiChatToolCallCard`, `aiChatReasoningAccordion` (including `style { ... }` and `bootstrap { ... }` on `AiChatDslConfigScope`) | [`aichat.md`](aichat.md) |
-| **`:extensions:threejs:dsl`** | `com.nexustools.genericui.ext.threejs.dsl` | `threeJsGlCanvas`, `threeJsVkCanvas`, `scene`, `Scene.mesh`, `Scene.perspectiveCamera` | [`threejs.md`](threejs.md) |
+| **`:extensions:threejs:dsl`** | `com.nexustools.genericui.ext.threejs.dsl` | `threeJsCanvas`, `scene`, `Scene.mesh`, `Scene.perspectiveCamera` | [`threejs.md`](threejs.md) |
 | **`:extensions:box2d:dsl`** | `com.nexustools.genericui.ext.box2d.dsl` | `box2dDebugCanvas`, `world2D` (`body`, `staticBody`, `dynamicBody`, `kinematicBody`, `boxFixture`, `circleFixture`, `edgeFixture`) | [`box2d.md`](box2d.md) |
 | **`:extensions:box3d:dsl`** | `com.nexustools.genericui.ext.box3d.dsl` | `box3dDebugCanvas`, `world3D` (`rigidBody`, `dynamicRigidBody`, `staticRigidBody`, `kinematicRigidBody`, `boxCollider`, `sphereCollider`, `capsuleCollider`) | [`box3d.md`](box3d.md) |
 | **`:extensions:alien:dsl`** | `com.nexustools.genericui.ext.alien.dsl` | `alienContainer`, `unalienContainer` | [`alien.md`](alien.md) |

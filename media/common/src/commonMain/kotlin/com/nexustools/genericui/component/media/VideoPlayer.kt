@@ -1,8 +1,11 @@
 package com.nexustools.genericui.component.media
 
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.FramePresentTarget
 import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.enums.media.MediaPreloadMode
+import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.ext.media.overlay.VideoOverlayHost
@@ -21,14 +24,50 @@ import kotlin.coroutines.resume
  */
 open class VideoPlayer(
     sourceUrl: String? = null
-) : AbstractComponent() {
-    var sourceUrl: String? = sourceUrl
+) : AbstractComponent(), Player, FramePresentTarget {
+    final override var sourceUrl: String? = sourceUrl
         private set
 
-    var seekOffsetSeconds: Double = 0.0
+    private var fallbackPresentedFrameCount: Long = 0L
+    private val beforeFramePresentListeners = mutableListOf<(Long, Double) -> Unit>()
+    private var lastNotifiedBeforePresentFrame: Long = -1L
+
+    override val presentedFrameCount: Long
+        get() = maxOf(
+            fallbackPresentedFrameCount,
+            typedNative<VideoPlayerNativeImpl<*>>()?.getPresentedFrameCount() ?: 0L
+        )
+
+    override fun addBeforeFramePresentListener(listener: (frameIndex: Long, timestampMs: Double) -> Unit) {
+        if (listener !in beforeFramePresentListeners) {
+            beforeFramePresentListeners.add(listener)
+        }
+    }
+
+    override fun removeBeforeFramePresentListener(listener: (frameIndex: Long, timestampMs: Double) -> Unit) {
+        beforeFramePresentListeners.remove(listener)
+    }
+
+    internal fun notifyBeforeFramePresent(
+        frameIndex: Long,
+        timestampMs: Double = (currentTimeSeconds * 1000.0).coerceAtLeast(0.0)
+    ) {
+        if (frameIndex > fallbackPresentedFrameCount) {
+            fallbackPresentedFrameCount = frameIndex
+        }
+        if (frameIndex == lastNotifiedBeforePresentFrame) return
+        lastNotifiedBeforePresentFrame = frameIndex
+        if (beforeFramePresentListeners.isNotEmpty()) {
+            for (listener in beforeFramePresentListeners.toList()) {
+                listener(frameIndex, timestampMs)
+            }
+        }
+    }
+
+    final override var seekOffsetSeconds: Double = 0.0
         private set
 
-    var durationOverrideSeconds: Double? = null
+    final override var durationOverrideSeconds: Double? = null
         private set
 
     private var nativeReportedDurationSeconds: Double = 0.0
@@ -43,21 +82,21 @@ open class VideoPlayer(
 
     internal val stateChangeObservers = mutableListOf<() -> Unit>()
 
-    var volume: Float = 1.0f
+    override var volume: Float = 1.0f
         set(value) {
             field = value.coerceIn(0f, 2f)
             typedNative<VideoPlayerNativeImpl<*>>()?.setVolume(field)
             notifyStateChangeObservers()
         }
 
-    var isMuted: Boolean = false
+    override var isMuted: Boolean = false
         set(value) {
             field = value
             typedNative<VideoPlayerNativeImpl<*>>()?.setMuted(value)
             notifyStateChangeObservers()
         }
 
-    var playbackSpeed: Float = 1.0f
+    override var playbackSpeed: Float = 1.0f
         set(value) {
             field = value.coerceIn(0.1f, 8.0f)
             typedNative<VideoPlayerNativeImpl<*>>()?.setPlaybackSpeed(field)
@@ -71,14 +110,14 @@ open class VideoPlayer(
             notifyStateChangeObservers()
         }
 
-    var preloadMode: MediaPreloadMode = MediaPreloadMode.AUTO
+    override var preloadMode: MediaPreloadMode = MediaPreloadMode.AUTO
         set(value) {
             field = value
             typedNative<VideoPlayerNativeImpl<*>>()?.setPreloadMode(value)
             notifyStateChangeObservers()
         }
 
-    var adaptivePreloadBufferingEnabled: Boolean = true
+    override var adaptivePreloadBufferingEnabled: Boolean = true
         set(value) {
             field = value
             typedNative<VideoPlayerNativeImpl<*>>()?.setAdaptivePreloadBufferingEnabled(value)
@@ -100,10 +139,10 @@ open class VideoPlayer(
     private var mediaReadyFallbackState: Boolean = false
     private val mediaReadyWaiters = mutableListOf<() -> Unit>()
 
-    val isMediaReady: Boolean
+    override val isMediaReady: Boolean
         get() = typedNative<VideoPlayerNativeImpl<*>>()?.isMediaReady() == true || mediaReadyFallbackState
 
-    var onMediaReady: (() -> Unit)? = null
+    override var onMediaReady: (() -> Unit)? = null
 
     init {
         setAttribute("data-antialiasing", antialiasing.toString())
@@ -127,7 +166,7 @@ open class VideoPlayer(
      * Suspends until the first frame / media metadata for the current [sourceUrl] is ready to play,
      * or until [timeoutMs] elapses. Returns `true` if media is ready.
      */
-    suspend fun awaitMediaReady(timeoutMs: Long = 8_000L): Boolean {
+    override suspend fun awaitMediaReady(timeoutMs: Long): Boolean {
         if (isMediaReady) return true
         val result = withTimeoutOrNull(timeoutMs.coerceAtLeast(1L)) {
             if (isMediaReady) return@withTimeoutOrNull true
@@ -152,48 +191,48 @@ open class VideoPlayer(
         return result ?: isMediaReady
     }
 
-    var isBuffering: Boolean = false
+    final override var isBuffering: Boolean = false
         private set
 
-    var bufferedRanges: List<Pair<Double, Double>> = emptyList()
+    final override var bufferedRanges: List<Pair<Double, Double>> = emptyList()
         get() {
             if (field.isNotEmpty()) return field
             return typedNative<VideoPlayerNativeImpl<*>>()?.getBufferedRanges().orEmpty()
         }
         private set
 
-    val bufferedEndSeconds: Double
+    override val bufferedEndSeconds: Double
         get() = bufferedRanges.maxOfOrNull { it.second } ?: 0.0
 
-    val estimatedNetworkSpeedRatio: Double
+    override val estimatedNetworkSpeedRatio: Double
         get() = typedNative<VideoPlayerNativeImpl<*>>()?.getEstimatedNetworkSpeedRatio() ?: 1.0
 
-    fun getRequiredSafeBufferSeconds(): Double =
+    override fun getRequiredSafeBufferSeconds(): Double =
         typedNative<VideoPlayerNativeImpl<*>>()?.getRequiredSafeBufferSeconds() ?: 0.0
 
     var isInPictureInPictureMode: Boolean = false
         private set
 
-    val currentTimeSeconds: Double
+    override val currentTimeSeconds: Double
         get() = typedNative<VideoPlayerNativeImpl<*>>()?.getCurrentTimeSeconds() ?: seekOffsetSeconds
 
-    val durationSeconds: Double
+    override val durationSeconds: Double
         get() = durationOverrideSeconds
             ?: typedNative<VideoPlayerNativeImpl<*>>()?.getDurationSeconds()?.takeIf { it > 0.0 }
             ?: nativeReportedDurationSeconds
 
-    val isPlaying: Boolean
+    override val isPlaying: Boolean
         get() = typedNative<VideoPlayerNativeImpl<*>>()?.isPlaying() ?: playingFallbackState
 
-    var onTimeUpdate: ((Double) -> Unit)? = null
-    var onDurationChanged: ((Double) -> Unit)? = null
-    var onEnded: (() -> Unit)? = null
-    var onBufferingChanged: ((Boolean) -> Unit)? = null
-    var onError: ((String) -> Unit)? = null
+    override var onTimeUpdate: ((Double) -> Unit)? = null
+    override var onDurationChanged: ((Double) -> Unit)? = null
+    override var onEnded: (() -> Unit)? = null
+    override var onBufferingChanged: ((Boolean) -> Unit)? = null
+    override var onError: ((String) -> Unit)? = null
 
-    var onPlayingStateChanged: ((Boolean) -> Unit)? = null
+    override var onPlayingStateChanged: ((Boolean) -> Unit)? = null
     var onBufferingStateChanged: ((Boolean) -> Unit)? = null
-    var onBufferedRangesChanged: ((List<Pair<Double, Double>>) -> Unit)? = null
+    override var onBufferedRangesChanged: ((List<Pair<Double, Double>>) -> Unit)? = null
     var onTracksChanged: (() -> Unit)? = null
     var onPictureInPictureChanged: ((Boolean) -> Unit)? = null
 
@@ -259,7 +298,43 @@ open class VideoPlayer(
         )
     }
 
-    fun setSource(url: String, seekOffsetSeconds: Double = 0.0, durationOverrideSeconds: Double? = null) {
+    /**
+     * Checks whether [codec] is supported by the active video player backend.
+     */
+    fun isVideoCodecSupported(codec: VideoCodec): Boolean {
+        val impl = typedNative<VideoPlayerNativeImpl<*>>()
+            ?: MediaExtension.createVideoPlayerNative()
+        return impl?.isVideoCodecSupported(codec) ?: false
+    }
+
+    /**
+     * Checks whether [codec] is supported by the active video player backend.
+     */
+    override fun isAudioCodecSupported(codec: AudioCodec): Boolean {
+        val impl = typedNative<VideoPlayerNativeImpl<*>>()
+            ?: MediaExtension.createVideoPlayerNative()
+        return impl?.isAudioCodecSupported(codec) ?: false
+    }
+
+    /**
+     * Returns all [VideoCodec] entries supported by the active video player backend.
+     */
+    fun getSupportedVideoCodecs(): Set<VideoCodec> {
+        val impl = typedNative<VideoPlayerNativeImpl<*>>()
+            ?: MediaExtension.createVideoPlayerNative()
+        return impl?.getSupportedVideoCodecs() ?: emptySet()
+    }
+
+    /**
+     * Returns all [AudioCodec] entries supported by the active video player backend.
+     */
+    override fun getSupportedAudioCodecs(): Set<AudioCodec> {
+        val impl = typedNative<VideoPlayerNativeImpl<*>>()
+            ?: MediaExtension.createVideoPlayerNative()
+        return impl?.getSupportedAudioCodecs() ?: emptySet()
+    }
+
+    override fun setSource(url: String, seekOffsetSeconds: Double, durationOverrideSeconds: Double?) {
         this.sourceUrl = url
         this.seekOffsetSeconds = seekOffsetSeconds.coerceAtLeast(0.0)
         this.durationOverrideSeconds = durationOverrideSeconds
@@ -267,7 +342,7 @@ open class VideoPlayer(
         val impl = typedNative<VideoPlayerNativeImpl<*>>()
         if (impl != null) {
             impl.setSource(url, this.seekOffsetSeconds, durationOverrideSeconds)
-            if (impl.isMediaReady() || (durationOverrideSeconds != null && durationOverrideSeconds > 0.0)) {
+            if (impl.isMediaReady()) {
                 notifyMediaReady()
             }
         } else {
@@ -282,7 +357,7 @@ open class VideoPlayer(
         notifyStateChangeObservers()
     }
 
-    fun play() {
+    override fun play() {
         playingFallbackState = true
         val impl = typedNative<VideoPlayerNativeImpl<*>>()
         if (impl != null) {
@@ -293,7 +368,7 @@ open class VideoPlayer(
         notifyStateChangeObservers()
     }
 
-    fun pause() {
+    override fun pause() {
         playingFallbackState = false
         val impl = typedNative<VideoPlayerNativeImpl<*>>()
         if (impl != null) {
@@ -304,7 +379,7 @@ open class VideoPlayer(
         notifyStateChangeObservers()
     }
 
-    fun togglePlayPause() {
+    override fun togglePlayPause() {
         if (isPlaying) {
             pause()
         } else {
@@ -312,7 +387,7 @@ open class VideoPlayer(
         }
     }
 
-    fun stop() {
+    override fun stop() {
         playingFallbackState = false
         seekOffsetSeconds = 0.0
         val impl = typedNative<VideoPlayerNativeImpl<*>>()
@@ -325,7 +400,7 @@ open class VideoPlayer(
         notifyStateChangeObservers()
     }
 
-    fun seekTo(seconds: Double) {
+    override fun seekTo(seconds: Double) {
         val dur = durationSeconds
         val clamped = if (dur > 0.0) seconds.coerceIn(0.0, dur) else seconds.coerceAtLeast(0.0)
         seekOffsetSeconds = clamped
@@ -338,18 +413,18 @@ open class VideoPlayer(
         notifyStateChangeObservers()
     }
 
-    fun skipDelta(deltaSeconds: Double) {
+    override fun skipDelta(deltaSeconds: Double) {
         seekTo(currentTimeSeconds + deltaSeconds)
     }
 
-    fun setBufferingState(buffering: Boolean) {
+    override fun setBufferingState(buffering: Boolean) {
         isBuffering = buffering
         onBufferingChanged?.invoke(buffering)
         onBufferingStateChanged?.invoke(buffering)
         notifyStateChangeObservers()
     }
 
-    fun updateBufferedRanges(ranges: List<Pair<Double, Double>>) {
+    override fun updateBufferedRanges(ranges: List<Pair<Double, Double>>) {
         bufferedRanges = ranges.toList()
         onBufferedRangesChanged?.invoke(bufferedRanges)
         notifyStateChangeObservers()
@@ -592,7 +667,7 @@ open class VideoPlayer(
         }
     }
 
-    fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {
+    override fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {
         attachedAnalyzer = analyzer
         typedNative<VideoPlayerNativeImpl<*>>()?.attachAudioAnalyzer(analyzer)
     }
@@ -612,6 +687,9 @@ open class VideoPlayer(
         impl.setResizeMode(resizeMode)
         impl.setOnMediaReady {
             notifyMediaReady()
+        }
+        impl.setOnBeforeFramePresent { frameIdx, tsMs ->
+            notifyBeforeFramePresent(frameIdx, tsMs)
         }
         selectedAudioTrackIdState?.let { impl.selectAudioTrack(it) }
         if (subtitlesExplicitlyDisabled) {

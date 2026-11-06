@@ -1,9 +1,12 @@
 package com.nexustools.genericui.ext.canvas3d
 
-import com.nexustools.genericui.component.media.GLCanvasConfig
+import com.nexustools.genericui.component.media.Canvas3DConfig
+import com.nexustools.genericui.component.media.GLClearBuffer
 import com.nexustools.genericui.component.media.GLContext
-import com.nexustools.genericui.component.media.VKCanvasConfig
+import com.nexustools.genericui.component.media.GLReadFormat
 import com.nexustools.genericui.component.media.VKContext
+import com.nexustools.genericui.component.media.VKLoadOp
+import com.nexustools.genericui.component.media.VKRenderPassDescriptor
 import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.gpu.GpuDoubleBufferedSurface
 import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
@@ -29,8 +32,7 @@ class OffscreenCanvas3D(
     width: Int = 800,
     height: Int = 600,
     val preferVulkan: Boolean = true,
-    val vkConfig: VKCanvasConfig = VKCanvasConfig(),
-    val glConfig: GLCanvasConfig = GLCanvasConfig(),
+    val config: Canvas3DConfig = Canvas3DConfig(),
     val gpuContext: GpuOffscreenContext = Canvas3DExtension.acquireGpuOffscreenContext(preferVulkan = preferVulkan)
 ) {
     val surface: GpuDoubleBufferedSurface = GpuDoubleBufferedSurface(width, height, gpuContext)
@@ -54,11 +56,11 @@ class OffscreenCanvas3D(
         private set
 
     val vkContext: VKContext by lazy {
-        gpuContext.vkContext ?: Canvas3DExtension.createVKContext(vkConfig, this.width, this.height)
+        gpuContext.vkContext ?: Canvas3DExtension.createVKContext(config, this.width, this.height)
     }
 
     val glContext: GLContext by lazy {
-        gpuContext.glContext ?: Canvas3DExtension.createGLContext(glConfig, this.width, this.height)
+        gpuContext.glContext ?: Canvas3DExtension.createGLContext(config, this.width, this.height)
     }
 
     val resolve3DShaderProgram: GpuShaderProgram = gpuContext.compileComputeOrFragmentKernel(
@@ -86,7 +88,13 @@ class OffscreenCanvas3D(
         surface.clearBackBuffer(0, 0, width, height, clearColor)
         depthBuffer.fill(clearDepth)
         if (backendType == GpuBackendType.VULKAN) {
-            vkContext.beginRenderPass(clearColor, clearDepth)
+            vkContext.beginRenderPass(
+                VKRenderPassDescriptor(
+                    loadOp = VKLoadOp.CLEAR,
+                    clearColor = clearColor,
+                    clearDepth = clearDepth
+                )
+            )
         } else {
             glContext.viewport(0, 0, width, height)
             glContext.clearColor(
@@ -96,7 +104,7 @@ class OffscreenCanvas3D(
                 clearColor.a / 255f
             )
             glContext.clearDepth(clearDepth)
-            glContext.clear(GLContext.GL_COLOR_BUFFER_BIT or GLContext.GL_DEPTH_BUFFER_BIT)
+            glContext.clear(setOf(GLClearBuffer.COLOR, GLClearBuffer.DEPTH))
         }
     }
 
@@ -112,6 +120,12 @@ class OffscreenCanvas3D(
         beginFrame(clearColor, clearDepth)
         block(vkContext)
         vkContext.endRenderPass()
+        val vkPixels = vkContext.readPixels(0, 0, width, height)
+        val dstBytes = surface.backBuffer.bytes
+        val copyLen = min(vkPixels.size, dstBytes.size)
+        if (copyLen > 0 && vkPixels.any { it.toInt() != 0 }) {
+            vkPixels.copyInto(dstBytes, 0, 0, copyLen)
+        }
         surface.markBackBufferDirty()
         if (autoSwap) {
             swapBuffers()
@@ -131,7 +145,7 @@ class OffscreenCanvas3D(
         beginFrame(clearColor, clearDepth)
         block(glContext)
         glContext.flush()
-        val glPixels = glContext.readPixelsRgba(0, 0, width, height)
+        val glPixels = glContext.readPixels(0, 0, width, height, GLReadFormat.RGBA8)
         val dstBytes = surface.backBuffer.bytes
         val copyLen = min(glPixels.size, dstBytes.size)
         if (copyLen > 0 && glPixels.any { it.toInt() != 0 }) {
@@ -140,6 +154,19 @@ class OffscreenCanvas3D(
         surface.markBackBufferDirty()
         if (autoSwap) {
             swapBuffers()
+        }
+    }
+
+    /**
+     * Copies raw RGBA8888 pixels (e.g. from [GLContext.readPixels] or [VKContext.readPixels])
+     * into the offscreen back-buffer and marks it dirty, ready for [swapBuffers].
+     */
+    fun writeBackBufferRgba(rgbaBytes: ByteArray) {
+        val dst = surface.backBuffer.bytes
+        val count = min(rgbaBytes.size, dst.size)
+        if (count > 0) {
+            rgbaBytes.copyInto(dst, 0, 0, count)
+            surface.markBackBufferDirty()
         }
     }
 

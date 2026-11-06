@@ -1,10 +1,16 @@
 package com.nexustools.genericui.ext.canvas3d
 
-import com.nexustools.genericui.component.media.GLCanvas
+import com.nexustools.genericui.component.media.Canvas3D
+import com.nexustools.genericui.component.media.GLClearBuffer
 import com.nexustools.genericui.component.media.GLContext
-import com.nexustools.genericui.component.media.VKCanvas
+import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.event.WheelEvent
+import com.nexustools.genericui.ext.gpu.GpuAccelerationPolicy
+import com.nexustools.genericui.ext.gpu.GpuBackendSupport
+import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -15,13 +21,40 @@ import kotlin.test.assertTrue
 
 class ScrollCanvas3DTest {
 
+    @BeforeTest
+    fun setUp() {
+        Canvas3DRegistry.overrideSupportForTesting(
+            GpuBackendType.OPENGL_ES,
+            GpuBackendSupport(
+                backend = GpuBackendType.OPENGL_ES,
+                hardwareAvailable = true,
+                softwareAvailable = true
+            )
+        )
+        Canvas3DRegistry.overrideSupportForTesting(
+            GpuBackendType.VULKAN,
+            GpuBackendSupport(
+                backend = GpuBackendType.VULKAN,
+                hardwareAvailable = true,
+                softwareAvailable = true
+            )
+        )
+    }
+
+    @AfterTest
+    fun tearDown() {
+        Canvas3DRegistry.resetForTesting()
+    }
+
     @Test
-    fun testScrollGLCanvasAndScrollVKCanvasViewportOnlySwapchainAndSystemScrollbars() {
-        val scrollGl = ScrollGLCanvas(
+    fun testScrollCanvas3DViewportOnlySwapchainAndSystemScrollbars() {
+        val scrollGl = ScrollCanvas3D(
             viewportWidth = 640,
             viewportHeight = 480,
             contentWidth = 4096,
-            contentHeight = 3072
+            contentHeight = 3072,
+            backend = GpuBackendType.OPENGL_ES,
+            acceleration = GpuAccelerationPolicy.HARDWARE_PREFERRED
         )
 
         // The physical 3D canvas swapchain is strictly viewport-sized (640x480), NOT 4096x3072!
@@ -29,14 +62,14 @@ class ScrollCanvas3DTest {
         assertEquals(480, scrollGl.viewportHeight)
         assertEquals(4096, scrollGl.contentWidth)
         assertEquals(3072, scrollGl.contentHeight)
-        assertEquals(640, scrollGl.glCanvas.widthPx)
-        assertEquals(480, scrollGl.glCanvas.heightPx)
+        assertEquals(640, scrollGl.viewportCanvas.widthPx)
+        assertEquals(480, scrollGl.viewportCanvas.heightPx)
         assertEquals(3456, scrollGl.maxScrollX)
         assertEquals(2592, scrollGl.maxScrollY)
 
-        // On System targets, ScrollGLCanvas contains the viewport 3D canvas + right & bottom scrollbar components
+        // On System targets, ScrollCanvas3D contains the viewport 3D canvas + right & bottom scrollbar components
         assertEquals(3, scrollGl.children.size)
-        assertSame(scrollGl.glCanvas, scrollGl.children[0])
+        assertSame(scrollGl.viewportCanvas, scrollGl.children[0])
         assertSame(scrollGl.rightScrollBar, scrollGl.children[1])
         assertSame(scrollGl.bottomScrollBar, scrollGl.children[2])
         assertTrue(scrollGl.rightScrollBar.hasClass("scroll-canvas-scrollbar-right"))
@@ -52,10 +85,9 @@ class ScrollCanvas3DTest {
             assertEquals(480, vh)
             assertEquals(4096, cw)
             assertEquals(3072, ch)
-            val gl = scrollGl.getContext()
-            assertNotNull(gl)
+            val gl = assertNotNull(scrollGl.resolveGLContext())
             gl.viewport(0, 0, vw, vh)
-            gl.clear(GLContext.GL_COLOR_BUFFER_BIT)
+            gl.clear(setOf(GLClearBuffer.COLOR))
             glRenderCount++
         }
 
@@ -81,41 +113,57 @@ class ScrollCanvas3DTest {
         assertEquals(1280, scrollGl.scrollY)
         assertEquals(4, glRenderCount)
 
-        // Verify ScrollVKCanvas as well
-        val scrollVk = ScrollVKCanvas(
+        // Verify Vulkan ScrollCanvas3D as well
+        val scrollVk = ScrollCanvas3D(
             viewportWidth = 800,
             viewportHeight = 600,
             contentWidth = 3200,
-            contentHeight = 2400
+            contentHeight = 2400,
+            backend = GpuBackendType.VULKAN,
+            acceleration = GpuAccelerationPolicy.HARDWARE_PREFERRED
         )
-        assertSame(scrollVk.vkCanvas, scrollVk.children[0])
+        assertSame(scrollVk.viewportCanvas, scrollVk.children[0])
         assertSame(scrollVk.rightScrollBar, scrollVk.children[1])
         assertSame(scrollVk.bottomScrollBar, scrollVk.children[2])
-        assertNotNull(scrollVk.getContext())
+        assertNotNull(scrollVk.resolveVKContext())
+        assertTrue(scrollVk.resolveRenderingContext() is VKContext)
+        assertTrue(scrollGl.resolveRenderingContext() is GLContext)
     }
 
     @Test
     fun testCanvas3DAndScrollCanvas3DOverlayHostsExcludeScrollbarsAndHaveNoDefaultOverlay() {
-        val glCanvas = GLCanvas(width = 800, height = 600)
+        val glCanvas = Canvas3D(
+            backend = GpuBackendType.OPENGL_ES,
+            acceleration = GpuAccelerationPolicy.HARDWARE_PREFERRED,
+            width = 800,
+            height = 600
+        )
         val glHost = glCanvas.withOverlay()
         assertNull(glHost.activeOverlay)
-        assertSame(glCanvas, glHost.glCanvas)
+        assertSame(glCanvas, glHost.canvas3D)
         assertEquals(800, glHost.overlayRoot.widthPx)
         assertEquals(600, glHost.overlayRoot.heightPx)
 
-        val vkCanvas = VKCanvas(width = 1024, height = 768)
+        val vkCanvas = Canvas3D(
+            backend = GpuBackendType.VULKAN,
+            acceleration = GpuAccelerationPolicy.HARDWARE_PREFERRED,
+            width = 1024,
+            height = 768
+        )
         val vkOverlay = object : AbstractOverlay("test-vk-overlay") {}
         val vkHost = vkCanvas.attachOverlay(vkOverlay)
         assertSame(vkOverlay, vkHost.activeOverlay)
-        assertSame(vkCanvas, vkHost.vkCanvas)
+        assertSame(vkCanvas, vkHost.canvas3D)
         assertEquals(1024, vkHost.overlayRoot.widthPx)
         assertEquals(768, vkHost.overlayRoot.heightPx)
 
-        val scrollGl = ScrollGLCanvas(
+        val scrollGl = ScrollCanvas3D(
             viewportWidth = 640,
             viewportHeight = 480,
             contentWidth = 2560,
-            contentHeight = 1920
+            contentHeight = 1920,
+            backend = GpuBackendType.OPENGL_ES,
+            acceleration = GpuAccelerationPolicy.HARDWARE_PREFERRED
         )
         val scrollHost = scrollGl.withOverlay()
         assertNull(scrollHost.activeOverlay)

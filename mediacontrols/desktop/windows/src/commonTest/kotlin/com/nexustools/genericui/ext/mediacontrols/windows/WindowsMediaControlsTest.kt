@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package com.nexustools.genericui.ext.mediacontrols.windows
 
 import com.nexustools.genericui.ext.mediacontrols.MediaControlAction
@@ -8,6 +10,8 @@ import com.nexustools.genericui.ext.mediacontrols.MediaPlaybackStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class WindowsMediaControlsTest {
@@ -49,7 +53,10 @@ class WindowsMediaControlsTest {
         val initialSnapshot = impl.resolveTaskbarButtonsSnapshot()
         assertEquals(4, initialSnapshot.size)
         assertEquals(WindowsMediaControlsImpl.THUMB_BUTTON_PLAY_PAUSE_ID, initialSnapshot[1].first)
-        assertEquals("Play", initialSnapshot[1].second)
+        assertEquals("", initialSnapshot[1].second)
+
+        session.updateButtonConfig(MediaControlButtonConfig(playTooltip = "Play", pauseTooltip = "Pause"))
+        assertEquals("Play", impl.resolveTaskbarButtonsSnapshot()[1].second)
 
         // Click Play/Pause while STOPPED -> dispatches PLAY
         assertTrue(impl.handleTaskbarButtonClick(WindowsMediaControlsImpl.THUMB_BUTTON_PLAY_PAUSE_ID))
@@ -73,6 +80,31 @@ class WindowsMediaControlsTest {
         assertEquals(WindowsMediaControlsImpl.THBF_ENABLED, updatedSnapshot[3].third)
         assertTrue(impl.handleTaskbarButtonClick(WindowsMediaControlsImpl.THUMB_BUTTON_STOP_ID))
         assertEquals(MediaControlAction.STOP, events.last().action)
+
+        session.dispose()
+    }
+
+    @Test
+    fun testWin32MediaThumbIconFactoryAndButtonIconResolution() {
+        val session = WindowsMediaControlsProvider.createSession()
+        val impl = session.nativeImpl as WindowsMediaControlsImpl
+        session.activate()
+
+        val prevIcon = impl.resolveTaskbarButtonIcon(WindowsMediaControlsImpl.THUMB_BUTTON_PREVIOUS_ID)
+        val playIcon = impl.resolveTaskbarButtonIcon(WindowsMediaControlsImpl.THUMB_BUTTON_PLAY_PAUSE_ID)
+        val nextIcon = impl.resolveTaskbarButtonIcon(WindowsMediaControlsImpl.THUMB_BUTTON_NEXT_ID)
+        val stopIcon = impl.resolveTaskbarButtonIcon(WindowsMediaControlsImpl.THUMB_BUTTON_STOP_ID)
+
+        assertNotNull(prevIcon)
+        assertNotNull(playIcon)
+        assertNotNull(nextIcon)
+        assertNotNull(stopIcon)
+        assertEquals(prevIcon, impl.resolveTaskbarButtonIcon(WindowsMediaControlsImpl.THUMB_BUTTON_PREVIOUS_ID))
+
+        session.updatePlaybackState(MediaPlaybackStatus.PLAYING, positionMs = 5_000L, durationMs = 30_000L)
+        val pauseIcon = impl.resolveTaskbarButtonIcon(WindowsMediaControlsImpl.THUMB_BUTTON_PLAY_PAUSE_ID)
+        assertNotNull(pauseIcon)
+        assertNotEquals(playIcon, pauseIcon)
 
         session.dispose()
     }

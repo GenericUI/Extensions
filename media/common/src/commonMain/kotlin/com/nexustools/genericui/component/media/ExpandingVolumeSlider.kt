@@ -234,6 +234,7 @@ open class ExpandingVolumeSlider(
 
     init {
         addClass("player-controls-pill expanding-volume-pill")
+        setAttribute("data-overlay-role", "expanding-slider-pill")
         heightPx = 40
         setDisplay(DisplayMode.FLEX)
         flexDirection = FlexDirection.ROW
@@ -436,26 +437,29 @@ open class ExpandingVolumeSlider(
         setAttribute("data-muted", isMuted.toString())
     }
 
-    fun bindTo(videoPlayer: VideoPlayer): Disposable {
+    fun bindTo(player: Player): Disposable {
         var disposed = false
         val syncFromPlayer: () -> Unit = {
             if (!disposed && !slider.isScrubbing) {
-                updateVolumeState((videoPlayer.volume * 100.0).coerceIn(0.0, 100.0), videoPlayer.isMuted)
+                updateVolumeState((player.volume * 100.0).coerceIn(0.0, 100.0), player.isMuted)
             }
         }
-        videoPlayer.addStateChangeObserver(syncFromPlayer)
+        when (player) {
+            is VideoPlayer -> player.addStateChangeObserver(syncFromPlayer)
+            is AudioPlayer -> player.addStateChangeObserver(syncFromPlayer)
+        }
         val prevVolHandler = onVolumeChanged
         val prevMuteHandler = onMuteToggle
         onVolumeChanged = { vol ->
             if (!disposed) {
-                videoPlayer.volume = vol
-                videoPlayer.isMuted = vol <= 0f
+                player.volume = vol
+                player.isMuted = vol <= 0f
             }
             prevVolHandler?.invoke(vol)
         }
         onMuteToggle = { muted ->
             if (!disposed) {
-                videoPlayer.isMuted = muted
+                player.isMuted = muted
             }
             prevMuteHandler?.invoke(muted)
         }
@@ -467,43 +471,10 @@ open class ExpandingVolumeSlider(
             override fun dispose() {
                 if (disposed) return
                 disposed = true
-                videoPlayer.removeStateChangeObserver(syncFromPlayer)
-            }
-        }
-    }
-
-    fun bindTo(audioPlayer: AudioPlayer): Disposable {
-        var disposed = false
-        val syncFromPlayer: () -> Unit = {
-            if (!disposed && !slider.isScrubbing) {
-                val vol = audioPlayer.volume.coerceIn(0f, 1f)
-                updateVolumeState((vol * 100.0).coerceIn(0.0, 100.0), vol <= 0f)
-            }
-        }
-        audioPlayer.addStateChangeObserver(syncFromPlayer)
-        val prevVolHandler = onVolumeChanged
-        val prevMuteHandler = onMuteToggle
-        onVolumeChanged = { vol ->
-            if (!disposed) {
-                audioPlayer.volume = vol
-            }
-            prevVolHandler?.invoke(vol)
-        }
-        onMuteToggle = { muted ->
-            if (!disposed) {
-                audioPlayer.volume = if (muted) 0f else (value / 100.0).toFloat().coerceIn(0f, 1f)
-            }
-            prevMuteHandler?.invoke(muted)
-        }
-        syncFromPlayer()
-        return object : Disposable {
-            override val isDisposed: Boolean
-                get() = disposed
-
-            override fun dispose() {
-                if (disposed) return
-                disposed = true
-                audioPlayer.removeStateChangeObserver(syncFromPlayer)
+                when (player) {
+                    is VideoPlayer -> player.removeStateChangeObserver(syncFromPlayer)
+                    is AudioPlayer -> player.removeStateChangeObserver(syncFromPlayer)
+                }
             }
         }
     }

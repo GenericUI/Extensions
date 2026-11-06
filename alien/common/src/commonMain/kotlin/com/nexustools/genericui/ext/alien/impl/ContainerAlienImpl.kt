@@ -14,7 +14,7 @@ import com.nexustools.genericui.style.transition.ContainerAnimationFrameState
  * - When `addChildNative(childImpl, index)` receives an [AlienImpl], it attaches `childImpl.node`
  *   directly as a child [AlienWidgetNode].
  * - When `addChildNative(childImpl, index)` receives a non-Alien [NativeImpl] (such as an
- *   `UnalienContainer` or an extension component like `GLCanvas`, `VKCanvas`, `VideoPlayer`,
+ *   `UnalienContainer` or an extension component like `Canvas3D`, `VideoPlayer`,
  *   `AudioAnalyzer`, or `WebView`), it automatically wraps `childImpl` in an
  *   [AlienUnderlayExtensionSlotNode], registers it in [AlienRenderSession.underlaySlots] so it is
  *   attached to the host container **below** the `Canvas2D`, and cuts a transparent hole in the `Canvas2D`!

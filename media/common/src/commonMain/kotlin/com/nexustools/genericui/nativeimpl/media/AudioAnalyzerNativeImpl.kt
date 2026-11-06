@@ -11,4 +11,11 @@ interface AudioAnalyzerNativeImpl : Disposable {
     fun getByteFrequencyData(destination: ByteArray)
     fun getFloatFrequencyData(destination: FloatArray)
     fun computeEnergyBands(): AudioEnergyBands
+    fun pushPcmSamples(samples: FloatArray, channels: Int = 1) {}
+    fun pushPcmS16Le(
+        bytes: ByteArray,
+        byteCount: Int = bytes.size,
+        channels: Int = 2,
+        volumeScale: Float = 1.0f
+    ) {}
 }

@@ -3,7 +3,7 @@ package com.nexustools.genericui.ext.alien
 /**
  * Controls how [AlienContainer] and [AlienFragment] layer the self-rendered `Canvas2D`
  * above native underlay slots (such as [UnalienContainer] or extension components like
- * `GLCanvas`, `VKCanvas`, `VideoPlayer`, `AudioAnalyzer`, and `WebView`).
+ * `Canvas3D`, `VideoPlayer`, `AudioAnalyzer`, and `WebView`).
  */
 enum class AlienExtensionLayerMode {
     /**

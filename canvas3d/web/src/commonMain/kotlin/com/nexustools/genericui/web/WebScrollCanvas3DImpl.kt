@@ -1,7 +1,10 @@
 package com.nexustools.genericui.web
 
 import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.GpuRenderContext
 import com.nexustools.genericui.component.media.VKContext
+import com.nexustools.genericui.ext.gpu.GpuBackendType
+import com.nexustools.genericui.ext.gpu.web.WebGpuProvider
 import com.nexustools.genericui.ext.gpu.web.WebVBlankSurfaceSynchronizer
 import com.nexustools.genericui.nativeimpl.media.ScrollCanvas3DNativeImpl
 import kotlin.math.roundToInt
@@ -23,8 +26,8 @@ class WebScrollCanvas3DImpl(
     initialViewportHeight: Int = 600,
     initialContentWidth: Int = initialViewportWidth,
     initialContentHeight: Int = initialViewportHeight,
-    val preferVulkan: Boolean = true
-) : WebBaseNativeImpl("genericui:scrollcanvas3d", "scroll-canvas-3d"), ScrollCanvas3DNativeImpl<WebDomElement, Any> {
+    val backend: GpuBackendType = GpuBackendType.VULKAN
+) : WebBaseNativeImpl("genericui:scrollcanvas3d", "scroll-canvas-3d"), ScrollCanvas3DNativeImpl<WebDomElement, GpuRenderContext> {
 
     override val isWebScrollContainer: Boolean = true
 
@@ -47,12 +50,16 @@ class WebScrollCanvas3DImpl(
      */
     val canvasElement: WebDomElement = WebDomElement("canvas")
 
-    val glContext: WebGLContextImpl = WebGLContextImpl()
-    val vkContext: WebVKContextImpl = WebVKContextImpl(
-        swapchainWidth = viewportW,
-        swapchainHeight = viewportH
-    )
+    private val useWebGl2: Boolean =
+        backend == GpuBackendType.OPENGL_ES ||
+            (WebBrowserDomBridge.isBrowserEnvironment && !WebGpuProvider.webGpuAvailable && WebGl2BrowserBridge.isWebGl2Supported())
 
+    private val glContext by lazy {
+        WebGLContextImpl(canvasElement = canvasElement, initialWidth = viewportW, initialHeight = viewportH)
+    }
+    private val vkContext by lazy {
+        WebVKContextImpl(canvasElement = canvasElement, initialWidth = viewportW, initialHeight = viewportH)
+    }
     private val monotonicClock = TimeSource.Monotonic.markNow()
     private var vblankLoopActive: Boolean = false
     private var vblankFrameCallback: ((Double?) -> Unit)? = null
@@ -84,6 +91,9 @@ class WebScrollCanvas3DImpl(
         nativeWidget.appendChild(canvasElement)
 
         glContext.viewport(0, 0, viewportW, viewportH)
+        if (!useWebGl2) {
+            vkContext.resizeSwapchain(viewportW, viewportH)
+        }
 
         nativeWidget.addEventListener("scroll") {
             val maxX = (contentW - viewportW).coerceAtLeast(0)
@@ -120,9 +130,10 @@ class WebScrollCanvas3DImpl(
         canvasElement.setAttribute("height", viewportH.toString())
         canvasElement.clientWidth = viewportW
         canvasElement.clientHeight = viewportH
-        vkContext.swapchainWidth = viewportW
-        vkContext.swapchainHeight = viewportH
-        glContext.viewport(0, 0, viewportW, viewportH)
+        glContext.resizeWebSurface(viewportW, viewportH)
+        if (!useWebGl2) {
+            vkContext.resizeSwapchain(viewportW, viewportH)
+        }
         val maxX = (contentW - viewportW).coerceAtLeast(0)
         val maxY = (contentH - viewportH).coerceAtLeast(0)
         currentScrollX = currentScrollX.coerceIn(0, maxX)
@@ -147,12 +158,10 @@ class WebScrollCanvas3DImpl(
         onScrollListener = listener
     }
 
-    override fun getRenderingContext(): Any = if (preferVulkan) {
-        vkContext.swapchainWidth = viewportW
-        vkContext.swapchainHeight = viewportH
-        vkContext as VKContext
-    } else {
+    override fun getRenderingContext(): GpuRenderContext = if (useWebGl2) {
         glContext as GLContext
+    } else {
+        vkContext as VKContext
     }
 
     override fun setVBlankLoopActive(active: Boolean, onVBlankFrame: (explicitTimestampMs: Double?) -> Unit) {

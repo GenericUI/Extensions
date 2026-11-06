@@ -1,5 +1,6 @@
 package com.nexustools.genericui.ext.gpu.mobile
 
+import com.nexustools.genericui.ext.gpu.GpuBackendSupport
 import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.gpu.GpuDevice
 import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
@@ -11,6 +12,23 @@ import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
 object MobileGpuProvider {
     var vulkanAvailable: Boolean = true
     var openGlEsAvailable: Boolean = true
+
+    fun detectSupport(backend: GpuBackendType): GpuBackendSupport = when (backend) {
+        GpuBackendType.VULKAN -> GpuBackendSupport(
+            backend = GpuBackendType.VULKAN,
+            hardwareAvailable = vulkanAvailable,
+            softwareAvailable = true
+        )
+        GpuBackendType.OPENGL_ES -> GpuBackendSupport(
+            backend = GpuBackendType.OPENGL_ES,
+            hardwareAvailable = openGlEsAvailable,
+            softwareAvailable = true
+        )
+    }
+
+    fun register(preferVulkan: Boolean = true) {
+        install(enableVulkan = preferVulkan || vulkanAvailable, enableOpenGlEs = openGlEsAvailable)
+    }
 
     fun install(
         enableVulkan: Boolean = true,

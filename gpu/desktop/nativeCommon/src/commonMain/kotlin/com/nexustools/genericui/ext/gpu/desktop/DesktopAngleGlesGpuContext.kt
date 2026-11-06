@@ -1,9 +1,12 @@
 package com.nexustools.genericui.ext.gpu.desktop
 
 import com.nexustools.genericui.component.media.GLBuffer
-import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.GLBufferTarget
+import com.nexustools.genericui.component.media.GLBufferUsage
 import com.nexustools.genericui.component.media.GLProgram
 import com.nexustools.genericui.component.media.GLTexture
+import com.nexustools.genericui.component.media.GLTextureFormat
+import com.nexustools.genericui.component.media.GLTextureTarget
 import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.desktop.canvas.DesktopGLContextImpl
 import com.nexustools.genericui.enums.media.ShaderType
@@ -26,8 +29,8 @@ class DesktopAngleGlesGpuContext(
     override val glContext: DesktopGLContextImpl = DesktopGLContextImpl()
 ) : GpuOffscreenContext {
     override val backendType: GpuBackendType = GpuBackendType.OPENGL_ES
-    override val deviceName: String get() = glContext.rendererString
-    override val apiVersion: String get() = glContext.versionString
+    override val deviceName: String get() = glContext.contextInfo.renderer
+    override val apiVersion: String get() = glContext.contextInfo.version.name
     override val vkContext: VKContext? = null
 
     private var nextId = 1L
@@ -36,8 +39,8 @@ class DesktopAngleGlesGpuContext(
     override fun uploadTexture(imageBuffer: ImageBuffer): GpuTexture {
         val rgba = imageBuffer.asRgba8888()
         val glTex = glContext.createTexture()
-        glContext.bindTexture(GLContext.GL_TEXTURE_2D, glTex)
-        glContext.texImage2DRgba(GLContext.GL_TEXTURE_2D, 0, rgba.width, rgba.height, rgba.bytes)
+        glContext.bindTexture(GLTextureTarget.TEXTURE_2D, glTex)
+        glContext.texImage2D(GLTextureTarget.TEXTURE_2D, 0, GLTextureFormat.RGBA8, rgba.width, rgba.height, rgba.bytes)
         val handle = glTex.id.toLong()
         textureCache[handle] = rgba
         return GpuTexture(
@@ -51,8 +54,8 @@ class DesktopAngleGlesGpuContext(
 
     override fun updateTexture(texture: GpuTexture, imageBuffer: ImageBuffer) {
         val rgba = imageBuffer.asRgba8888()
-        glContext.bindTexture(GLContext.GL_TEXTURE_2D, GLTexture(texture.id.toInt(), rgba.width, rgba.height))
-        glContext.texImage2DRgba(GLContext.GL_TEXTURE_2D, 0, rgba.width, rgba.height, rgba.bytes)
+        glContext.bindTexture(GLTextureTarget.TEXTURE_2D, GLTexture(texture.id.toInt(), rgba.width, rgba.height))
+        glContext.texImage2D(GLTextureTarget.TEXTURE_2D, 0, GLTextureFormat.RGBA8, rgba.width, rgba.height, rgba.bytes)
         textureCache[texture.id] = rgba
     }
 
@@ -61,8 +64,8 @@ class DesktopAngleGlesGpuContext(
         val safeH = height.coerceAtLeast(1)
         val blank = ImageBuffer(safeW, safeH, PixelFormat.RGBA_8888)
         val glTex = glContext.createTexture()
-        glContext.bindTexture(GLContext.GL_TEXTURE_2D, glTex)
-        glContext.texImage2DRgba(GLContext.GL_TEXTURE_2D, 0, safeW, safeH, blank.bytes)
+        glContext.bindTexture(GLTextureTarget.TEXTURE_2D, glTex)
+        glContext.texImage2D(GLTextureTarget.TEXTURE_2D, 0, GLTextureFormat.RGBA8, safeW, safeH, blank.bytes)
         val handle = glTex.id.toLong()
         textureCache[handle] = blank
         return GpuTexture(
@@ -93,7 +96,7 @@ class DesktopAngleGlesGpuContext(
     }
 
     override fun uploadBufferFloats(buffer: GpuBuffer, data: FloatArray) {
-        glContext.bufferDataFloat(GLContext.GL_ARRAY_BUFFER, data, GLContext.GL_DYNAMIC_DRAW)
+        glContext.bufferData(GLBufferTarget.ARRAY_BUFFER, data, GLBufferUsage.DYNAMIC_DRAW)
     }
 
     override fun destroyBuffer(buffer: GpuBuffer) {

@@ -4,7 +4,7 @@ import com.nexustools.genericui.core.NativeImpl
 
 /**
  * Base native implementation contract for [com.nexustools.genericui.component.media.AbstractCanvas]
- * (`Canvas2D`, `GLCanvas`, `VKCanvas`).
+ * (`Canvas2D` and `Canvas3D`).
  *
  * Implements VBlank-synchronized rendering (`setVBlankLoopActive`) where:
  * - On `:web`, `window.requestAnimationFrame` is registered and re-registered on every render frame.

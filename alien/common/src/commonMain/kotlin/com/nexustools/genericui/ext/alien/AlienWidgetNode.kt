@@ -39,7 +39,7 @@ class AlienWidgetNode(
 
     /**
      * When non-null, this node represents a non-Alien underlay component (`UnalienContainer` or
-     * extension widget such as `GLCanvas`, `VKCanvas`, `VideoPlayer`, `WebView`) attached to the
+     * extension widget such as `Canvas3D`, `VideoPlayer`, `WebView`) attached to the
      * host container **below** the `Canvas2D`.
      */
     var wrappedUnderlayNativeImpl: NativeImpl<*>? = null

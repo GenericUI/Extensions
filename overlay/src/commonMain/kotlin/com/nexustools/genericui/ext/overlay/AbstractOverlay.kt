@@ -3,6 +3,7 @@ package com.nexustools.genericui.ext.overlay
 import com.nexustools.genericui.component.layout.LayerConstraint
 import com.nexustools.genericui.component.layout.LayeredContainer
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.NativeImpl
 
 /**
  * Pure, background-free layered overlay container.
@@ -80,11 +81,14 @@ abstract class AbstractOverlay(
 
     var onTargetFrameRendered: ((frameTimestampMs: Long, widthPx: Int, heightPx: Int) -> Unit)? = null
     var onTargetResized: ((widthPx: Int, heightPx: Int) -> Unit)? = null
+    var onBeforeTargetFramePresentCallback: ((frameIndex: Long, timestampMs: Double) -> Unit)? = null
 
     init {
         setStyleProperty("width", "100%")
         setStyleProperty("height", "100%")
         setAttribute("data-overlay-id", overlayId)
+        setAttribute("data-overlay-layer", "true")
+        setAttribute("data-overlay-root", "true")
         setStyleProperty("background", "transparent")
         setStyleProperty("background-color", "transparent")
         inputRouter.bindToComponent(
@@ -211,6 +215,10 @@ abstract class AbstractOverlay(
         }
     }
 
+    open fun onBeforeTargetFramePresent(frameIndex: Long, timestampMs: Double) {
+        onBeforeTargetFramePresentCallback?.invoke(frameIndex, timestampMs)
+    }
+
     open fun notifyTargetRenderFrame(
         frameTimestampMs: Long = 0L,
         widthPx: Int = targetWidthPx,
@@ -252,6 +260,13 @@ abstract class AbstractOverlay(
 
     internal open fun onDetachFromHost() {
         host = null
+    }
+
+    protected override fun onAttachNative(impl: NativeImpl<*>) {
+        super.onAttachNative(impl)
+        impl.setOnBeforeTargetFramePresent { sc, ts ->
+            onBeforeTargetFramePresent(sc, ts ?: 0.0)
+        }
     }
 
     protected open fun onStateUpdated(state: OverlayState, actions: OverlayActions) {}

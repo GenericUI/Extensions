@@ -1,7 +1,15 @@
 package com.nexustools.genericui.ext.gpu.desktop
 
 import com.nexustools.genericui.component.media.GLContext
-import com.nexustools.genericui.component.media.VKContext
+import com.nexustools.genericui.component.media.GpuShaderStageSource
+import com.nexustools.genericui.component.media.VKBuffer
+import com.nexustools.genericui.component.media.VKBufferDescriptor
+import com.nexustools.genericui.component.media.VKBufferUsage
+import com.nexustools.genericui.component.media.VKShaderModule
+import com.nexustools.genericui.component.media.VKTexture
+import com.nexustools.genericui.component.media.VKTextureDescriptor
+import com.nexustools.genericui.component.media.VKTextureFormat
+import com.nexustools.genericui.component.media.VKTextureUsage
 import com.nexustools.genericui.desktop.canvas.DesktopVKContextImpl
 import com.nexustools.genericui.enums.media.ShaderType
 import com.nexustools.genericui.ext.gpu.GpuBackendType
@@ -22,8 +30,8 @@ class DesktopVulkanGpuContext(
     override val vkContext: DesktopVKContextImpl = DesktopVKContextImpl()
 ) : GpuOffscreenContext {
     override val backendType: GpuBackendType = GpuBackendType.VULKAN
-    override val deviceName: String get() = vkContext.deviceName
-    override val apiVersion: String get() = vkContext.apiVersionString
+    override val deviceName: String get() = vkContext.contextInfo.deviceName
+    override val apiVersion: String get() = vkContext.contextInfo.apiVersion.name
     override val glContext: GLContext? = null
 
     private var nextId = 1L
@@ -31,10 +39,18 @@ class DesktopVulkanGpuContext(
 
     override fun uploadTexture(imageBuffer: ImageBuffer): GpuTexture {
         val rgba = imageBuffer.asRgba8888()
-        val handle = vkContext.createTextureImageRgba(rgba.width, rgba.height, rgba.bytes)
-        textureCache[handle] = rgba
+        val vkTex = vkContext.createTexture(
+            VKTextureDescriptor(
+                width = rgba.width,
+                height = rgba.height,
+                format = VKTextureFormat.RGBA8_UNORM,
+                usage = setOf(VKTextureUsage.SAMPLED, VKTextureUsage.COPY_DST)
+            ),
+            initialRgbaBytes = rgba.bytes
+        )
+        textureCache[vkTex.id] = rgba
         return GpuTexture(
-            id = handle,
+            id = vkTex.id,
             width = rgba.width,
             height = rgba.height,
             pixelFormat = PixelFormat.RGBA_8888,
@@ -44,7 +60,12 @@ class DesktopVulkanGpuContext(
 
     override fun updateTexture(texture: GpuTexture, imageBuffer: ImageBuffer) {
         val rgba = imageBuffer.asRgba8888()
-        vkContext.updateTextureImageRgba(texture.id, rgba.width, rgba.height, rgba.bytes)
+        vkContext.writeTexture(
+            VKTexture(texture.id, rgba.width, rgba.height, VKTextureFormat.RGBA8_UNORM),
+            rgba.width,
+            rgba.height,
+            rgba.bytes
+        )
         textureCache[texture.id] = rgba
     }
 
@@ -52,10 +73,18 @@ class DesktopVulkanGpuContext(
         val safeW = width.coerceAtLeast(1)
         val safeH = height.coerceAtLeast(1)
         val blank = ImageBuffer(safeW, safeH, PixelFormat.RGBA_8888)
-        val handle = vkContext.createTextureImageRgba(safeW, safeH, blank.bytes)
-        textureCache[handle] = blank
+        val vkTex = vkContext.createTexture(
+            VKTextureDescriptor(
+                width = safeW,
+                height = safeH,
+                format = VKTextureFormat.RGBA8_UNORM,
+                usage = setOf(VKTextureUsage.SAMPLED, VKTextureUsage.COPY_DST, VKTextureUsage.RENDER_ATTACHMENT)
+            ),
+            initialRgbaBytes = blank.bytes
+        )
+        textureCache[vkTex.id] = blank
         return GpuTexture(
-            id = handle,
+            id = vkTex.id,
             width = safeW,
             height = safeH,
             pixelFormat = pixelFormat,
@@ -67,14 +96,19 @@ class DesktopVulkanGpuContext(
         textureCache[texture.id]?.copy() ?: ImageBuffer(texture.width, texture.height, texture.pixelFormat)
 
     override fun destroyTexture(texture: GpuTexture) {
-        vkContext.destroyTextureImage(texture.id)
+        vkContext.destroyTexture(VKTexture(texture.id, texture.width, texture.height))
         textureCache.remove(texture.id)
     }
 
     override fun createBuffer(sizeBytes: Long, usage: GpuBufferUsage): GpuBuffer {
-        val handle = vkContext.createDeviceBuffer(sizeBytes, usage.ordinal)
+        val vkBuf = vkContext.createBuffer(
+            VKBufferDescriptor(
+                sizeBytes = sizeBytes,
+                usage = setOf(VKBufferUsage.VERTEX, VKBufferUsage.STORAGE, VKBufferUsage.COPY_DST)
+            )
+        )
         return GpuBuffer(
-            id = handle,
+            id = vkBuf.id,
             sizeBytes = sizeBytes,
             usage = usage,
             backendType = GpuBackendType.VULKAN
@@ -82,31 +116,41 @@ class DesktopVulkanGpuContext(
     }
 
     override fun uploadBufferFloats(buffer: GpuBuffer, data: FloatArray) {
-        vkContext.uploadBufferFloats(buffer.id, data)
+        vkContext.writeBuffer(
+            VKBuffer(buffer.id, buffer.sizeBytes, setOf(VKBufferUsage.VERTEX, VKBufferUsage.STORAGE, VKBufferUsage.COPY_DST)),
+            data
+        )
     }
 
     override fun destroyBuffer(buffer: GpuBuffer) {
-        vkContext.destroyDeviceBuffer(buffer.id)
+        vkContext.destroyBuffer(
+            VKBuffer(buffer.id, buffer.sizeBytes, setOf(VKBufferUsage.VERTEX, VKBufferUsage.STORAGE, VKBufferUsage.COPY_DST))
+        )
     }
 
     override fun compileComputeOrFragmentKernel(
         vulkanGlsl450: String,
         gles300Shader: String
     ): GpuShaderProgram {
-        val moduleHandle = vkContext.createShaderModuleFromGlsl(ShaderType.FRAGMENT, vulkanGlsl450)
+        val module = vkContext.createShaderModule(
+            GpuShaderStageSource(
+                stage = ShaderType.FRAGMENT,
+                glsl450Source = vulkanGlsl450
+            )
+        )
         return GpuShaderProgram(
             id = nextId++,
             vulkanGlsl450Source = vulkanGlsl450,
             gles300ShaderSource = gles300Shader,
             stage = GpuShaderStage.FRAGMENT,
             backendType = GpuBackendType.VULKAN,
-            vulkanModuleHandle = moduleHandle
+            vulkanModuleHandle = module.id
         )
     }
 
     override fun destroyShaderProgram(program: GpuShaderProgram) {
         if (program.vulkanModuleHandle != 0L) {
-            vkContext.destroyShaderModule(program.vulkanModuleHandle)
+            vkContext.destroyShaderModule(VKShaderModule(program.vulkanModuleHandle, ShaderType.FRAGMENT))
         }
     }
 
@@ -116,7 +160,6 @@ class DesktopVulkanGpuContext(
         output: GpuTexture,
         uniforms: FloatArray
     ) {
-        vkContext.pushConstantsFloat(program.vulkanModuleHandle, uniforms)
         val firstInput = inputs.firstOrNull()?.let { textureCache[it.id] }
         if (firstInput != null) {
             textureCache[output.id] = firstInput

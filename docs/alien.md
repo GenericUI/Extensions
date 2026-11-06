@@ -124,7 +124,7 @@ flowchart TD
 
 - **Mixing Native & Extension Components (`UnalienContainer` + Underlay Hole Cutting & Pointer Passthrough)**:
   - **`UnalienContainer`** acts as a native container inside an `AlienContainer`, `AlienFragment`, `AlienScrollFragment`, or `AlienFragmentHostFragment`, restoring the host OS `NativeFactory` so genuine OS-native `:common` components (rendered via Win32 `UxTheme`, AppKit, GTK4, Qt6, Swing, Android View, or UIKit) can be mixed seamlessly into an Alien interface.
-  - **Extension-provided components** (`GLCanvasExt`, `VKCanvasExt`, `VideoPlayerExt`, `AudioAnalyzerExt`, `WebView`, etc.) and **`UnalienContainer`** are attached to the `AlienContainer` / `AlienFragment` **below** the `Canvas2D`, and the `Canvas2D` either cuts a transparent hole (`AlienExtensionLayerMode.CUT_TRANSPARENT_HOLE`) with mouse/pointer/wheel passthrough or draws higher-Z Alien components on top of them.
+  - **Extension-provided components** (`Canvas3D`, `VideoPlayerExt`, `AudioAnalyzerExt`, `WebView`, etc.) and **`UnalienContainer`** are attached to the `AlienContainer` / `AlienFragment` **below** the `Canvas2D`, and the `Canvas2D` either cuts a transparent hole (`AlienExtensionLayerMode.CUT_TRANSPARENT_HOLE`) with mouse/pointer/wheel passthrough or draws higher-Z Alien components on top of them.
 
 ---
 

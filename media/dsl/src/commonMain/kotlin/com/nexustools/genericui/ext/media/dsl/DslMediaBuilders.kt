@@ -1,6 +1,7 @@
 package com.nexustools.genericui.ext.media.dsl
 
 import com.nexustools.genericui.component.media.AudioAnalyzer
+import com.nexustools.genericui.component.media.AudioAnalyzerConfig
 import com.nexustools.genericui.component.media.AudioPlayer
 import com.nexustools.genericui.component.media.SeekBar
 import com.nexustools.genericui.component.media.VideoPlayer
@@ -42,27 +43,34 @@ fun AbstractContainer.videoPlayer(
 }
 
 /**
- * In-place [AudioPlayer] builder.
+ * Creates and configures a [AudioPlayer] within a container DSL scope.
  */
 fun AbstractContainer.audioPlayer(
     sourceUrl: String? = null,
     volume: Float = 1.0f,
-    id: String? = null,
-    classes: String? = null,
     block: (@GenericUiDslMarker AudioPlayer.() -> Unit)? = null
 ): AudioPlayer {
     val player = AudioPlayer(sourceUrl = sourceUrl)
     player.volume = volume
-    if (!classes.isNullOrBlank()) {
-        player.addClass(classes)
-    }
-    if (!id.isNullOrBlank()) {
-        player.id = id
-    }
     if (block != null) {
         player.block()
     }
-    addChild(player)
+    return player
+}
+
+/**
+ * Creates and configures a standalone [AudioPlayer].
+ */
+fun audioPlayer(
+    sourceUrl: String? = null,
+    volume: Float = 1.0f,
+    block: (@GenericUiDslMarker AudioPlayer.() -> Unit)? = null
+): AudioPlayer {
+    val player = AudioPlayer(sourceUrl = sourceUrl)
+    player.volume = volume
+    if (block != null) {
+        player.block()
+    }
     return player
 }
 
@@ -105,6 +113,20 @@ fun AbstractContainer.audioAnalyzer(
 }
 
 /**
+ * Creates and configures a [AudioAnalyzer] using a typed [AudioAnalyzerConfig] within a container DSL scope.
+ */
+fun AbstractContainer.audioAnalyzer(
+    config: AudioAnalyzerConfig,
+    block: (@GenericUiDslMarker AudioAnalyzer.() -> Unit)? = null
+): AudioAnalyzer {
+    val analyzer = AudioAnalyzer(config = config)
+    if (block != null) {
+        analyzer.block()
+    }
+    return analyzer
+}
+
+/**
  * Creates and configures a standalone [AudioAnalyzer].
  */
 fun audioAnalyzer(
@@ -112,6 +134,20 @@ fun audioAnalyzer(
     block: (@GenericUiDslMarker AudioAnalyzer.() -> Unit)? = null
 ): AudioAnalyzer {
     val analyzer = AudioAnalyzer(fftSize = fftSize)
+    if (block != null) {
+        analyzer.block()
+    }
+    return analyzer
+}
+
+/**
+ * Creates and configures a standalone [AudioAnalyzer] using a typed [AudioAnalyzerConfig].
+ */
+fun audioAnalyzer(
+    config: AudioAnalyzerConfig,
+    block: (@GenericUiDslMarker AudioAnalyzer.() -> Unit)? = null
+): AudioAnalyzer {
+    val analyzer = AudioAnalyzer(config = config)
     if (block != null) {
         analyzer.block()
     }

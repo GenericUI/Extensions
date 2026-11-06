@@ -4,4 +4,5 @@ import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DConte
 
 interface Canvas2DNativeImpl<out W> : AbstractCanvasNativeImpl<W, ImageBuffer2DContext> {
     fun setOnSurfaceResizedListener(listener: ((Int, Int) -> Unit)?) {}
+    fun setOnBeforeFramePresentListener(listener: ((frameIndex: Long, timestampMs: Double) -> Unit)?) {}
 }

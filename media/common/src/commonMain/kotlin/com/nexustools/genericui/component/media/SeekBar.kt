@@ -32,6 +32,7 @@ open class SeekBar(
 
     var min: Double = min
         set(newMin) {
+            if (kotlin.math.abs(field - newMin) < 1e-6) return
             field = newMin
             if (max < newMin) {
                 max = newMin
@@ -51,7 +52,9 @@ open class SeekBar(
 
     var max: Double = max.coerceAtLeast(min)
         set(newMax) {
-            field = newMax.coerceAtLeast(min)
+            val coercedMax = newMax.coerceAtLeast(min)
+            if (kotlin.math.abs(field - coercedMax) < 1e-6) return
+            field = coercedMax
             val clampedVal = this.value.coerceIn(min, field)
             if (clampedVal != this.value) {
                 suppressBoundSeekPropagation = true
@@ -70,7 +73,9 @@ open class SeekBar(
 
     var step: Double = step.coerceAtLeast(0.001)
         set(newStep) {
-            field = newStep.coerceAtLeast(0.001)
+            val coercedStep = newStep.coerceAtLeast(0.001)
+            if (kotlin.math.abs(field - coercedStep) < 1e-6) return
+            field = coercedStep
             typedNative<SeekBarNativeImpl<*>>()?.setRange(min, max, field)
             syncVisualDataAttributes()
         }
@@ -78,9 +83,12 @@ open class SeekBar(
     var value: Double = value.coerceIn(this.min, this.max)
         set(newValue) {
             val clamped = newValue.coerceIn(min, max)
+            val changed = kotlin.math.abs(field - clamped) >= 1e-6
             field = clamped
-            typedNative<SeekBarNativeImpl<*>>()?.setValue(clamped)
-            syncVisualDataAttributes()
+            if (changed) {
+                typedNative<SeekBarNativeImpl<*>>()?.setValue(clamped)
+                syncValueOnlyDataAttributes()
+            }
             if (!suppressBoundSeekPropagation && boundPlayerSeekCallbacks.isNotEmpty()) {
                 notifyBoundPlayerSeek(clamped)
             }
@@ -103,6 +111,7 @@ open class SeekBar(
                 val clampedEnd = end.coerceIn(min, max)
                 if (clampedEnd > clampedStart) clampedStart to clampedEnd else null
             }
+            if (field == normalized) return
             field = normalized
             val serialized = normalized.joinToString(",") { "${it.first}-${it.second}" }
             val bufEnd = normalized.maxOfOrNull { it.second } ?: 0.0
@@ -111,7 +120,7 @@ open class SeekBar(
             setAttribute("data-buffered-ranges", serialized)
             setAttribute("data-buffered-end", bufEnd.toString())
             typedNative<SeekBarNativeImpl<*>>()?.setBufferedRanges(field, max)
-            syncVisualDataAttributes()
+            syncBufferedOnlyDataAttributes(serialized, bufEnd)
         }
 
     var accentColor: RgbaColor? = null
@@ -320,6 +329,10 @@ open class SeekBar(
         ).also { activeKnobDragSession = it }
     }
 
+    private var cachedSheetCountForColors: Int = -1
+    private var cachedSheetAccentColor: RgbaColor? = null
+    private var cachedSheetAccentResolved: Boolean = false
+
     fun resolveEffectiveAccentColor(): RgbaColor {
         accentColor?.let { return it }
 
@@ -333,13 +346,21 @@ open class SeekBar(
         }
 
         val styleSheets = Application.current?.getStyleSheets().orEmpty()
-        for (sheet in styleSheets) {
-            val raw = sheet.rawCss
-            if (raw.isNotBlank()) {
-                extractCssCustomPropertyColor(raw, "--genericui-accent-color")?.let { return it }
-                extractCssCustomPropertyColor(raw, "--bs-primary")?.let { return it }
+        if (styleSheets.size != cachedSheetCountForColors || !cachedSheetAccentResolved) {
+            cachedSheetCountForColors = styleSheets.size
+            cachedSheetAccentResolved = true
+            var found: RgbaColor? = null
+            for (sheet in styleSheets) {
+                val raw = sheet.rawCss
+                if (raw.isNotBlank()) {
+                    found = extractCssCustomPropertyColor(raw, "--genericui-accent-color")
+                        ?: extractCssCustomPropertyColor(raw, "--bs-primary")
+                    if (found != null) break
+                }
             }
+            cachedSheetAccentColor = found
         }
+        cachedSheetAccentColor?.let { return it }
 
         getStyle().accentColor?.let { return it }
         getAttribute("data-accent-color")?.trim()?.takeIf { it.isNotEmpty() }?.let { attrCss ->
@@ -377,7 +398,7 @@ open class SeekBar(
         }
     }
 
-    fun bindTo(videoPlayer: VideoPlayer): Disposable {
+    fun bindTo(player: Player): Disposable {
         var disposed = false
         var inSync = false
 
@@ -385,11 +406,11 @@ open class SeekBar(
             if (disposed || inSync) return
             inSync = true
             try {
-                val dur = if (videoPlayer.durationSeconds > min) videoPlayer.durationSeconds else max
-                val ranges = videoPlayer.bufferedRanges
-                val bufEnd = videoPlayer.bufferedEndSeconds
+                val dur = if (player.durationSeconds > min) player.durationSeconds else max
+                val ranges = player.bufferedRanges
+                val bufEnd = player.bufferedEndSeconds
                 updateProgressAndBuffer(
-                    currentValue = videoPlayer.currentTimeSeconds,
+                    currentValue = player.currentTimeSeconds,
                     maxValue = dur,
                     bufferedEndValue = bufEnd,
                     ranges = if (ranges.isNotEmpty()) ranges else null
@@ -400,13 +421,16 @@ open class SeekBar(
         }
 
         val stateObserver: () -> Unit = { syncFromPlayer() }
-        videoPlayer.addStateChangeObserver(stateObserver)
+        when (player) {
+            is VideoPlayer -> player.addStateChangeObserver(stateObserver)
+            is AudioPlayer -> player.addStateChangeObserver(stateObserver)
+        }
 
         val seekCallback: (Double) -> Unit = { targetSeconds ->
             if (!disposed && !inSync) {
                 inSync = true
                 try {
-                    videoPlayer.seekTo(targetSeconds)
+                    player.seekTo(targetSeconds)
                 } finally {
                     inSync = false
                 }
@@ -424,61 +448,10 @@ open class SeekBar(
                 if (!disposed) {
                     disposed = true
                     isDisposed = true
-                    videoPlayer.removeStateChangeObserver(stateObserver)
-                    boundPlayerSeekCallbacks.remove(seekCallback)
-                }
-            }
-        }
-    }
-
-    fun bindTo(audioPlayer: AudioPlayer): Disposable {
-        var disposed = false
-        var inSync = false
-
-        fun syncFromPlayer() {
-            if (disposed || inSync) return
-            inSync = true
-            try {
-                val dur = if (audioPlayer.durationSeconds > min) audioPlayer.durationSeconds else max
-                val ranges = audioPlayer.bufferedRanges
-                val bufEnd = audioPlayer.bufferedEndSeconds
-                updateProgressAndBuffer(
-                    currentValue = audioPlayer.currentTimeSeconds,
-                    maxValue = dur,
-                    bufferedEndValue = bufEnd,
-                    ranges = if (ranges.isNotEmpty()) ranges else null
-                )
-            } finally {
-                inSync = false
-            }
-        }
-
-        val stateObserver: () -> Unit = { syncFromPlayer() }
-        audioPlayer.addStateChangeObserver(stateObserver)
-
-        val seekCallback: (Double) -> Unit = { targetSeconds ->
-            if (!disposed && !inSync) {
-                inSync = true
-                try {
-                    audioPlayer.seekTo(targetSeconds)
-                } finally {
-                    inSync = false
-                }
-            }
-        }
-        boundPlayerSeekCallbacks.add(seekCallback)
-
-        syncFromPlayer()
-
-        return object : Disposable {
-            override var isDisposed: Boolean = false
-                private set
-
-            override fun dispose() {
-                if (!disposed) {
-                    disposed = true
-                    isDisposed = true
-                    audioPlayer.removeStateChangeObserver(stateObserver)
+                    when (player) {
+                        is VideoPlayer -> player.removeStateChangeObserver(stateObserver)
+                        is AudioPlayer -> player.removeStateChangeObserver(stateObserver)
+                    }
                     boundPlayerSeekCallbacks.remove(seekCallback)
                 }
             }
@@ -576,6 +549,30 @@ open class SeekBar(
             thumbColor = effectiveThumb
         )
         syncVisualDataAttributes()
+    }
+
+    private fun syncValueOnlyDataAttributes() {
+        val valStr = value.toString()
+        val playedStr = playedFraction.toString()
+        setAttribute("data-value", valStr)
+        setAttribute("data-played-fraction", playedStr)
+        typedNative<SeekBarNativeImpl<*>>()?.let { impl ->
+            impl.setAttribute("data-value", valStr)
+            impl.setAttribute("data-played-fraction", playedStr)
+        }
+    }
+
+    private fun syncBufferedOnlyDataAttributes(serializedRanges: String, bufEnd: Double) {
+        val bufferedStr = bufferedFraction.toString()
+        val bufEndStr = bufEnd.toString()
+        setAttribute("data-buffered-fraction", bufferedStr)
+        setAttribute("data-buffered-end", bufEndStr)
+        setAttribute("data-buffered-ranges", serializedRanges)
+        typedNative<SeekBarNativeImpl<*>>()?.let { impl ->
+            impl.setAttribute("data-buffered-fraction", bufferedStr)
+            impl.setAttribute("data-buffered-end", bufEndStr)
+            impl.setAttribute("data-buffered-ranges", serializedRanges)
+        }
     }
 
     private fun syncVisualDataAttributes() {

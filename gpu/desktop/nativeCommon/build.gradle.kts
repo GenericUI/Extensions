@@ -3,6 +3,8 @@ plugins {
 }
 
 kotlin {
+    applyDefaultHierarchyTemplate()
+
     mingwX64()
     linuxX64()
     linuxArm64()
@@ -13,11 +15,6 @@ kotlin {
             api(project(":desktop:nativeCommon"))
             api(project(":extensions:gpu:common"))
             api(project(":extensions:gpu:systemCommon"))
-            implementation(libs.kotlinx.coroutines.core)
-
-        }
-        commonTest.dependencies {
-            implementation(libs.kotlin.test)
         }
     }
 }

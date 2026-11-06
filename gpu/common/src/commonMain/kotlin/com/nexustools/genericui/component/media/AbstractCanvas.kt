@@ -5,10 +5,9 @@ import com.nexustools.genericui.ext.gpu.VBlankWatcher
 import com.nexustools.genericui.nativeimpl.media.AbstractCanvasNativeImpl
 
 /**
- * Non-unified abstract base class for all GenericUI hardware-accelerated canvases:
+ * Abstract base class for all GenericUI hardware-accelerated canvases:
  * - `Canvas2D`: Immediate-mode 2D vector/raster drawing canvas backed by a double-buffered `ImageBuffer`.
- * - `GLCanvas`: Dedicated OpenGL ES 2.0/3.0/3.2 3D/2D rendering surface (using Google ANGLE on Windows).
- * - `VKCanvas`: Dedicated Vulkan 1.1/1.2/1.3 rendering surface.
+ * - `Canvas3D`: Unified 3D rendering surface supporting `GLContext` (OpenGL ES 3.0+ / Google ANGLE) and `VKContext` (Vulkan 1.2+ / MoltenVK / WebGPU).
  *
  * Provides [registerVBlankRender] (which on `:web` registers `requestAnimationFrame` over and over
  * on each render frame, and on native platforms hooks into hardware VBlank/VSync) and a high-precision

@@ -181,4 +181,4 @@ fun createScrollableTilemapWithOverlay(): ScrollCanvas2DOverlayHost {
 - [`:extensions:gpu` (`gpu.md`)](gpu.md) — Defines `AbstractCanvas`, `VBlankWatcher`, `VBlankTimer`, and `VBlankSurfaceSynchronizer`.
 - [`:extensions:codeeditor` (`codeeditor.md`)](codeeditor.md) — Uses `Canvas2DExtSurface` to render syntax-highlighted source code and `CodeMinimap`.
 - [`:extensions:box2d` (`box2d.md`)](box2d.md) — Uses `ImageBuffer2DContext` in `Box2DDebugDrawer` to visualize 2D rigid bodies, fixtures, joints, and AABBs.
-- [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Sister 3D canvas extension (`GLCanvasExt`, `VKCanvasExt`, `ScrollCanvas3D`, `Canvas3DOverlayHost`).
+- [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Sister 3D canvas extension (`Canvas3D`, `ScrollCanvas3D`, `Canvas3DOverlayHost`).

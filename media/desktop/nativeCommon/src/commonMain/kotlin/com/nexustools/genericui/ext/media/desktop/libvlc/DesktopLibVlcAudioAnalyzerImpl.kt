@@ -1,72 +1,101 @@
 package com.nexustools.genericui.ext.media.desktop.libvlc
 
+import com.nexustools.genericui.component.media.AudioAnalyzerConfig
 import com.nexustools.genericui.component.media.AudioEnergyBands
+import com.nexustools.genericui.component.media.AudioFftSize
+import com.nexustools.genericui.component.media.AudioPcmFftAnalyzer
+import com.nexustools.genericui.desktop.core.DesktopInteractiveSurfaceSpec
+import com.nexustools.genericui.desktop.core.DesktopNativeWidget
 import com.nexustools.genericui.nativeimpl.media.AudioAnalyzerNativeImpl
-import kotlin.math.sqrt
 
 /**
- * Shared desktop [AudioAnalyzerNativeImpl] fed by `libvlc_audio_set_callbacks` PCM buffers.
+ * Shared desktop [AudioAnalyzerNativeImpl] fed by `libvlc_audio_set_callbacks` PCM buffers
+ * and backed by [AudioPcmFftAnalyzer] (Hann window + radix-2 Cooley-Tukey FFT).
  */
 class DesktopLibVlcAudioAnalyzerImpl(
-    initialFftSize: Int = 2048
+    initialFftSize: Int = 2048,
+    val nativeWidget: DesktopNativeWidget = DesktopNativeWidget("Desktop", "libvlc-audio-analyzer")
 ) : AudioAnalyzerNativeImpl {
 
-    override var fftSize: Int = initialFftSize.coerceIn(32, 32768)
-    override val frequencyBinCount: Int
-        get() = fftSize / 2
+    private val dsp = AudioPcmFftAnalyzer(
+        AudioAnalyzerConfig(fftSize = AudioFftSize.fromSampleCount(initialFftSize.coerceIn(32, 32768)))
+    )
 
-    private var pcmRingBuffer = FloatArray(fftSize)
-    private var freqDbBuffer = FloatArray(frequencyBinCount) { -100f }
+    override var fftSize: Int
+        get() = dsp.fftSize
+        set(value) {
+            dsp.fftSize = value.coerceIn(32, 32768)
+        }
+
+    override val frequencyBinCount: Int
+        get() = dsp.frequencyBinCount
+
+    private var surfaceWidthPx: Int = 256
+    private var surfaceHeightPx: Int = 64
+    private var swapCounter: Long = 0L
+
+    init {
+        DesktopInteractiveSurfaceSpec(
+            surfaceWidth = { surfaceWidthPx.coerceAtLeast(1) },
+            surfaceHeight = { surfaceHeightPx.coerceAtLeast(1) },
+            swapCount = { swapCounter },
+            captureBgra = { ByteArray(surfaceWidthPx.coerceAtLeast(1) * surfaceHeightPx.coerceAtLeast(1) * 4) },
+            captureRgba = { ByteArray(surfaceWidthPx.coerceAtLeast(1) * surfaceHeightPx.coerceAtLeast(1) * 4) },
+            resizeSurface = { w, h ->
+                if (w > 0 && h > 0) {
+                    surfaceWidthPx = w
+                    surfaceHeightPx = h
+                }
+            },
+            preferHardwareStretchBlit = false,
+            suppressDefaultBorder = true
+        ).attachTo(nativeWidget)
+    }
 
     fun onLibVlcPcmSamples(samples: FloatArray) {
-        val copyLen = minOf(samples.size, pcmRingBuffer.size)
-        for (i in 0 until copyLen) {
-            pcmRingBuffer[i] = samples[i].coerceIn(-1f, 1f)
-        }
+        pushPcmSamples(samples, channels = 1)
+    }
+
+    override fun pushPcmSamples(samples: FloatArray, channels: Int) {
+        dsp.pushPcmFloatMonoOrStereo(samples, channels = channels)
+        swapCounter += 1L
+    }
+
+    override fun pushPcmS16Le(
+        bytes: ByteArray,
+        byteCount: Int,
+        channels: Int,
+        volumeScale: Float
+    ) {
+        dsp.pushPcmS16Le(
+            bytes = bytes,
+            byteCount = byteCount,
+            channels = channels,
+            volumeScale = volumeScale
+        )
+        swapCounter += 1L
     }
 
     override fun getByteTimeDomainData(destination: ByteArray) {
-        val count = minOf(destination.size, pcmRingBuffer.size)
-        for (i in 0 until count) {
-            val byteVal = ((pcmRingBuffer[i] + 1f) * 127.5f).toInt().coerceIn(0, 255)
-            destination[i] = byteVal.toByte()
-        }
+        dsp.getByteTimeDomainData(destination)
     }
 
     override fun getFloatTimeDomainData(destination: FloatArray) {
-        val count = minOf(destination.size, pcmRingBuffer.size)
-        pcmRingBuffer.copyInto(destination, 0, 0, count)
+        dsp.getFloatTimeDomainData(destination)
     }
 
     override fun getByteFrequencyData(destination: ByteArray) {
-        val count = minOf(destination.size, freqDbBuffer.size)
-        for (i in 0 until count) {
-            val norm = ((freqDbBuffer[i] + 100f) / 100f).coerceIn(0f, 1f)
-            destination[i] = (norm * 255f).toInt().toByte()
-        }
+        dsp.getByteFrequencyData(destination)
     }
 
     override fun getFloatFrequencyData(destination: FloatArray) {
-        val count = minOf(destination.size, freqDbBuffer.size)
-        freqDbBuffer.copyInto(destination, 0, 0, count)
+        dsp.getFloatFrequencyData(destination)
     }
 
-    override fun computeEnergyBands(): AudioEnergyBands {
-        var sumSq = 0f
-        for (s in pcmRingBuffer) sumSq += s * s
-        val rms = if (pcmRingBuffer.isNotEmpty()) sqrt(sumSq / pcmRingBuffer.size) else 0f
-        return AudioEnergyBands(
-            bass = rms,
-            lowMid = rms * 0.9f,
-            mid = rms * 0.85f,
-            highMid = rms * 0.7f,
-            treble = rms * 0.4f,
-            overallRms = rms
-        )
-    }
+    override fun computeEnergyBands(): AudioEnergyBands =
+        dsp.computeEnergyBands()
 
     override fun dispose() {
-        pcmRingBuffer = FloatArray(0)
-        freqDbBuffer = FloatArray(0)
+        dsp.reset()
     }
 }

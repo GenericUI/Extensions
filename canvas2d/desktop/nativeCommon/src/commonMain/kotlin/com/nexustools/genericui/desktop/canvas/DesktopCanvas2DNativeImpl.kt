@@ -1,6 +1,7 @@
 package com.nexustools.genericui.desktop.canvas
 
 import com.nexustools.genericui.desktop.core.DesktopBaseNativeImpl
+import com.nexustools.genericui.desktop.core.DesktopInteractiveSurfaceSpec
 import com.nexustools.genericui.desktop.core.DesktopNativeWidget
 import com.nexustools.genericui.ext.imageprocessing.context2d.GpuAcceleratedContext2DBackend
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
@@ -40,30 +41,47 @@ open class DesktopCanvas2DNativeImpl<out W : DesktopNativeWidget>(
     protected var passThroughEvents: Boolean = false
     protected var devicePixelRatioVal: Float = 1.0f
     var onSurfaceResized: ((Int, Int) -> Unit)? = null
+    private var onBeforeFramePresentListener: ((Long, Double) -> Unit)? = null
 
     init {
         nativeWidget.attributes["canvas2DNativeImpl"] = this
         nativeWidget.attributes["canvas2DContext"] = contextImpl
         nativeWidget.attributes["imageBuffer"] = imageBuffer
-        nativeWidget.attributes["captureRgba"] = { contextImpl.presentFrontBufferRgba() }
-        nativeWidget.attributes["captureBgra"] = { contextImpl.presentFrontBufferBgra() }
         nativeWidget.attributes["frameBufferRgba"] = { contextImpl.presentFrontBufferRgba() }
         nativeWidget.attributes["frameBufferBgra"] = { contextImpl.presentFrontBufferBgra() }
-        nativeWidget.attributes["swapBuffers"] = { contextImpl.swapBuffers() }
-        nativeWidget.attributes["swapCount"] = { contextImpl.swapCount }
-        nativeWidget.attributes["surfaceWidth"] = { contextImpl.width }
-        nativeWidget.attributes["surfaceHeight"] = { contextImpl.height }
-        nativeWidget.attributes["resizeSurface"] = { w: Int, h: Int ->
-            contextImpl.resizeSurface(w, h)
-            onSurfaceResized?.invoke(w, h)
-            @Suppress("UNCHECKED_CAST")
-            val attrHook = nativeWidget.attributes["onSurfaceResized"] as? ((Int, Int) -> Unit)
-            attrHook?.invoke(w, h)
+        nativeWidget.attributes["swapBuffers"] = {
+            val nextSwap = contextImpl.swapCount + 1L
+            onBeforeFramePresentListener?.invoke(nextSwap, 0.0)
+            nativeWidget.interactiveSurfaceSpec?.dispatchBeforePresentFrame(nextSwap, 0.0)
+            contextImpl.swapBuffers()
         }
+        DesktopInteractiveSurfaceSpec(
+            surfaceWidth = { contextImpl.width.coerceAtLeast(1) },
+            surfaceHeight = { contextImpl.height.coerceAtLeast(1) },
+            swapCount = { contextImpl.swapCount },
+            captureBgra = { contextImpl.presentFrontBufferBgra() },
+            captureRgba = { contextImpl.presentFrontBufferRgba() },
+            resizeSurface = { w: Int, h: Int ->
+                contextImpl.resizeSurface(w, h)
+                onSurfaceResized?.invoke(w, h)
+                @Suppress("UNCHECKED_CAST")
+                val attrHook = nativeWidget.attributes["onSurfaceResized"] as? ((Int, Int) -> Unit)
+                attrHook?.invoke(w, h)
+            },
+            preferHardwareStretchBlit = false,
+            suppressDefaultBorder = false,
+            onBeforePresentFrame = { sc, ts ->
+                onBeforeFramePresentListener?.invoke(sc, ts ?: 0.0)
+            }
+        ).attachTo(nativeWidget)
     }
 
     override fun setOnSurfaceResizedListener(listener: ((Int, Int) -> Unit)?) {
         onSurfaceResized = listener
+    }
+
+    override fun setOnBeforeFramePresentListener(listener: ((frameIndex: Long, timestampMs: Double) -> Unit)?) {
+        onBeforeFramePresentListener = listener
     }
 
     val renderingContextImpl: GpuAcceleratedContext2DBackend
@@ -74,6 +92,9 @@ open class DesktopCanvas2DNativeImpl<out W : DesktopNativeWidget>(
     fun dispatchVBlank(timestampMs: Double?) {
         val cb = vblankCallback ?: return
         cb(timestampMs)
+        val nextSwap = contextImpl.swapCount + 1L
+        onBeforeFramePresentListener?.invoke(nextSwap, timestampMs ?: 0.0)
+        nativeWidget.interactiveSurfaceSpec?.dispatchBeforePresentFrame(nextSwap, timestampMs)
         contextImpl.swapBuffers()
     }
 
@@ -83,6 +104,9 @@ open class DesktopCanvas2DNativeImpl<out W : DesktopNativeWidget>(
         vblankActive = active
         val directFlushCallback: (Double?) -> Unit = { ts ->
             onVBlankFrame(ts)
+            val nextSwap = contextImpl.swapCount + 1L
+            onBeforeFramePresentListener?.invoke(nextSwap, ts ?: 0.0)
+            nativeWidget.interactiveSurfaceSpec?.dispatchBeforePresentFrame(nextSwap, ts)
             contextImpl.swapBuffers()
         }
         vblankCallback = if (active) directFlushCallback else null
@@ -95,6 +119,9 @@ open class DesktopCanvas2DNativeImpl<out W : DesktopNativeWidget>(
 
     override fun requestSingleRender() {
         vblankCallback?.invoke(null)
+        val nextSwap = contextImpl.swapCount + 1L
+        onBeforeFramePresentListener?.invoke(nextSwap, 0.0)
+        nativeWidget.interactiveSurfaceSpec?.dispatchBeforePresentFrame(nextSwap, 0.0)
         contextImpl.swapBuffers()
     }
 

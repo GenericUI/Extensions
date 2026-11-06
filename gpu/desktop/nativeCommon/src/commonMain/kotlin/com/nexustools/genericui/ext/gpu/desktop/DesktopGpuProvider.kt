@@ -1,5 +1,6 @@
 package com.nexustools.genericui.ext.gpu.desktop
 
+import com.nexustools.genericui.ext.gpu.GpuBackendSupport
 import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.gpu.GpuDevice
 import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
@@ -12,6 +13,13 @@ import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
 object DesktopGpuProvider {
     var vulkanAvailable: Boolean = true
     var angleOpenGlEsAvailable: Boolean = true
+
+    fun register(preferVulkan: Boolean = true) {
+        install(enableVulkan = preferVulkan || vulkanAvailable, enableAngleOpenGlEs = angleOpenGlEsAvailable)
+    }
+
+    fun detectSupport(backend: GpuBackendType): GpuBackendSupport =
+        DesktopGpuDynamicLoader.detectSupport(backend)
 
     fun install(
         enableVulkan: Boolean = true,

@@ -10,11 +10,10 @@ import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
  * Interactive spherical camera orbit, pan, and zoom controller (`THREE.OrbitControls`)
- * that attaches directly to any GenericUI [AbstractCanvas] (`GLCanvas` or `VKCanvas`).
+ * that attaches directly to any GenericUI [AbstractCanvas] (`Canvas3D` or `Canvas2D`).
  */
 class OrbitControls(
     val camera: Camera,

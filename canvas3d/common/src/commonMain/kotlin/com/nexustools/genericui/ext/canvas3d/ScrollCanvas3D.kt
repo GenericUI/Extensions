@@ -1,77 +1,51 @@
 package com.nexustools.genericui.ext.canvas3d
 
 import com.nexustools.genericui.component.form.RangeSlider
-import com.nexustools.genericui.component.media.AbstractCanvas
-import com.nexustools.genericui.component.media.GLCanvas
-import com.nexustools.genericui.component.media.GLCanvasConfig
+import com.nexustools.genericui.component.media.Canvas3D
+import com.nexustools.genericui.component.media.Canvas3DConfig
 import com.nexustools.genericui.component.media.GLContext
+import com.nexustools.genericui.component.media.GpuRenderContext
 import com.nexustools.genericui.component.media.VBlankRenderCallback
 import com.nexustools.genericui.component.media.VBlankSubscription
-import com.nexustools.genericui.component.media.VKCanvas
-import com.nexustools.genericui.component.media.VKCanvasConfig
 import com.nexustools.genericui.component.media.VKContext
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.event.WheelEvent
 import com.nexustools.genericui.ext.canvas3d.overlay.ScrollCanvas3DOverlayHost
+import com.nexustools.genericui.ext.gpu.GpuAccelerationPolicy
+import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.nativeimpl.media.ScrollCanvas3DNativeImpl
 import kotlin.math.roundToInt
 
 /**
- * Scrollable 3D canvas supporting Vulkan ([VKCanvas]) and OpenGL ES ([GLCanvas]) with a
+ * Scrollable 3D canvas supporting Vulkan and OpenGL ES via [Canvas3D] with a
  * configurable virtual content size ([contentWidth] x [contentHeight]) where **the actual hardware/HTML
  * 3D `<canvas>` only fills the visible viewport ([viewportWidth] x [viewportHeight]) and scrolling is
  * simulated** via [onScroll] / [ScrollCanvas3DListener].
- *
- * This guarantees that all GenericUI backends can provide a scrollable 3D canvas with scrollbars
- * over arbitrarily large virtual scenes/surfaces without allocating an oversized GPU swapchain or depth buffer:
- * - **Web (`:extensions:canvas3d:web`)**: Renders a `<genericui:scrollcanvas3d>` element with
- *   `position: relative` and `overflow: auto`, an inner `<div>` sized to `[contentWidth]px` x `[contentHeight]px`,
- *   and an HTML `<canvas>` overtop the `<div>` with `position: absolute; left: 0; top: 0; width: 0; height: 0;`.
- * - **System Targets (`:desktop`, `:mobile`, `:swing`)**: Composes the viewport-sized 3D canvas
- *   ([viewportVkCanvas] or [viewportGlCanvas]) with a vertical scrollbar component at the right ([rightScrollBar])
- *   and a horizontal scrollbar component at the bottom ([bottomScrollBar]).
  */
 open class ScrollCanvas3D(
     viewportWidth: Int = 800,
     viewportHeight: Int = 600,
     contentWidth: Int = viewportWidth,
     contentHeight: Int = viewportHeight,
-    val preferVulkan: Boolean = true,
-    val glConfig: GLCanvasConfig = GLCanvasConfig(),
-    val vkConfig: VKCanvasConfig = VKCanvasConfig()
+    val backend: GpuBackendType = GpuBackendType.VULKAN,
+    val acceleration: GpuAccelerationPolicy = GpuAccelerationPolicy.HARDWARE_ONLY,
+    val config: Canvas3DConfig = Canvas3DConfig(),
+    val viewportCanvas: Canvas3D = Canvas3D(
+        backend = backend,
+        acceleration = acceleration,
+        config = config,
+        width = viewportWidth.coerceAtLeast(1),
+        height = viewportHeight.coerceAtLeast(1)
+    )
 ) : AbstractContainer("scroll-canvas-3d") {
 
     private var currentViewportWidth: Int = viewportWidth.coerceAtLeast(1)
     private var currentViewportHeight: Int = viewportHeight.coerceAtLeast(1)
     private var currentContentWidth: Int = contentWidth.coerceAtLeast(1)
     private var currentContentHeight: Int = contentHeight.coerceAtLeast(1)
-
-    /**
-     * Viewport-sized OpenGL ES 3D canvas (`viewportWidth` x `viewportHeight`).
-     */
-    val viewportGlCanvas: GLCanvas = GLCanvas(
-        config = glConfig,
-        width = currentViewportWidth,
-        height = currentViewportHeight
-    )
-
-    /**
-     * Viewport-sized Vulkan 3D canvas (`viewportWidth` x `viewportHeight`).
-     */
-    val viewportVkCanvas: VKCanvas = VKCanvas(
-        config = vkConfig,
-        width = currentViewportWidth,
-        height = currentViewportHeight
-    )
-
-    /**
-     * Active viewport-sized 3D canvas ([viewportVkCanvas] when [preferVulkan] is `true`, otherwise [viewportGlCanvas]).
-     */
-    val viewportCanvas: AbstractCanvas<*>
-        get() = if (preferVulkan) viewportVkCanvas else viewportGlCanvas
 
     /**
      * Vertical scrollbar component placed at the right on System implementations.
@@ -153,8 +127,10 @@ open class ScrollCanvas3D(
         htmlTag = "genericui:scrollcanvas3d"
         widthPx = currentViewportWidth
         heightPx = currentViewportHeight
+        viewportCanvas.widthPx = currentViewportWidth
+        viewportCanvas.heightPx = currentViewportHeight
 
-        addChild(if (preferVulkan) viewportVkCanvas else viewportGlCanvas)
+        addChild(viewportCanvas)
         addChild(rightScrollBar)
         addChild(bottomScrollBar)
 
@@ -173,8 +149,7 @@ open class ScrollCanvas3D(
             handleWheelEvent(event)
         }
         onWheel = wheelHandler
-        viewportGlCanvas.onWheel = wheelHandler
-        viewportVkCanvas.onWheel = wheelHandler
+        viewportCanvas.onWheel = wheelHandler
     }
 
     /**
@@ -217,10 +192,8 @@ open class ScrollCanvas3D(
         currentViewportHeight = safeH
         widthPx = safeW
         heightPx = safeH
-        viewportGlCanvas.widthPx = safeW
-        viewportGlCanvas.heightPx = safeH
-        viewportVkCanvas.widthPx = safeW
-        viewportVkCanvas.heightPx = safeH
+        viewportCanvas.widthPx = safeW
+        viewportCanvas.heightPx = safeH
 
         val clampedX = scrollX.coerceIn(0, maxScrollX)
         val clampedY = scrollY.coerceIn(0, maxScrollY)
@@ -301,30 +274,29 @@ open class ScrollCanvas3D(
     }
 
     /**
-     * Resolves the OpenGL ES [GLContext] for the viewport-sized 3D canvas.
+     * Resolves the active [GpuRenderContext] ([VKContext] or [GLContext]) for the viewport-sized 3D canvas.
+     */
+    fun resolveRenderingContext(): GpuRenderContext? =
+        (activeScrollNative()?.getRenderingContext() as? GpuRenderContext)
+            ?: viewportCanvas.resolveRenderingContext()
+
+    /**
+     * Resolves the OpenGL ES [GLContext] for the viewport-sized 3D canvas when [backend] is [GpuBackendType.OPENGL_ES].
      */
     fun resolveGLContext(): GLContext? =
-        (activeScrollNative()?.getRenderingContext() as? GLContext)
-            ?: viewportGlCanvas.resolveRenderingContext()
+        resolveRenderingContext() as? GLContext
 
     /**
-     * Resolves the Vulkan [VKContext] for the viewport-sized 3D canvas.
+     * Resolves the Vulkan [VKContext] for the viewport-sized 3D canvas when [backend] is [GpuBackendType.VULKAN].
      */
     fun resolveVKContext(): VKContext? =
-        (activeScrollNative()?.getRenderingContext() as? VKContext)
-            ?: viewportVkCanvas.resolveRenderingContext()
+        resolveRenderingContext() as? VKContext
 
     /**
-     * Registers a VBlank-synchronized OpenGL ES render callback on [viewportGlCanvas].
+     * Registers a VBlank-synchronized render callback on [viewportCanvas].
      */
-    fun registerGLVBlankRender(callback: VBlankRenderCallback<GLContext>): VBlankSubscription =
-        viewportGlCanvas.registerVBlankRender(callback)
-
-    /**
-     * Registers a VBlank-synchronized Vulkan render callback on [viewportVkCanvas].
-     */
-    fun registerVKVBlankRender(callback: VBlankRenderCallback<VKContext>): VBlankSubscription =
-        viewportVkCanvas.registerVBlankRender(callback)
+    fun registerVBlankRender(callback: VBlankRenderCallback<GpuRenderContext>): VBlankSubscription =
+        viewportCanvas.registerVBlankRender(callback)
 
     /**
      * Requests a single on-demand render frame on the active viewport 3D canvas.
@@ -414,7 +386,7 @@ open class ScrollCanvas3D(
             viewportHeight = currentViewportHeight,
             contentWidth = currentContentWidth,
             contentHeight = currentContentHeight,
-            preferVulkan = preferVulkan
+            backend = backend
         ) ?: factory.createContainer(componentClassPrefix, htmlTag)
 
     override fun syncStateToNative() {

@@ -1,7 +1,7 @@
 package com.nexustools.genericui.enums.media
 
 /**
- * Programmable GPU shader stage for [com.nexustools.genericui.component.media.GLCanvas] and [com.nexustools.genericui.component.media.VKCanvas].
+ * Shader stage type for `Canvas3D` (`GLContext` and `VKContext`) shader compilation.
  */
 enum class ShaderType {
     VERTEX,

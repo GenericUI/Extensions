@@ -37,8 +37,18 @@ open class DesktopSeekBarNativeImpl<W : DesktopNativeWidget>(
     }
 
     override fun setValue(value: Double) {
-        currentVal = value.coerceIn(minVal, maxVal)
-        syncAttributesAndInvalidate()
+        val clamped = value.coerceIn(minVal, maxVal)
+        if (kotlin.math.abs(currentVal - clamped) < 1e-6 && nativeWidget.attributes.containsKey("value")) return
+        currentVal = clamped
+        syncValueAndInvalidate()
+    }
+
+    private fun syncValueAndInvalidate() {
+        val span = (maxVal - minVal).takeIf { it > 0.0 } ?: 1.0
+        val playedFraction = (((currentVal - minVal) / span).toFloat()).coerceIn(0f, 1f)
+        nativeWidget.attributes["value"] = currentVal.toString()
+        nativeWidget.attributes["playedFraction"] = playedFraction.toString()
+        nativeWidget.notifyTreeInvalidated(visualOnly = true)
     }
 
     override fun getValue(): Double = currentVal
@@ -81,7 +91,7 @@ open class DesktopSeekBarNativeImpl<W : DesktopNativeWidget>(
                 ?: payload?.toString()?.toDoubleOrNull()
             if (v != null) {
                 currentVal = v.coerceIn(minVal, maxVal)
-                syncAttributesAndInvalidate()
+                syncValueAndInvalidate()
                 listener?.invoke(currentVal)
             }
         }
@@ -103,7 +113,7 @@ open class DesktopSeekBarNativeImpl<W : DesktopNativeWidget>(
         isDraggingKnob = true
         val stepped = resolveSteppedValueFromFraction(fraction)
         currentVal = stepped
-        syncAttributesAndInvalidate()
+        syncValueAndInvalidate()
         onSeekStartListener?.invoke(currentVal)
         onValueChangedListener?.invoke(currentVal)
     }
@@ -134,7 +144,7 @@ open class DesktopSeekBarNativeImpl<W : DesktopNativeWidget>(
     fun updateFromTrackFraction(fraction: Float, commit: Boolean = false) {
         val stepped = resolveSteppedValueFromFraction(fraction.toDouble())
         currentVal = stepped
-        syncAttributesAndInvalidate()
+        syncValueAndInvalidate()
         onValueChangedListener?.invoke(currentVal)
         if (commit) {
             onSeekCommitListener?.invoke(currentVal)
@@ -170,6 +180,6 @@ open class DesktopSeekBarNativeImpl<W : DesktopNativeWidget>(
         nativeWidget.attributes["thumbInsetPx"] = thumbInsetPx.toString()
         nativeWidget.styleProperties["padding-left"] = "${thumbInsetPx}px"
         nativeWidget.styleProperties["padding-right"] = "${thumbInsetPx}px"
-        nativeWidget.notifyTreeInvalidated()
+        nativeWidget.notifyTreeInvalidated(visualOnly = true)
     }
 }

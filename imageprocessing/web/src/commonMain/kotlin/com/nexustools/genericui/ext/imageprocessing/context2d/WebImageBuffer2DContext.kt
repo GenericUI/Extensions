@@ -12,6 +12,13 @@ import kotlin.math.roundToInt
  * Web-target (`:extensions:imageprocessing:web`) implementation of [ImageBuffer2DContext]
  * operating directly on [WebImageBuffer] and its underlying browser 2D surface via
  * [WebImageBuffer2DBridge].
+ *
+ * - In browser environments (`[WebImageBuffer2DBridge.isBrowserCanvasSupported] == true` and no
+ *   custom CPU clip region active), delegates `clearRect`, `fillRect`, `strokeRect`, `fillText`,
+ *   `strokeText`, and `drawImage` directly to the browser's hardware-accelerated HTML5 `<canvas>`
+ *   `CanvasRenderingContext2D` without running CPU rasterizer loops.
+ * - In headless Node/Wasm unit tests (or when a custom clip region is active), executes the
+ *   deterministic CPU rasterizer while recording `data-*` attributes on [WebImageBuffer.surfaceElement].
  */
 class WebImageBuffer2DContext(
     override val imageBuffer: WebImageBuffer,
@@ -56,8 +63,94 @@ class WebImageBuffer2DContext(
     override var fontVariantCaps: ImageBufferFontVariantCaps = ImageBufferFontVariantCaps.NORMAL
     override var textRendering: ImageBufferTextRendering = ImageBufferTextRendering.AUTO
 
+    internal var clipRect: IntArray? = null
+        private set
+
     private val currentPath = ImageBufferPath2D()
-    private val stateStack = ArrayDeque<SavedWebContextState>()
+    private val stateStack = ArrayDeque<Array<Any?>>()
+
+    private fun clipMinX(): Int = clipRect?.get(0)?.coerceIn(0, width) ?: 0
+    private fun clipMinY(): Int = clipRect?.get(1)?.coerceIn(0, height) ?: 0
+    private fun clipMaxX(): Int = clipRect?.get(2)?.coerceIn(0, width) ?: width
+    private fun clipMaxY(): Int = clipRect?.get(3)?.coerceIn(0, height) ?: height
+
+    private fun currentTransformArray(): FloatArray =
+        floatArrayOf(
+            currentMatrix.a,
+            currentMatrix.b,
+            currentMatrix.c,
+            currentMatrix.d,
+            currentMatrix.e,
+            currentMatrix.f
+        )
+
+    private fun formatCssNumber(v: Float): String {
+        val iv = v.toInt()
+        return if (v == iv.toFloat()) iv.toString() else v.toString()
+    }
+
+    private fun currentFontCss(): String =
+        "${fontStyle.webValue} $fontWeight ${formatCssNumber(fontSizePx)}px $fontFamily"
+
+    private fun colorToCss(c: RgbaColor): String {
+        val a = c.a.coerceIn(0, 255)
+        return when (a) {
+            255 -> "rgba(${c.r},${c.g},${c.b},1)"
+            0 -> "rgba(${c.r},${c.g},${c.b},0)"
+            else -> "rgba(${c.r},${c.g},${c.b},${a / 255f})"
+        }
+    }
+
+    private fun mapTextAlignCss(align: ImageBufferTextAlign): String =
+        when (align) {
+            ImageBufferTextAlign.START -> "start"
+            ImageBufferTextAlign.END -> "end"
+            ImageBufferTextAlign.LEFT -> "left"
+            ImageBufferTextAlign.RIGHT -> "right"
+            ImageBufferTextAlign.CENTER -> "center"
+        }
+
+    private fun mapTextBaselineCss(baseline: ImageBufferTextBaseline): String =
+        when (baseline) {
+            ImageBufferTextBaseline.TOP -> "top"
+            ImageBufferTextBaseline.HANGING -> "hanging"
+            ImageBufferTextBaseline.MIDDLE -> "middle"
+            ImageBufferTextBaseline.ALPHABETIC -> "alphabetic"
+            ImageBufferTextBaseline.IDEOGRAPHIC -> "ideographic"
+            ImageBufferTextBaseline.BOTTOM -> "bottom"
+        }
+
+    private fun mapLineCapCss(cap: ImageBufferLineCap): String =
+        when (cap) {
+            ImageBufferLineCap.BUTT -> "butt"
+            ImageBufferLineCap.ROUND -> "round"
+            ImageBufferLineCap.SQUARE -> "square"
+        }
+
+    private fun mapLineJoinCss(join: ImageBufferLineJoin): String =
+        when (join) {
+            ImageBufferLineJoin.MITER -> "miter"
+            ImageBufferLineJoin.ROUND -> "round"
+            ImageBufferLineJoin.BEVEL -> "bevel"
+        }
+
+    private fun mapCompositeOperationCss(op: ImageBufferCompositeOperation): String =
+        when (op) {
+            ImageBufferCompositeOperation.SOURCE_OVER -> "source-over"
+            ImageBufferCompositeOperation.DESTINATION_OVER -> "destination-over"
+            ImageBufferCompositeOperation.SOURCE_IN -> "source-in"
+            ImageBufferCompositeOperation.DESTINATION_IN -> "destination-in"
+            ImageBufferCompositeOperation.SOURCE_OUT -> "source-out"
+            ImageBufferCompositeOperation.DESTINATION_OUT -> "destination-out"
+            ImageBufferCompositeOperation.SOURCE_ATOP -> "source-atop"
+            ImageBufferCompositeOperation.DESTINATION_ATOP -> "destination-atop"
+            ImageBufferCompositeOperation.LIGHTER -> "lighter"
+            ImageBufferCompositeOperation.COPY -> "copy"
+            ImageBufferCompositeOperation.XOR -> "xor"
+            ImageBufferCompositeOperation.MULTIPLY -> "multiply"
+            ImageBufferCompositeOperation.SCREEN -> "screen"
+            else -> op.webValue
+        }
 
     override fun reset() {
         currentMatrix = ImageBufferMatrix2D.IDENTITY
@@ -88,6 +181,7 @@ class WebImageBuffer2DContext(
         fontStretch = ImageBufferFontStretch.NORMAL
         fontVariantCaps = ImageBufferFontVariantCaps.NORMAL
         textRendering = ImageBufferTextRendering.AUTO
+        clipRect = null
         currentPath.reset()
         stateStack.clear()
         clearRect(0f, 0f, width.toFloat(), height.toFloat())
@@ -95,41 +189,77 @@ class WebImageBuffer2DContext(
 
     override fun save() {
         stateStack.addLast(
-            SavedWebContextState(
-                matrix = currentMatrix.copy(),
-                globalAlpha = globalAlpha,
-                globalCompositeOperation = globalCompositeOperation,
-                fillStyle = fillStyle,
-                strokeStyle = strokeStyle,
-                lineWidth = lineWidth,
-                lineCap = lineCap,
-                lineJoin = lineJoin,
-                fontFamily = fontFamily,
-                fontSizePx = fontSizePx,
-                fontWeight = fontWeight,
-                fontStyle = fontStyle,
-                textAlign = textAlign,
-                textBaseline = textBaseline
+            arrayOf(
+                currentMatrix.copy(),
+                globalAlpha,
+                globalCompositeOperation,
+                imageSmoothingEnabled,
+                imageSmoothingQuality,
+                filter,
+                fillStyle,
+                strokeStyle,
+                shadowBlur,
+                shadowColor,
+                shadowOffsetX,
+                shadowOffsetY,
+                lineWidth,
+                lineCap,
+                lineJoin,
+                miterLimit,
+                lineDashOffset,
+                lineDashSegments.copyOf(),
+                fontFamily,
+                fontSizePx,
+                fontWeight,
+                fontStyle,
+                textAlign,
+                textBaseline,
+                direction,
+                letterSpacingPx,
+                wordSpacingPx,
+                fontKerning,
+                fontStretch,
+                fontVariantCaps,
+                textRendering,
+                clipRect?.copyOf()
             )
         )
     }
 
     override fun restore() {
         val s = stateStack.removeLastOrNull() ?: return
-        currentMatrix = s.matrix
-        globalAlpha = s.globalAlpha
-        globalCompositeOperation = s.globalCompositeOperation
-        fillStyle = s.fillStyle
-        strokeStyle = s.strokeStyle
-        lineWidth = s.lineWidth
-        lineCap = s.lineCap
-        lineJoin = s.lineJoin
-        fontFamily = s.fontFamily
-        fontSizePx = s.fontSizePx
-        fontWeight = s.fontWeight
-        fontStyle = s.fontStyle
-        textAlign = s.textAlign
-        textBaseline = s.textBaseline
+        currentMatrix = s[0] as ImageBufferMatrix2D
+        globalAlpha = s[1] as Float
+        globalCompositeOperation = s[2] as ImageBufferCompositeOperation
+        imageSmoothingEnabled = s[3] as Boolean
+        imageSmoothingQuality = s[4] as ImageBufferImageSmoothingQuality
+        filter = s[5] as String
+        fillStyle = s[6] as ImageBufferPaintStyle
+        strokeStyle = s[7] as ImageBufferPaintStyle
+        shadowBlur = s[8] as Float
+        shadowColor = s[9] as RgbaColor
+        shadowOffsetX = s[10] as Float
+        shadowOffsetY = s[11] as Float
+        lineWidth = s[12] as Float
+        lineCap = s[13] as ImageBufferLineCap
+        lineJoin = s[14] as ImageBufferLineJoin
+        miterLimit = s[15] as Float
+        lineDashOffset = s[16] as Float
+        lineDashSegments = s[17] as FloatArray
+        fontFamily = s[18] as String
+        fontSizePx = s[19] as Float
+        fontWeight = s[20] as Int
+        fontStyle = s[21] as ImageBufferFontStyle
+        textAlign = s[22] as ImageBufferTextAlign
+        textBaseline = s[23] as ImageBufferTextBaseline
+        direction = s[24] as ImageBufferTextDirection
+        letterSpacingPx = s[25] as Float
+        wordSpacingPx = s[26] as Float
+        fontKerning = s[27] as ImageBufferFontKerning
+        fontStretch = s[28] as ImageBufferFontStretch
+        fontVariantCaps = s[29] as ImageBufferFontVariantCaps
+        textRendering = s[30] as ImageBufferTextRendering
+        clipRect = s[31] as? IntArray
     }
 
     override fun scale(sx: Float, sy: Float) {
@@ -166,11 +296,35 @@ class WebImageBuffer2DContext(
     override fun getLineDash(): FloatArray = lineDashSegments.copyOf()
 
     override fun clearRect(x: Float, y: Float, width: Float, height: Float) {
-        WebImageBuffer2DBridge.clearRect(imageBuffer.surfaceElement, x, y, width, height)
-        val sx = floor(x).toInt().coerceIn(0, this.width)
-        val sy = floor(y).toInt().coerceIn(0, this.height)
-        val ex = ceil(x + width).toInt().coerceIn(0, this.width)
-        val ey = ceil(y + height).toInt().coerceIn(0, this.height)
+        val transform = currentTransformArray()
+        if (WebImageBuffer2DBridge.isBrowserCanvasSupported && clipRect == null) {
+            imageBuffer.syncCanvasFromCpuIfNeeded()
+            WebImageBuffer2DBridge.clearRect(
+                surfaceElement = imageBuffer.surfaceElement,
+                x = x,
+                y = y,
+                width = width,
+                height = height,
+                transform = transform
+            )
+            imageBuffer.markCanvasModified()
+            return
+        }
+
+        WebImageBuffer2DBridge.clearRect(
+            surfaceElement = imageBuffer.surfaceElement,
+            x = x,
+            y = y,
+            width = width,
+            height = height,
+            transform = transform
+        )
+        val (tx0, ty0) = currentMatrix.transformPoint(x, y)
+        val (tx1, ty1) = currentMatrix.transformPoint(x + width, y + height)
+        val sx = floor(min(tx0, tx1)).toInt().coerceIn(clipMinX(), clipMaxX())
+        val sy = floor(min(ty0, ty1)).toInt().coerceIn(clipMinY(), clipMaxY())
+        val ex = ceil(max(tx0, tx1)).toInt().coerceIn(clipMinX(), clipMaxX())
+        val ey = ceil(max(ty0, ty1)).toInt().coerceIn(clipMinY(), clipMaxY())
         for (py in sy until ey) {
             for (px in sx until ex) {
                 imageBuffer.setPixel(px, py, RgbaColor.TRANSPARENT)
@@ -179,29 +333,82 @@ class WebImageBuffer2DContext(
     }
 
     override fun fillRect(x: Float, y: Float, width: Float, height: Float) {
-        val c = fillStyle.color
+        val fillCss = colorToCss(fillStyle.color)
+        val compositeCss = mapCompositeOperationCss(globalCompositeOperation)
+        val transform = currentTransformArray()
+        if (WebImageBuffer2DBridge.isBrowserCanvasSupported && clipRect == null) {
+            imageBuffer.syncCanvasFromCpuIfNeeded()
+            WebImageBuffer2DBridge.fillRect(
+                surfaceElement = imageBuffer.surfaceElement,
+                x = x,
+                y = y,
+                width = width,
+                height = height,
+                fillCss = fillCss,
+                globalAlpha = globalAlpha,
+                compositeOp = compositeCss,
+                transform = transform
+            )
+            imageBuffer.markCanvasModified()
+            return
+        }
+
         WebImageBuffer2DBridge.fillRect(
-            imageBuffer.surfaceElement,
-            x,
-            y,
-            width,
-            height,
-            "rgba(${c.r},${c.g},${c.b},${(c.a / 255f) * globalAlpha})"
+            surfaceElement = imageBuffer.surfaceElement,
+            x = x,
+            y = y,
+            width = width,
+            height = height,
+            fillCss = fillCss,
+            globalAlpha = globalAlpha,
+            compositeOp = compositeCss,
+            transform = transform
         )
         val p = ImageBufferPath2D().apply { rect(x, y, width, height) }
         fill(p, ImageBufferFillRule.NONZERO)
     }
 
     override fun strokeRect(x: Float, y: Float, width: Float, height: Float) {
-        val c = strokeStyle.color
+        val strokeCss = colorToCss(strokeStyle.color)
+        val capCss = mapLineCapCss(lineCap)
+        val joinCss = mapLineJoinCss(lineJoin)
+        val compositeCss = mapCompositeOperationCss(globalCompositeOperation)
+        val transform = currentTransformArray()
+        if (WebImageBuffer2DBridge.isBrowserCanvasSupported && clipRect == null) {
+            imageBuffer.syncCanvasFromCpuIfNeeded()
+            WebImageBuffer2DBridge.strokeRect(
+                surfaceElement = imageBuffer.surfaceElement,
+                x = x,
+                y = y,
+                width = width,
+                height = height,
+                strokeCss = strokeCss,
+                lineWidth = lineWidth,
+                lineCap = capCss,
+                lineJoin = joinCss,
+                miterLimit = miterLimit,
+                globalAlpha = globalAlpha,
+                compositeOp = compositeCss,
+                transform = transform
+            )
+            imageBuffer.markCanvasModified()
+            return
+        }
+
         WebImageBuffer2DBridge.strokeRect(
-            imageBuffer.surfaceElement,
-            x,
-            y,
-            width,
-            height,
-            "rgba(${c.r},${c.g},${c.b},${(c.a / 255f) * globalAlpha})",
-            lineWidth
+            surfaceElement = imageBuffer.surfaceElement,
+            x = x,
+            y = y,
+            width = width,
+            height = height,
+            strokeCss = strokeCss,
+            lineWidth = lineWidth,
+            lineCap = capCss,
+            lineJoin = joinCss,
+            miterLimit = miterLimit,
+            globalAlpha = globalAlpha,
+            compositeOp = compositeCss,
+            transform = transform
         )
         val p = ImageBufferPath2D().apply { rect(x, y, width, height) }
         stroke(p)
@@ -301,10 +508,10 @@ class WebImageBuffer2DContext(
                 i += 2
             }
         }
-        val sx = floor(minX).toInt().coerceIn(0, width)
-        val sy = floor(minY).toInt().coerceIn(0, height)
-        val ex = ceil(maxX).toInt().coerceIn(0, width)
-        val ey = ceil(maxY).toInt().coerceIn(0, height)
+        val sx = floor(minX).toInt().coerceIn(clipMinX(), clipMaxX())
+        val sy = floor(minY).toInt().coerceIn(clipMinY(), clipMaxY())
+        val ex = ceil(maxX).toInt().coerceIn(clipMinX(), clipMaxX())
+        val ey = ceil(maxY).toInt().coerceIn(clipMinY(), clipMaxY())
         val inv = currentMatrix.invert() ?: ImageBufferMatrix2D.IDENTITY
         for (py in sy until ey) {
             for (px in sx until ex) {
@@ -341,7 +548,7 @@ class WebImageBuffer2DContext(
                         for (dx in -r..r) {
                             val px = cx + dx
                             val py = cy + dy
-                            if (px in 0 until width && py in 0 until height) {
+                            if (px in clipMinX() until clipMaxX() && py in clipMinY() until clipMaxY()) {
                                 val (lx, ly) = inv.transformPoint(px + 0.5f, py + 0.5f)
                                 val src = strokeStyle.sampleAt(lx, ly, imageSmoothingEnabled)
                                 imageBuffer.setPixel(px, py, globalCompositeOperation.blend(src, imageBuffer.getPixel(px, py), globalAlpha))
@@ -354,8 +561,33 @@ class WebImageBuffer2DContext(
         }
     }
 
-    override fun clip(fillRule: ImageBufferFillRule) {}
-    override fun clip(path: ImageBufferPath2D, fillRule: ImageBufferFillRule) {}
+    override fun clip(fillRule: ImageBufferFillRule) = clip(currentPath, fillRule)
+
+    override fun clip(path: ImageBufferPath2D, fillRule: ImageBufferFillRule) {
+        val subpaths = transformPolylines(path, currentMatrix)
+        if (subpaths.isEmpty()) return
+        var minX = Float.POSITIVE_INFINITY
+        var minY = Float.POSITIVE_INFINITY
+        var maxX = Float.NEGATIVE_INFINITY
+        var maxY = Float.NEGATIVE_INFINITY
+        for (poly in subpaths) {
+            var i = 0
+            while (i + 1 < poly.size) {
+                val px = poly[i]
+                val py = poly[i + 1]
+                if (px < minX) minX = px
+                if (py < minY) minY = py
+                if (px > maxX) maxX = px
+                if (py > maxY) maxY = py
+                i += 2
+            }
+        }
+        val nextMinX = max(clipMinX(), floor(minX).toInt())
+        val nextMinY = max(clipMinY(), floor(minY).toInt())
+        val nextMaxX = min(clipMaxX(), ceil(maxX).toInt())
+        val nextMaxY = min(clipMaxY(), ceil(maxY).toInt())
+        clipRect = intArrayOf(nextMinX, nextMinY, nextMaxX, nextMaxY)
+    }
 
     override fun isPointInPath(x: Float, y: Float, fillRule: ImageBufferFillRule): Boolean =
         isPointInPath(currentPath, x, y, fillRule)
@@ -381,15 +613,45 @@ class WebImageBuffer2DContext(
     }
 
     override fun fillText(text: String, x: Float, y: Float, maxWidth: Float?) {
-        val c = fillStyle.color
-        val fontCss = "${fontStyle.webValue} $fontWeight ${fontSizePx}px $fontFamily"
+        val fillCss = colorToCss(fillStyle.color)
+        val fontCss = currentFontCss()
+        val alignCss = mapTextAlignCss(textAlign)
+        val baselineCss = mapTextBaselineCss(textBaseline)
+        val compositeCss = mapCompositeOperationCss(globalCompositeOperation)
+        val transform = currentTransformArray()
+        if (WebImageBuffer2DBridge.isBrowserCanvasSupported && clipRect == null) {
+            imageBuffer.syncCanvasFromCpuIfNeeded()
+            WebImageBuffer2DBridge.fillText(
+                surfaceElement = imageBuffer.surfaceElement,
+                text = text,
+                x = x,
+                y = y,
+                maxWidth = maxWidth,
+                fontCss = fontCss,
+                fillCss = fillCss,
+                textAlignCss = alignCss,
+                textBaselineCss = baselineCss,
+                globalAlpha = globalAlpha,
+                compositeOp = compositeCss,
+                transform = transform
+            )
+            imageBuffer.markCanvasModified()
+            return
+        }
+
         WebImageBuffer2DBridge.fillText(
-            imageBuffer.surfaceElement,
-            text,
-            x,
-            y,
-            fontCss,
-            "rgba(${c.r},${c.g},${c.b},${(c.a / 255f) * globalAlpha})"
+            surfaceElement = imageBuffer.surfaceElement,
+            text = text,
+            x = x,
+            y = y,
+            maxWidth = maxWidth,
+            fontCss = fontCss,
+            fillCss = fillCss,
+            textAlignCss = alignCss,
+            textBaselineCss = baselineCss,
+            globalAlpha = globalAlpha,
+            compositeOp = compositeCss,
+            transform = transform
         )
         ScalableVectorFontEngine.renderText(
             text = text,
@@ -417,7 +679,7 @@ class WebImageBuffer2DContext(
             surfaceWidth = width,
             surfaceHeight = height
         ) { px, py, cov, isShadow, localX, localY ->
-            if (px in 0 until width && py in 0 until height) {
+            if (px in clipMinX() until clipMaxX() && py in clipMinY() until clipMaxY()) {
                 val src = if (isShadow) shadowColor else fillStyle.sampleAt(localX, localY, imageSmoothingEnabled)
                 imageBuffer.setPixel(px, py, globalCompositeOperation.blend(src, imageBuffer.getPixel(px, py), globalAlpha, cov))
             }
@@ -425,6 +687,56 @@ class WebImageBuffer2DContext(
     }
 
     override fun strokeText(text: String, x: Float, y: Float, maxWidth: Float?) {
+        val strokeCss = colorToCss(strokeStyle.color)
+        val fontCss = currentFontCss()
+        val alignCss = mapTextAlignCss(textAlign)
+        val baselineCss = mapTextBaselineCss(textBaseline)
+        val capCss = mapLineCapCss(lineCap)
+        val joinCss = mapLineJoinCss(lineJoin)
+        val compositeCss = mapCompositeOperationCss(globalCompositeOperation)
+        val transform = currentTransformArray()
+        if (WebImageBuffer2DBridge.isBrowserCanvasSupported && clipRect == null) {
+            imageBuffer.syncCanvasFromCpuIfNeeded()
+            WebImageBuffer2DBridge.strokeText(
+                surfaceElement = imageBuffer.surfaceElement,
+                text = text,
+                x = x,
+                y = y,
+                maxWidth = maxWidth,
+                fontCss = fontCss,
+                strokeCss = strokeCss,
+                lineWidth = lineWidth,
+                lineCap = capCss,
+                lineJoin = joinCss,
+                miterLimit = miterLimit,
+                textAlignCss = alignCss,
+                textBaselineCss = baselineCss,
+                globalAlpha = globalAlpha,
+                compositeOp = compositeCss,
+                transform = transform
+            )
+            imageBuffer.markCanvasModified()
+            return
+        }
+
+        WebImageBuffer2DBridge.strokeText(
+            surfaceElement = imageBuffer.surfaceElement,
+            text = text,
+            x = x,
+            y = y,
+            maxWidth = maxWidth,
+            fontCss = fontCss,
+            strokeCss = strokeCss,
+            lineWidth = lineWidth,
+            lineCap = capCss,
+            lineJoin = joinCss,
+            miterLimit = miterLimit,
+            textAlignCss = alignCss,
+            textBaselineCss = baselineCss,
+            globalAlpha = globalAlpha,
+            compositeOp = compositeCss,
+            transform = transform
+        )
         ScalableVectorFontEngine.renderText(
             text = text,
             x = x,
@@ -451,15 +763,15 @@ class WebImageBuffer2DContext(
             surfaceWidth = width,
             surfaceHeight = height
         ) { px, py, cov, isShadow, localX, localY ->
-            if (px in 0 until width && py in 0 until height) {
+            if (px in clipMinX() until clipMaxX() && py in clipMinY() until clipMaxY()) {
                 val src = if (isShadow) shadowColor else strokeStyle.sampleAt(localX, localY, imageSmoothingEnabled)
                 imageBuffer.setPixel(px, py, globalCompositeOperation.blend(src, imageBuffer.getPixel(px, py), globalAlpha, cov))
             }
         }
     }
 
-    override fun measureText(text: String): ImageBufferTextMetrics =
-        ScalableVectorFontEngine.measureText(
+    override fun measureText(text: String): ImageBufferTextMetrics {
+        val baseMetrics = ScalableVectorFontEngine.measureText(
             text = text,
             fontSizePx = fontSizePx,
             fontWeight = fontWeight,
@@ -471,10 +783,31 @@ class WebImageBuffer2DContext(
             textAlign = textAlign,
             textBaseline = textBaseline
         )
+        val measuredWidth = WebImageBuffer2DBridge.measureTextWidth(
+            surfaceElement = imageBuffer.surfaceElement,
+            text = text,
+            fontCss = currentFontCss(),
+            fallbackEstimate = baseMetrics.width
+        )
+        return if (measuredWidth > 0f && measuredWidth != baseMetrics.width) {
+            baseMetrics.copy(width = measuredWidth)
+        } else {
+            baseMetrics
+        }
+    }
 
     override fun drawImage(image: com.nexustools.genericui.image.ImageBuffer, dx: Float, dy: Float) {
-        val rgba = image.asRgba8888()
-        imageBuffer.writePixelsRgba(rgba.bytes, rgba.width, rgba.height, dx.roundToInt(), dy.roundToInt())
+        drawImage(
+            image = image,
+            sx = 0f,
+            sy = 0f,
+            sWidth = image.width.toFloat(),
+            sHeight = image.height.toFloat(),
+            dx = dx,
+            dy = dy,
+            dWidth = image.width.toFloat(),
+            dHeight = image.height.toFloat()
+        )
     }
 
     override fun drawImage(
@@ -509,18 +842,129 @@ class WebImageBuffer2DContext(
         dHeight: Float
     ) {
         if (dWidth <= 0f || dHeight <= 0f || sWidth <= 0f || sHeight <= 0f) return
+        val compositeCss = mapCompositeOperationCss(globalCompositeOperation)
+        val transform = currentTransformArray()
+        val peer = image.nativeSurfacePeer
+
+        if (WebImageBuffer2DBridge.isBrowserCanvasSupported && clipRect == null) {
+            imageBuffer.syncCanvasFromCpuIfNeeded()
+            val drawnPeer = if (peer != null) {
+                WebImageBuffer2DBridge.drawSurfacePeer(
+                    surfaceElement = imageBuffer.surfaceElement,
+                    sourcePeer = peer,
+                    sx = sx,
+                    sy = sy,
+                    sw = sWidth,
+                    sh = sHeight,
+                    dx = dx,
+                    dy = dy,
+                    dw = dWidth,
+                    dh = dHeight,
+                    globalAlpha = globalAlpha,
+                    compositeOp = compositeCss,
+                    imageSmoothingEnabled = imageSmoothingEnabled,
+                    transform = transform
+                )
+            } else {
+                false
+            }
+            if (drawnPeer) {
+                imageBuffer.markCanvasModified()
+                return
+            }
+            val rgba = image.asRgba8888()
+            val drawnBytes = WebImageBuffer2DBridge.drawRgbaBytes(
+                surfaceElement = imageBuffer.surfaceElement,
+                rgbaBytes = rgba.bytes,
+                srcWidth = rgba.width,
+                srcHeight = rgba.height,
+                sx = sx,
+                sy = sy,
+                sw = sWidth,
+                sh = sHeight,
+                dx = dx,
+                dy = dy,
+                dw = dWidth,
+                dh = dHeight,
+                globalAlpha = globalAlpha,
+                compositeOp = compositeCss,
+                imageSmoothingEnabled = imageSmoothingEnabled,
+                transform = transform
+            )
+            if (drawnBytes) {
+                imageBuffer.markCanvasModified()
+                return
+            }
+        }
+
+        if (peer != null) {
+            WebImageBuffer2DBridge.drawSurfacePeer(
+                surfaceElement = imageBuffer.surfaceElement,
+                sourcePeer = peer,
+                sx = sx,
+                sy = sy,
+                sw = sWidth,
+                sh = sHeight,
+                dx = dx,
+                dy = dy,
+                dw = dWidth,
+                dh = dHeight,
+                globalAlpha = globalAlpha,
+                compositeOp = compositeCss,
+                imageSmoothingEnabled = imageSmoothingEnabled,
+                transform = transform
+            )
+        } else {
+            val rgba = image.asRgba8888()
+            WebImageBuffer2DBridge.drawRgbaBytes(
+                surfaceElement = imageBuffer.surfaceElement,
+                rgbaBytes = rgba.bytes,
+                srcWidth = rgba.width,
+                srcHeight = rgba.height,
+                sx = sx,
+                sy = sy,
+                sw = sWidth,
+                sh = sHeight,
+                dx = dx,
+                dy = dy,
+                dw = dWidth,
+                dh = dHeight,
+                globalAlpha = globalAlpha,
+                compositeOp = compositeCss,
+                imageSmoothingEnabled = imageSmoothingEnabled,
+                transform = transform
+            )
+        }
+
         val rgba = image.asRgba8888()
-        val startX = floor(dx).toInt().coerceIn(0, width)
-        val startY = floor(dy).toInt().coerceIn(0, height)
-        val endX = ceil(dx + dWidth).toInt().coerceIn(0, width)
-        val endY = ceil(dy + dHeight).toInt().coerceIn(0, height)
+        val (tx0, ty0) = currentMatrix.transformPoint(dx, dy)
+        val (tx1, ty1) = currentMatrix.transformPoint(dx + dWidth, dy)
+        val (tx2, ty2) = currentMatrix.transformPoint(dx + dWidth, dy + dHeight)
+        val (tx3, ty3) = currentMatrix.transformPoint(dx, dy + dHeight)
+        val minTx = min(min(tx0, tx1), min(tx2, tx3))
+        val minTy = min(min(ty0, ty1), min(ty2, ty3))
+        val maxTx = max(max(tx0, tx1), max(tx2, tx3))
+        val maxTy = max(max(ty0, ty1), max(ty2, ty3))
+        val startX = floor(minTx).toInt().coerceIn(clipMinX(), clipMaxX())
+        val startY = floor(minTy).toInt().coerceIn(clipMinY(), clipMaxY())
+        val endX = ceil(maxTx).toInt().coerceIn(clipMinX(), clipMaxX())
+        val endY = ceil(maxTy).toInt().coerceIn(clipMinY(), clipMaxY())
+        val inv = currentMatrix.invert() ?: ImageBufferMatrix2D.IDENTITY
         for (py in startY until endY) {
-            val v = (py + 0.5f - dy) / dHeight
-            val srcY = (sy + v * sHeight).toInt().coerceIn(0, rgba.height - 1)
             for (px in startX until endX) {
-                val u = (px + 0.5f - dx) / dWidth
-                val srcX = (sx + u * sWidth).toInt().coerceIn(0, rgba.width - 1)
-                imageBuffer.setPixel(px, py, rgba.getPixel(srcX, srcY))
+                val (lx, ly) = inv.transformPoint(px + 0.5f, py + 0.5f)
+                if (lx >= dx && lx < dx + dWidth && ly >= dy && ly < dy + dHeight) {
+                    val u = (lx - dx) / dWidth
+                    val v = (ly - dy) / dHeight
+                    val srcX = (sx + u * sWidth).toInt().coerceIn(0, rgba.width - 1)
+                    val srcY = (sy + v * sHeight).toInt().coerceIn(0, rgba.height - 1)
+                    val srcColor = rgba.getPixel(srcX, srcY)
+                    imageBuffer.setPixel(
+                        px,
+                        py,
+                        globalCompositeOperation.blend(srcColor, imageBuffer.getPixel(px, py), globalAlpha)
+                    )
+                }
             }
         }
     }
@@ -548,7 +992,17 @@ class WebImageBuffer2DContext(
         dirtyHeight: Int
     ) {
         val rgba = imageData.asRgba8888()
-        imageBuffer.writePixelsRgba(rgba.bytes, rgba.width, rgba.height, dx, dy)
+        if (dirtyX == 0 && dirtyY == 0 && dirtyWidth == rgba.width && dirtyHeight == rgba.height) {
+            imageBuffer.writePixelsRgba(rgba.bytes, rgba.width, rgba.height, dx, dy)
+        } else {
+            val cropped = rgba.crop(
+                cropX = dirtyX.coerceIn(0, rgba.width - 1),
+                cropY = dirtyY.coerceIn(0, rgba.height - 1),
+                cropWidth = dirtyWidth.coerceIn(1, rgba.width),
+                cropHeight = dirtyHeight.coerceIn(1, rgba.height)
+            )
+            imageBuffer.writePixelsRgba(cropped.bytes, cropped.width, cropped.height, dx + dirtyX, dy + dirtyY)
+        }
     }
 
     override fun putImageDataRgba(rgbaBytes: ByteArray, width: Int, height: Int, dx: Int, dy: Int) =
@@ -619,21 +1073,4 @@ class WebImageBuffer2DContext(
         if (seedX !in 0 until width || seedY !in 0 until height) return
         imageBuffer.fill(fillColor)
     }
-
-    private class SavedWebContextState(
-        val matrix: ImageBufferMatrix2D,
-        val globalAlpha: Float,
-        val globalCompositeOperation: ImageBufferCompositeOperation,
-        val fillStyle: ImageBufferPaintStyle,
-        val strokeStyle: ImageBufferPaintStyle,
-        val lineWidth: Float,
-        val lineCap: ImageBufferLineCap,
-        val lineJoin: ImageBufferLineJoin,
-        val fontFamily: String,
-        val fontSizePx: Float,
-        val fontWeight: Int,
-        val fontStyle: ImageBufferFontStyle,
-        val textAlign: ImageBufferTextAlign,
-        val textBaseline: ImageBufferTextBaseline
-    )
 }

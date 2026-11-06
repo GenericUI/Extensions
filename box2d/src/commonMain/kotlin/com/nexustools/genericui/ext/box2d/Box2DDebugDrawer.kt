@@ -1,16 +1,18 @@
 package com.nexustools.genericui.ext.box2d
 
 import com.nexustools.genericui.component.media.Canvas2D
-import com.nexustools.genericui.component.media.GLCanvas
+import com.nexustools.genericui.component.media.Canvas3D
 import com.nexustools.genericui.component.media.VBlankSubscription
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtension
+import com.nexustools.genericui.ext.gpu.GpuAccelerationPolicy
+import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.imageprocessing.context2d.ImageBuffer2DContext
 import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.PI
 
 /**
  * 2D Physics Debug Drawer rendering [World2D] bodies, fixtures, AABBs, joints, and contact points
- * onto a `:extensions:canvas2d` [Canvas2D] or `:extensions:canvas3d` [GLCanvas].
+ * onto a `:extensions:canvas2d` [Canvas2D] or `:extensions:canvas3d` [Canvas3D].
  */
 class Box2DDebugDrawer(
     var pixelsPerMeter: Float = 50f,
@@ -62,18 +64,21 @@ class Box2DDebugDrawer(
     }
 
     /**
-     * Binds a [World2D] simulation to a [GLCanvas] for hardware-accelerated stepping.
+     * Binds a [World2D] simulation to a [Canvas3D] for hardware-accelerated stepping.
      */
-    fun bindToGLCanvas(
+    fun bindToCanvas3D(
         world: World2D,
-        glCanvas: GLCanvas = GLCanvas()
+        canvas: Canvas3D = Canvas3D(
+            backend = GpuBackendType.OPENGL_ES,
+            acceleration = GpuAccelerationPolicy.HARDWARE_PREFERRED
+        )
     ): VBlankSubscription {
         vblankSubscription?.dispose()
         val offscreen2D = Canvas2DExtension.createContext(
-            glCanvas.surfaceWidth.coerceAtLeast(800),
-            glCanvas.surfaceHeight.coerceAtLeast(600)
+            canvas.surfaceWidth.coerceAtLeast(800),
+            canvas.surfaceHeight.coerceAtLeast(600)
         )
-        val sub = glCanvas.registerVBlankRender { _, deltaMs, _, _ ->
+        val sub = canvas.registerVBlankRender { _, deltaMs, _, _ ->
             val dtSec = (deltaMs / 1000.0).toFloat().coerceIn(0f, 0.05f)
             if (dtSec > 0f) {
                 world.step(dtSec)

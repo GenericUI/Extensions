@@ -1,10 +1,40 @@
 package com.nexustools.genericui.ext.box3d.dsl
 
+import com.nexustools.genericui.ext.canvas3d.Canvas3DRegistry
 import com.nexustools.genericui.ext.dsl.buildDiv
+import com.nexustools.genericui.ext.gpu.GpuBackendSupport
+import com.nexustools.genericui.ext.gpu.GpuBackendType
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class Box3DDslTest {
+
+    @BeforeTest
+    fun setUp() {
+        Canvas3DRegistry.overrideSupportForTesting(
+            GpuBackendType.OPENGL_ES,
+            GpuBackendSupport(
+                backend = GpuBackendType.OPENGL_ES,
+                hardwareAvailable = true,
+                softwareAvailable = true
+            )
+        )
+        Canvas3DRegistry.overrideSupportForTesting(
+            GpuBackendType.VULKAN,
+            GpuBackendSupport(
+                backend = GpuBackendType.VULKAN,
+                hardwareAvailable = true,
+                softwareAvailable = true
+            )
+        )
+    }
+
+    @AfterTest
+    fun tearDown() {
+        Canvas3DRegistry.resetForTesting()
+    }
 
     @Test
     fun testBox3DDsl() {

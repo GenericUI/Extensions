@@ -47,6 +47,7 @@ import platform.windows.GetModuleHandleW
 import platform.windows.GetProcAddress
 import platform.windows.GetWindowThreadProcessId
 import platform.windows.HHOOK
+import platform.windows.HICON
 import platform.windows.HRESULT
 import platform.windows.HWND
 import platform.windows.KBDLLHOOKSTRUCT
@@ -180,6 +181,7 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
         const val THUMB_BUTTON_NEXT_ID: Int = 1003
         const val THUMB_BUTTON_STOP_ID: Int = 1004
 
+        private const val THB_ICON: Int = 0x0002
         private const val THB_TOOLTIP: Int = 0x0004
         private const val THB_FLAGS: Int = 0x0008
 
@@ -197,7 +199,13 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
         private const val THUMBBUTTON_SIZE_X64: Int = 552
     }
 
+    private val iconFactory = Win32MediaThumbIconFactory()
     private var taskbarList3Ptr: COpaquePointer? = null
+    private var lastSyncedTaskbarButtons: List<Triple<Int, String, Int>>? = null
+    private var lastSyncedTaskbarPlaying: Boolean? = null
+    private var lastSyncedTooltipText: String? = null
+    private var lastSyncedProgressState: Int = -1
+    private var lastSyncedProgressBucket: Long = -1L
 
     var targetHwnd: HWND? = null
 
@@ -400,11 +408,28 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
 
     internal fun onTaskbarButtonCreated(hwnd: HWND?) {
         taskbarButtonsAdded = false
+        lastSyncedTaskbarButtons = null
+        lastSyncedTaskbarPlaying = null
+        lastSyncedTooltipText = null
+        lastSyncedProgressState = -1
+        lastSyncedProgressBucket = -1L
         if (isActive() && hwnd != null) {
             ensureTaskbarListComInitialized()
             syncTaskbarButtons()
             syncTaskbarTooltipAndProgress()
         }
+    }
+
+    internal fun resolveTaskbarButtonIcon(buttonId: Int): HICON? = when (buttonId) {
+        THUMB_BUTTON_PREVIOUS_ID -> iconFactory.getPrevIcon()
+        THUMB_BUTTON_PLAY_PAUSE_ID -> if (currentPlaybackStatus == MediaPlaybackStatus.PLAYING) {
+            iconFactory.getPauseIcon()
+        } else {
+            iconFactory.getPlayIcon()
+        }
+        THUMB_BUTTON_NEXT_ID -> iconFactory.getNextIcon()
+        THUMB_BUTTON_STOP_ID -> iconFactory.getStopIcon()
+        else -> null
     }
 
     /**
@@ -583,13 +608,18 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
         val comPtr = taskbarList3Ptr ?: return
         val vtable = comPtr.reinterpret<CPointerVar<CPointerVar<COpaque>>>().pointed.value ?: return
         val buttons = resolveTaskbarButtonsSnapshot()
+        val isPlaying = currentPlaybackStatus == MediaPlaybackStatus.PLAYING
+        if (taskbarButtonsAdded && lastSyncedTaskbarButtons == buttons && lastSyncedTaskbarPlaying == isPlaying) return
 
         memScoped {
             val rawBuffer = allocArray<ByteVar>(buttons.size * THUMBBUTTON_SIZE_X64)
             for ((index, entry) in buttons.withIndex()) {
                 val base = (rawBuffer + (index * THUMBBUTTON_SIZE_X64))!!
+                val icon = resolveTaskbarButtonIcon(entry.first)
                 val dwMaskPtr = base.reinterpret<UIntVar>()
-                dwMaskPtr.pointed.value = (THB_TOOLTIP or THB_FLAGS).toUInt()
+                dwMaskPtr.pointed.value = (
+                    THB_TOOLTIP or THB_FLAGS or (if (icon != null) THB_ICON else 0)
+                    ).toUInt()
 
                 val iIdPtr = (base + 4)!!.reinterpret<UIntVar>()
                 iIdPtr.pointed.value = entry.first.toUInt()
@@ -598,7 +628,7 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
                 iBitmapPtr.pointed.value = 0u
 
                 val hIconPtr = (base + 16)!!.reinterpret<LongVar>()
-                hIconPtr.pointed.value = 0L
+                hIconPtr.pointed.value = icon?.toLong() ?: 0L
 
                 val szTipPtr = (base + 24)!!.reinterpret<UShortVar>()
                 val tip = entry.second
@@ -615,8 +645,10 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
             val slotIndex = if (!taskbarButtonsAdded) 15 else 16
             val thumbFn = (vtable + slotIndex)!!.pointed.value?.reinterpret<ComThumbBarButtonsFn>()
             val hr = thumbFn?.invoke(comPtr, hwnd, buttons.size.convert(), rawBuffer) ?: -1
-            if (hr >= 0 && !taskbarButtonsAdded) {
+            if (hr >= 0) {
                 taskbarButtonsAdded = true
+                lastSyncedTaskbarButtons = buttons
+                lastSyncedTaskbarPlaying = isPlaying
             }
         }
     }
@@ -626,59 +658,57 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
         val comPtr = taskbarList3Ptr ?: return
         val vtable = comPtr.reinterpret<CPointerVar<CPointerVar<COpaque>>>().pointed.value ?: return
 
+        val meta = currentMetadata
+        val tooltipText = buildString {
+            if (meta.title.isNotBlank()) append(meta.title)
+            if (meta.artist.isNotBlank()) {
+                if (isNotEmpty()) append(" - ")
+                append(meta.artist)
+            }
+        }
+        val targetProgressState = when (currentPlaybackStatus) {
+            MediaPlaybackStatus.STOPPED -> TBPF_NOPROGRESS
+            MediaPlaybackStatus.LOADING -> TBPF_INDETERMINATE
+            MediaPlaybackStatus.PLAYING -> if (currentDurationMs > 0L) TBPF_NORMAL else TBPF_NOPROGRESS
+            MediaPlaybackStatus.PAUSED -> if (currentDurationMs > 0L) TBPF_PAUSED else TBPF_NOPROGRESS
+        }
+        val targetBucket = if (currentDurationMs > 0L && (targetProgressState == TBPF_NORMAL || targetProgressState == TBPF_PAUSED)) {
+            (currentPositionMs.coerceAtLeast(0L) * 200L) / currentDurationMs.coerceAtLeast(1L)
+        } else {
+            -1L
+        }
+        val needTooltip = tooltipText != lastSyncedTooltipText
+        val needProgressState = targetProgressState != lastSyncedProgressState
+        val needProgressValue = targetBucket >= 0L && (needProgressState || targetBucket != lastSyncedProgressBucket)
+        if (!needTooltip && !needProgressState && !needProgressValue) return
+
         memScoped {
-            val meta = currentMetadata
-            val tooltipText = buildString {
-                if (meta.title.isNotBlank()) append(meta.title)
-                if (meta.artist.isNotBlank()) {
-                    if (isNotEmpty()) append(" - ")
-                    append(meta.artist)
+            if (needTooltip) {
+                val tipWide = allocArray<UShortVar>(tooltipText.length + 1)
+                for (i in tooltipText.indices) {
+                    tipWide[i] = tooltipText[i].code.toUShort()
                 }
-            }
-            val tipWide = allocArray<UShortVar>(tooltipText.length + 1)
-            for (i in tooltipText.indices) {
-                tipWide[i] = tooltipText[i].code.toUShort()
-            }
-            tipWide[tooltipText.length] = 0u
+                tipWide[tooltipText.length] = 0u
 
-            val setTooltipFn = (vtable + 19)!!.pointed.value?.reinterpret<ComSetThumbnailTooltipFn>()
-            setTooltipFn?.invoke(comPtr, hwnd, if (tooltipText.isNotEmpty()) tipWide else null)
+                val setTooltipFn = (vtable + 19)!!.pointed.value?.reinterpret<ComSetThumbnailTooltipFn>()
+                setTooltipFn?.invoke(comPtr, hwnd, if (tooltipText.isNotEmpty()) tipWide else null)
+                lastSyncedTooltipText = tooltipText
+            }
 
-            val setProgressStateFn = (vtable + 10)!!.pointed.value?.reinterpret<ComSetProgressStateFn>()
-            val setProgressValueFn = (vtable + 9)!!.pointed.value?.reinterpret<ComSetProgressValueFn>()
-            when (currentPlaybackStatus) {
-                MediaPlaybackStatus.STOPPED -> {
-                    setProgressStateFn?.invoke(comPtr, hwnd, TBPF_NOPROGRESS)
-                }
-                MediaPlaybackStatus.LOADING -> {
-                    setProgressStateFn?.invoke(comPtr, hwnd, TBPF_INDETERMINATE)
-                }
-                MediaPlaybackStatus.PLAYING -> {
-                    if (currentDurationMs > 0L) {
-                        setProgressStateFn?.invoke(comPtr, hwnd, TBPF_NORMAL)
-                        setProgressValueFn?.invoke(
-                            comPtr,
-                            hwnd,
-                            currentPositionMs.coerceAtLeast(0L).toULong(),
-                            currentDurationMs.coerceAtLeast(1L).toULong()
-                        )
-                    } else {
-                        setProgressStateFn?.invoke(comPtr, hwnd, TBPF_NOPROGRESS)
-                    }
-                }
-                MediaPlaybackStatus.PAUSED -> {
-                    if (currentDurationMs > 0L) {
-                        setProgressStateFn?.invoke(comPtr, hwnd, TBPF_PAUSED)
-                        setProgressValueFn?.invoke(
-                            comPtr,
-                            hwnd,
-                            currentPositionMs.coerceAtLeast(0L).toULong(),
-                            currentDurationMs.coerceAtLeast(1L).toULong()
-                        )
-                    } else {
-                        setProgressStateFn?.invoke(comPtr, hwnd, TBPF_NOPROGRESS)
-                    }
-                }
+            if (needProgressState) {
+                val setProgressStateFn = (vtable + 10)!!.pointed.value?.reinterpret<ComSetProgressStateFn>()
+                setProgressStateFn?.invoke(comPtr, hwnd, targetProgressState)
+                lastSyncedProgressState = targetProgressState
+            }
+            if (needProgressValue) {
+                val setProgressValueFn = (vtable + 9)!!.pointed.value?.reinterpret<ComSetProgressValueFn>()
+                setProgressValueFn?.invoke(
+                    comPtr,
+                    hwnd,
+                    currentPositionMs.coerceAtLeast(0L).toULong(),
+                    currentDurationMs.coerceAtLeast(1L).toULong()
+                )
+                lastSyncedProgressBucket = targetBucket
             }
         }
     }
@@ -689,11 +719,17 @@ class WindowsMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
         val comPtr = taskbarList3Ptr
         taskbarList3Ptr = null
         taskbarButtonsAdded = false
+        lastSyncedTaskbarButtons = null
+        lastSyncedTaskbarPlaying = null
+        lastSyncedTooltipText = null
+        lastSyncedProgressState = -1
+        lastSyncedProgressBucket = -1L
         if (comPtr != null) {
             val vtable = comPtr.reinterpret<CPointerVar<CPointerVar<COpaque>>>().pointed.value
             val releaseFn = vtable?.let { (it + 2)?.pointed?.value?.reinterpret<ComReleaseFn>() }
             releaseFn?.invoke(comPtr)
         }
+        iconFactory.destroyIcons()
         super.dispose()
     }
 }

@@ -17,7 +17,7 @@ import kotlin.reflect.KClass
  *
  * - Overrides [resolveChildFactory] to provide [AlienFactory] to all child components on System targets
  *   so `:common` children receive `*AlienImpl` implementations that render onto this container's `Canvas2D`.
- * - Non-Alien children (such as [UnalienContainer] or extension components like `GLCanvas`, `VKCanvas`,
+ * - Non-Alien children (such as [UnalienContainer] or extension components like `Canvas3D`,
  *   `VideoPlayer`, `AudioAnalyzer`, and `WebView`) are attached to the host container **below** the `Canvas2D`,
  *   and the `Canvas2D` cuts a transparent hole with mouse/pointer passthrough or draws higher-Z Alien
  *   components on top of them.

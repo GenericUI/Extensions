@@ -1,12 +1,13 @@
 package com.nexustools.genericui.nativeimpl.media
 
 import com.nexustools.genericui.component.media.AudioAnalyzer
-import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.enums.media.MediaPreloadMode
 
-interface AudioPlayerNativeImpl<out W> : NativeImpl<W> {
+interface AudioPlayerNativeImpl : Disposable {
     fun getSupportedAudioCodecs(): Set<AudioCodec>
+    fun isAudioCodecSupported(codec: AudioCodec): Boolean = codec in getSupportedAudioCodecs()
     fun setSource(url: String, seekOffsetSeconds: Double = 0.0)
     fun play()
     fun pause()

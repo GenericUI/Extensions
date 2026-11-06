@@ -15,7 +15,7 @@ Its companion module `:extensions:overlay:dsl` (`com.nexustools.genericui.ext.ov
 - **Integrated Across Media, Canvas2D, & Canvas3D**:
   - [`:extensions:media`](media.md) provides `VideoOverlayHost` and `VideoPlayerOverlayBinder` (`videoPlayer.attachVideoOverlay(...)` / `videoPlayer.withOverlay(...)`).
   - [`:extensions:canvas2d`](canvas2d.md) provides `Canvas2DOverlayHost` and `ScrollCanvas2DOverlayHost` (`canvas.attachOverlay(...)` / `scrollCanvas.attachOverlay(...)`).
-  - [`:extensions:canvas3d`](canvas3d.md) provides `Canvas3DOverlayHost` and `ScrollCanvas3DOverlayHost` (`glCanvas.attachOverlay(...)` / `vkCanvas.attachOverlay(...)` / `scrollCanvas3D.attachOverlay(...)`).
+  - [`:extensions:canvas3d`](canvas3d.md) provides `Canvas3DOverlayHost` and `ScrollCanvas3DOverlayHost` (`canvas3D.attachOverlay(...)` / `scrollCanvas3D.attachOverlay(...)`).
   - On `ScrollCanvas2D` and `ScrollCanvas3D`, the overlay host covers **only the visible viewport area (`viewportWidth` x `viewportHeight`)**, never obscuring the horizontal or vertical scrollbars (`overlayCoversScrollbars == false`).
   - No default overlay is attached to 2D or 3D canvases unless explicitly configured by the consumer.
 - **Picture-in-Picture (PiP) Awareness**:
@@ -186,7 +186,7 @@ fun createScrollableCanvasWithHudOverlay(): ScrollCanvas2DOverlayHost {
 
 ## 5. Declarative `:extensions:overlay:dsl` Examples
 
-When `dsl()` and `overlay()` (or `media()`, `canvas2d()`, `canvas3d()`) are enabled in `genericui { extensions { ... } }`, use `videoOverlayHost`, `canvas2DOverlayHost`, `scrollCanvas2DOverlayHost`, `glCanvasOverlayHost`, `vkCanvasOverlayHost`, `overlayHostBox`, `defaultOverlayPreset`, `mobileOverlayPreset`, and `webSystemOverlayPreset` in declarative UI layouts:
+When `dsl()` and `overlay()` (or `media()`, `canvas2d()`, `canvas3d()`) are enabled in `genericui { extensions { ... } }`, use `videoOverlayHost`, `canvas2DOverlayHost`, `scrollCanvas2DOverlayHost`, `canvas3DOverlayHost`, `scrollCanvas3DOverlayHost`, `overlayHostBox`, `defaultOverlayPreset`, `mobileOverlayPreset`, and `webSystemOverlayPreset` in declarative UI layouts:
 
 ```kotlin
 import com.nexustools.genericui.component.fragment.AppFragment
@@ -249,7 +249,7 @@ class MediaOverlayPlayerFragment : Fragment() {
 - **Integrated Host Extensions**:
   - [`:extensions:media` & `:extensions:media:dsl` (`media.md`)](media.md) — `VideoOverlayHost`, `VideoPlayerOverlayBinder`, `VideoPlayerExt.attachVideoOverlay`, and `videoOverlayHost { ... }`.
   - [`:extensions:canvas2d` & `:extensions:canvas2d:dsl` (`canvas2d.md`)](canvas2d.md) — `Canvas2DOverlayHost`, `ScrollCanvas2DOverlayHost`, `canvas2DOverlayHost { ... }`, and `scrollCanvas2DOverlayHost { ... }`.
-  - [`:extensions:canvas3d` & `:extensions:canvas3d:dsl` (`canvas3d.md`)](canvas3d.md) — `Canvas3DOverlayHost`, `ScrollCanvas3DOverlayHost`, `glCanvasOverlayHost { ... }`, `vkCanvasOverlayHost { ... }`, and `scrollCanvas3DOverlayHost { ... }`.
+  - [`:extensions:canvas3d` & `:extensions:canvas3d:dsl` (`canvas3d.md`)](canvas3d.md) — `Canvas3DOverlayHost`, `ScrollCanvas3DOverlayHost`, `canvas3DOverlayHost { ... }`, and `scrollCanvas3DOverlayHost { ... }`.
   - [`:extensions:mediacontrols` & `:extensions:mediacontrols:dsl` (`mediacontrols.md`)](mediacontrols.md) — Companion standalone OS media transport controls, Windows taskbar preview buttons, and hardware keyboard media key hooks.
   - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
 - **Root & Backend Documentation**:

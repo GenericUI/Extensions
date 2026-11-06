@@ -10,6 +10,7 @@ import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
+import platform.AVFoundation.AVURLAsset
 
 /**
  * iOS `AVPlayer` + `AVPlayerLayer` + `AVPictureInPictureController` implementation of [VideoPlayerNativeImpl].
@@ -46,36 +47,71 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
         nativeWidget.metadata["antialiasing"] = "true"
     }
 
-    override fun getMediaCapabilities(): MediaCapabilitiesReport = MediaCapabilitiesReport(
-        videoCodecs = mapOf(
-            VideoCodec.H264 to CodecSupportLevel.HARDWARE_ACCELERATED,
-            VideoCodec.HEVC to CodecSupportLevel.HARDWARE_ACCELERATED,
-            VideoCodec.VP9 to CodecSupportLevel.HARDWARE_ACCELERATED,
-            VideoCodec.AV1 to CodecSupportLevel.HARDWARE_ACCELERATED
-        ),
-        audioCodecs = mapOf(
-            AudioCodec.AAC to CodecSupportLevel.HARDWARE_ACCELERATED,
-            AudioCodec.MP3 to CodecSupportLevel.SUPPORTED,
-            AudioCodec.ALAC to CodecSupportLevel.HARDWARE_ACCELERATED,
-            AudioCodec.FLAC to CodecSupportLevel.SUPPORTED,
-            AudioCodec.AC3 to CodecSupportLevel.HARDWARE_ACCELERATED,
-            AudioCodec.EAC3 to CodecSupportLevel.HARDWARE_ACCELERATED,
-            AudioCodec.OPUS to CodecSupportLevel.SUPPORTED,
-            AudioCodec.PCM to CodecSupportLevel.SUPPORTED
-        ),
-        containers = setOf(MediaContainer.MP4, MediaContainer.MOV, MediaContainer.HLS),
-        maxWidth = 3840,
-        maxHeight = 2160,
-        maxFrameRate = 120,
-        supportsHdr10 = true,
-        supportsHlg = true,
-        supportsDolbyVision = true,
-        supportsSurround51 = true,
-        supportsSurround71 = true,
-        supportsAudioTrackSelection = true,
-        supportsSubtitleTrackSelection = true,
-        hardwareAccelerationBackend = "VideoToolbox / AVFoundation"
-    )
+    private fun isExtendedMimePlayable(probes: List<String>): Boolean =
+        probes.any { probe ->
+            runCatching { AVURLAsset.isPlayableExtendedMIMEType(probe) }.getOrDefault(false)
+        }
+
+    override fun isVideoCodecSupported(codec: VideoCodec): Boolean =
+        isExtendedMimePlayable(codec.html5CanPlayProbes)
+
+    override fun isAudioCodecSupported(codec: AudioCodec): Boolean =
+        isExtendedMimePlayable(codec.html5CanPlayProbes)
+
+    override fun getSupportedVideoCodecs(): Set<VideoCodec> =
+        VideoCodec.entries.filterTo(linkedSetOf()) { isVideoCodecSupported(it) }
+
+    override fun getSupportedAudioCodecs(): Set<AudioCodec> =
+        AudioCodec.entries.filterTo(linkedSetOf()) { isAudioCodecSupported(it) }
+
+    override fun getMediaCapabilities(): MediaCapabilitiesReport {
+        val videoMap = linkedMapOf<VideoCodec, CodecSupportLevel>()
+        for (codec in VideoCodec.entries) {
+            if (isVideoCodecSupported(codec)) {
+                videoMap[codec] = when (codec) {
+                    VideoCodec.H264,
+                    VideoCodec.HEVC,
+                    VideoCodec.VP9,
+                    VideoCodec.AV1,
+                    VideoCodec.PRORES -> CodecSupportLevel.HARDWARE_ACCELERATED
+                    else -> CodecSupportLevel.SUPPORTED
+                }
+            }
+        }
+        val audioMap = linkedMapOf<AudioCodec, CodecSupportLevel>()
+        for (codec in AudioCodec.entries) {
+            if (isAudioCodecSupported(codec)) {
+                audioMap[codec] = when (codec) {
+                    AudioCodec.AAC,
+                    AudioCodec.ALAC,
+                    AudioCodec.AC3,
+                    AudioCodec.EAC3 -> CodecSupportLevel.HARDWARE_ACCELERATED
+                    else -> CodecSupportLevel.SUPPORTED
+                }
+            }
+        }
+        val containerSet = linkedSetOf<MediaContainer>()
+        if (isExtendedMimePlayable(listOf("video/mp4"))) containerSet.add(MediaContainer.MP4)
+        if (isExtendedMimePlayable(listOf("video/quicktime"))) containerSet.add(MediaContainer.MOV)
+        if (isExtendedMimePlayable(listOf("application/vnd.apple.mpegurl", "application/x-mpegurl"))) containerSet.add(MediaContainer.HLS)
+
+        return MediaCapabilitiesReport(
+            videoCodecs = videoMap,
+            audioCodecs = audioMap,
+            containers = containerSet,
+            maxWidth = 3840,
+            maxHeight = 2160,
+            maxFrameRate = 120,
+            supportsHdr10 = VideoCodec.HEVC in videoMap || VideoCodec.AV1 in videoMap,
+            supportsHlg = VideoCodec.HEVC in videoMap || VideoCodec.AV1 in videoMap,
+            supportsDolbyVision = isExtendedMimePlayable(listOf("video/mp4; codecs=\"dvh1.05.06\"", "video/mp4; codecs=\"dvhe.05.06\"")),
+            supportsSurround51 = AudioCodec.AC3 in audioMap || AudioCodec.EAC3 in audioMap || AudioCodec.AAC in audioMap,
+            supportsSurround71 = AudioCodec.EAC3 in audioMap,
+            supportsAudioTrackSelection = true,
+            supportsSubtitleTrackSelection = true,
+            hardwareAccelerationBackend = "AVURLAsset.isPlayableExtendedMIMEType / VideoToolbox"
+        )
+    }
 
     override fun supportsAudioTrackSelection(): Boolean = true
     override fun supportsSubtitleTrackSelection(): Boolean = true

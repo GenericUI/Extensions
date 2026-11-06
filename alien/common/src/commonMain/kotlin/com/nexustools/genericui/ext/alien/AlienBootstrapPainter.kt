@@ -34,7 +34,7 @@ object AlienBootstrapPainter {
 
     /**
      * Cuts a transparent hole (`rgba(0, 0, 0, 0)`) into [ctx] so a native widget or extension surface
-     * (`UnalienContainer`, `GLCanvas`, `VKCanvas`, `VideoPlayer`, `WebView`, etc.) positioned below the
+     * (`UnalienContainer`, `Canvas3D`, `VideoPlayer`, `WebView`, etc.) positioned below the
      * `Canvas2D` is visible through the canvas while higher Z-order Alien components can still paint over it.
      */
     fun cutTransparentHole(

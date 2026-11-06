@@ -3,9 +3,9 @@ package com.nexustools.genericui.ext.canvas3d.system
 import com.nexustools.genericui.ext.gpu.GpuBackendType
 
 /**
- * Shared system-target (`:extensions:canvas3d:sharedSystem`) frame pacing and swapchain state
- * coordinator for Vulkan (`VKCanvas`) and OpenGL ES (`GLCanvas`) surfaces across Desktop,
- * Swing, and Mobile targets.
+ * Shared system-target (`:extensions:canvas3d:systemCommon`) frame pacing and swapchain state
+ * coordinator for Vulkan and OpenGL ES [com.nexustools.genericui.component.media.Canvas3D] surfaces
+ * across Desktop, Swing, and Mobile targets.
  */
 class SystemCanvas3DFrameCoordinator(
     val preferredBackend: GpuBackendType = GpuBackendType.VULKAN,

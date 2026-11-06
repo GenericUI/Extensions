@@ -1,5 +1,6 @@
 package com.nexustools.genericui.component.media
 
+import com.nexustools.genericui.core.FramePresentTarget
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtension
 import com.nexustools.genericui.ext.canvas2d.overlay.Canvas2DOverlayHost
@@ -31,11 +32,13 @@ open class Canvas2D(
     height: Int = 600,
     val doubleBuffer: Boolean = true,
     initialAntialias: Boolean = true
-) : AbstractCanvas<ImageBuffer2DContext>() {
+) : AbstractCanvas<ImageBuffer2DContext>(), FramePresentTarget {
 
     private var backingImageBuffer: ImageBuffer? = null
     private var attachedDirtyBuffer: ImageBuffer? = null
     private var pendingPresentationScheduled: Boolean = false
+    private val beforeFramePresentListeners = mutableListOf<(Long, Double) -> Unit>()
+    private var lastNotifiedBeforePresentFrame: Long = -1L
 
     /**
      * Optional hook invoked whenever the double-buffered surface is swapped and presented.
@@ -45,8 +48,31 @@ open class Canvas2D(
     /**
      * Counter of automatic or explicit surface presentations.
      */
-    var presentedFrameCount: Long = 0L
+    final override var presentedFrameCount: Long = 0L
         private set
+
+    override fun addBeforeFramePresentListener(listener: (frameIndex: Long, timestampMs: Double) -> Unit) {
+        if (listener !in beforeFramePresentListeners) {
+            beforeFramePresentListeners.add(listener)
+        }
+    }
+
+    override fun removeBeforeFramePresentListener(listener: (frameIndex: Long, timestampMs: Double) -> Unit) {
+        beforeFramePresentListeners.remove(listener)
+    }
+
+    internal fun notifyBeforeFramePresent(frameIndex: Long, timestampMs: Double = 0.0) {
+        if (frameIndex > presentedFrameCount) {
+            presentedFrameCount = frameIndex
+        }
+        if (frameIndex == lastNotifiedBeforePresentFrame) return
+        lastNotifiedBeforePresentFrame = frameIndex
+        if (beforeFramePresentListeners.isNotEmpty()) {
+            for (listener in beforeFramePresentListeners.toList()) {
+                listener(frameIndex, timestampMs)
+            }
+        }
+    }
 
     private val dirtyListener = ImageBufferDirtyListener { _, _, _, _, _ ->
         if (!pendingPresentationScheduled) {
@@ -112,8 +138,10 @@ open class Canvas2D(
 
     private fun presentDirtySurface() {
         val buf = attachedDirtyBuffer ?: backingImageBuffer ?: super.resolveRenderingContext()?.imageBuffer ?: return
+        val nextFrame = presentedFrameCount + 1L
+        presentedFrameCount = nextFrame
+        notifyBeforeFramePresent(nextFrame, 0.0)
         buf.swapBuffers()
-        presentedFrameCount++
         onSurfacePresented?.invoke()
     }
 
@@ -128,8 +156,10 @@ open class Canvas2D(
      */
     fun swapBuffers() {
         pendingPresentationScheduled = false
+        val nextFrame = presentedFrameCount + 1L
+        presentedFrameCount = nextFrame
+        notifyBeforeFramePresent(nextFrame, 0.0)
         imageBuffer.swapBuffers()
-        presentedFrameCount++
         onSurfacePresented?.invoke()
     }
 
@@ -199,4 +229,12 @@ open class Canvas2D(
             width = (widthPx ?: 800).coerceAtLeast(1),
             height = (heightPx ?: 600).coerceAtLeast(1)
         )
+
+    override fun syncStateToNative() {
+        super.syncStateToNative()
+        val impl = typedNative<Canvas2DNativeImpl<*>>() ?: return
+        impl.setOnBeforeFramePresentListener { frameIdx, tsMs ->
+            notifyBeforeFramePresent(frameIdx, tsMs)
+        }
+    }
 }

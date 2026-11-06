@@ -22,6 +22,7 @@ open class Canvas2DOverlayHost(
     init {
         htmlTag = "genericui:canvas-2d-overlay-host"
         addClass("canvas-2d-overlay-host")
+        bindToFramePresentTarget(canvas)
         syncOverlayBoundsToCanvas()
         if (initialOverlay != null) {
             attachOverlay(initialOverlay)

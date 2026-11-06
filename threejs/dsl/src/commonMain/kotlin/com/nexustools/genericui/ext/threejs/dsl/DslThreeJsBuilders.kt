@@ -1,9 +1,10 @@
 package com.nexustools.genericui.ext.threejs.dsl
 
-import com.nexustools.genericui.component.media.GLCanvas
-import com.nexustools.genericui.component.media.VKCanvas
+import com.nexustools.genericui.component.media.Canvas3D
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.ext.dsl.GenericUiDslMarker
+import com.nexustools.genericui.ext.gpu.GpuAccelerationPolicy
+import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.threejs.cameras.PerspectiveCamera
 import com.nexustools.genericui.ext.threejs.core.BufferGeometry
 import com.nexustools.genericui.ext.threejs.geometries.BoxGeometry
@@ -15,24 +16,31 @@ import com.nexustools.genericui.ext.threejs.renderers.WebGLRendererConfig
 import com.nexustools.genericui.ext.threejs.scenes.Scene
 
 /**
- * In-place Three.js OpenGL ES 3D canvas builder backed by [GLCanvas] and [WebGLRenderer].
+ * In-place Three.js 3D canvas builder backed by [Canvas3D] and [WebGLRenderer].
  */
-fun AbstractContainer.threeJsGlCanvas(
+fun AbstractContainer.threeJsCanvas(
     width: Int = 800,
     height: Int = 600,
-    config: WebGLRendererConfig = WebGLRendererConfig(),
+    backend: GpuBackendType = GpuBackendType.OPENGL_ES,
+    acceleration: GpuAccelerationPolicy = GpuAccelerationPolicy.HARDWARE_PREFERRED,
+    config: WebGLRendererConfig = WebGLRendererConfig(preferVulkanWhenAvailable = backend == GpuBackendType.VULKAN),
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker ThreeSceneDslScope.() -> Unit)? = null
-): GLCanvas {
-    val glCanvas = GLCanvas(width = width, height = height)
+): Canvas3D {
+    val canvas = Canvas3D(
+        backend = backend,
+        acceleration = acceleration,
+        width = width,
+        height = height
+    )
     if (!classes.isNullOrBlank()) {
-        glCanvas.addClass(classes)
+        canvas.addClass(classes)
     }
     if (!id.isNullOrBlank()) {
-        glCanvas.id = id
+        canvas.id = id
     }
-    val renderer = WebGLRenderer(config = config, glCanvas = glCanvas)
+    val renderer = WebGLRenderer(config = config, canvas = canvas)
     val defaultAspect = width.coerceAtLeast(1).toFloat() / height.coerceAtLeast(1).toFloat()
     val scope = ThreeSceneDslScope(
         scene = Scene(),
@@ -48,50 +56,8 @@ fun AbstractContainer.threeJsGlCanvas(
         scope.onBeforeRender?.invoke(deltaMs, elapsedTimeMs)
         renderer.render(scope.scene, scope.activeCamera)
     }
-    addChild(glCanvas)
-    return glCanvas
-}
-
-/**
- * In-place Three.js Vulkan 3D canvas builder backed by [VKCanvas] and [WebGLRenderer].
- */
-fun AbstractContainer.threeJsVkCanvas(
-    width: Int = 800,
-    height: Int = 600,
-    config: WebGLRendererConfig = WebGLRendererConfig(preferVulkanWhenAvailable = true),
-    id: String? = null,
-    classes: String? = null,
-    block: (@GenericUiDslMarker ThreeSceneDslScope.() -> Unit)? = null
-): VKCanvas {
-    val vkCanvas = VKCanvas(width = width, height = height)
-    if (!classes.isNullOrBlank()) {
-        vkCanvas.addClass(classes)
-    }
-    if (!id.isNullOrBlank()) {
-        vkCanvas.id = id
-    }
-    val renderer = WebGLRenderer(
-        config = config,
-        glCanvas = GLCanvas(width = width, height = height),
-        vkCanvas = vkCanvas
-    )
-    val defaultAspect = width.coerceAtLeast(1).toFloat() / height.coerceAtLeast(1).toFloat()
-    val scope = ThreeSceneDslScope(
-        scene = Scene(),
-        activeCamera = PerspectiveCamera(50f, defaultAspect, 0.1f, 2000f).apply {
-            position.set(0f, 0f, 5f)
-        },
-        renderer = renderer
-    )
-    if (block != null) {
-        scope.block()
-    }
-    renderer.setAnimationLoop { deltaMs, elapsedTimeMs ->
-        scope.onBeforeRender?.invoke(deltaMs, elapsedTimeMs)
-        renderer.render(scope.scene, scope.activeCamera)
-    }
-    addChild(vkCanvas)
-    return vkCanvas
+    addChild(canvas)
+    return canvas
 }
 
 /**

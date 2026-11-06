@@ -9,7 +9,7 @@ import com.nexustools.genericui.ext.alien.AlienRenderSession
 
 /**
  * Scene-graph proxy node wrapping a non-Alien [NativeImpl] (`UnalienContainer` or extension widget
- * such as `GLCanvas`, `VKCanvas`, `VideoPlayer`, `AudioAnalyzer`, or `WebView`) inside an
+ * such as `Canvas3D`, `VideoPlayer`, `AudioAnalyzer`, or `WebView`) inside an
  * `AlienContainer` or `AlienFragment`.
  *
  * - Attaches [wrappedNativeImpl] to the host OS container **below** the `Canvas2D`.

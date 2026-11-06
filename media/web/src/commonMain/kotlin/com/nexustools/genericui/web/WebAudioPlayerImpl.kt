@@ -9,7 +9,9 @@ import kotlin.math.min
 /**
  * Web HTML5 `<audio>` + Web Audio API implementation of [AudioPlayerNativeImpl].
  */
-class WebAudioPlayerImpl : WebBaseNativeImpl("audio", "audio-player"), AudioPlayerNativeImpl<WebDomElement> {
+class WebAudioPlayerImpl : AudioPlayerNativeImpl {
+    internal val audioElement: WebDomElement = WebDomElement("audio")
+
     private var currentTimeSec: Double = 0.0
     private var durationSec: Double = 0.0
     private var playing: Boolean = false
@@ -30,53 +32,74 @@ class WebAudioPlayerImpl : WebBaseNativeImpl("audio", "audio-player"), AudioPlay
     private fun markMediaReady() {
         if (!mediaReadyFlag) {
             mediaReadyFlag = true
-            nativeWidget.setAttribute("data-media-ready", "true")
+            audioElement.setAttribute("data-media-ready", "true")
             onMediaReadyListener?.invoke()
         }
     }
 
     init {
-        nativeWidget.setAttribute("preload", "auto")
-        nativeWidget.setAttribute("data-adaptive-preload-buffering", "true")
-        WebBrowserDomBridge.attachMediaElementListeners(nativeWidget)
-        nativeWidget.addEventListener("play") {
+        audioElement.setAttribute("crossorigin", "anonymous")
+        audioElement.setAttribute("preload", "auto")
+        audioElement.setAttribute("style", "display:none")
+        audioElement.style["display"] = "none"
+        audioElement.setAttribute("data-adaptive-preload-buffering", "true")
+        WebAudioContextBridge.ensureCrossOriginAnonymous(audioElement)
+        WebBrowserDomBridge.attachMediaElementListeners(audioElement)
+        audioElement.addEventListener("play") {
             playing = true
+            audioElement.setAttribute("data-playing", "true")
+            val analyzer = attachedAnalyzer
+            if (analyzer != null) {
+                WebAudioContextBridge.connectMediaElement(audioElement, analyzer.fftSize)
+            }
+            WebAudioContextBridge.resumeAudioContext()
         }
-        nativeWidget.addEventListener("pause") {
-            playing = false
+        audioElement.addEventListener("playing") {
+            playing = true
+            audioElement.setAttribute("data-playing", "true")
+            val analyzer = attachedAnalyzer
+            if (analyzer != null) {
+                WebAudioContextBridge.connectMediaElement(audioElement, analyzer.fftSize)
+            }
+            WebAudioContextBridge.resumeAudioContext()
         }
-        nativeWidget.addEventListener("ended") {
+        audioElement.addEventListener("pause") {
             playing = false
+            audioElement.setAttribute("data-playing", "false")
+        }
+        audioElement.addEventListener("ended") {
+            playing = false
+            audioElement.setAttribute("data-playing", "false")
             onEndedListener?.invoke()
         }
-        nativeWidget.addEventListener("timeupdate") { payload ->
+        audioElement.addEventListener("timeupdate") { payload ->
             val sec = (payload as? Number)?.toDouble()
-                ?: nativeWidget.getAttribute("data-current-time")?.toDoubleOrNull()
+                ?: audioElement.getAttribute("data-current-time")?.toDoubleOrNull()
             if (sec != null && !sec.isNaN() && sec >= 0.0) {
                 currentTimeSec = sec
             }
             onTimeUpdateListener?.invoke(currentTimeSec)
         }
-        nativeWidget.addEventListener("canplay") {
+        audioElement.addEventListener("canplay") {
             markMediaReady()
         }
-        nativeWidget.addEventListener("loadeddata") {
+        audioElement.addEventListener("loadeddata") {
             markMediaReady()
         }
-        nativeWidget.addEventListener("loadedmetadata") {
+        audioElement.addEventListener("loadedmetadata") {
             markMediaReady()
         }
-        nativeWidget.addEventListener("durationchange") { payload ->
+        audioElement.addEventListener("durationchange") { payload ->
             val dur = (payload as? Number)?.toDouble()
-                ?: nativeWidget.getAttribute("data-duration")?.toDoubleOrNull()
+                ?: audioElement.getAttribute("data-duration")?.toDoubleOrNull()
             if (dur != null && !dur.isNaN() && dur > 0.0) {
                 durationSec = dur
                 markMediaReady()
                 onDurationChangedListener?.invoke(durationSec)
             }
         }
-        nativeWidget.addEventListener("progress") { payload ->
-            val rawRanges = nativeWidget.getAttribute("data-buffered-ranges")?.trim()
+        audioElement.addEventListener("progress") { payload ->
+            val rawRanges = audioElement.getAttribute("data-buffered-ranges")?.trim()
             if (!rawRanges.isNullOrEmpty()) {
                 val parsed = rawRanges.split(',').mapNotNull { token ->
                     val dashIdx = token.indexOf('-')
@@ -91,33 +114,36 @@ class WebAudioPlayerImpl : WebBaseNativeImpl("audio", "audio-player"), AudioPlay
                 }
             } else {
                 val bufEnd = (payload as? Number)?.toDouble()
-                    ?: nativeWidget.getAttribute("data-buffered-time")?.toDoubleOrNull()
+                    ?: audioElement.getAttribute("data-buffered-time")?.toDoubleOrNull()
                 if (bufEnd != null && !bufEnd.isNaN() && bufEnd >= 0.0) {
                     bufferedRangesList = listOf(0.0 to bufEnd)
                 }
             }
             onBufferedRangesChangedListener?.invoke(bufferedRangesList)
         }
-        nativeWidget.addEventListener("error") {
+        audioElement.addEventListener("error") {
             onErrorListener?.invoke("Audio playback error")
         }
     }
 
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> = setOf(
-        AudioCodec.AAC,
-        AudioCodec.MP3,
-        AudioCodec.OPUS,
-        AudioCodec.VORBIS,
-        AudioCodec.FLAC,
-        AudioCodec.PCM
-    )
+    override fun isAudioCodecSupported(codec: AudioCodec): Boolean =
+        codec.html5CanPlayProbes.any { WebBrowserDomBridge.mediaCanPlayType(audioElement, it) }
+
+    override fun getSupportedAudioCodecs(): Set<AudioCodec> =
+        AudioCodec.entries.filterTo(linkedSetOf()) { isAudioCodecSupported(it) }
 
     override fun setSource(url: String, seekOffsetSeconds: Double) {
         currentTimeSec = seekOffsetSeconds.coerceAtLeast(0.0)
         mediaReadyFlag = false
-        nativeWidget.setAttribute("data-media-ready", "false")
-        nativeWidget.setAttribute("src", url)
-        WebBrowserDomBridge.mediaLoad(nativeWidget, currentTimeSec)
+        audioElement.setAttribute("crossorigin", "anonymous")
+        WebAudioContextBridge.ensureCrossOriginAnonymous(audioElement)
+        audioElement.setAttribute("data-media-ready", "false")
+        audioElement.setAttribute("src", url)
+        val analyzer = attachedAnalyzer
+        if (analyzer != null) {
+            WebAudioContextBridge.connectMediaElement(audioElement, analyzer.fftSize)
+        }
+        WebBrowserDomBridge.mediaLoad(audioElement, currentTimeSec)
         if (url.isNotBlank() && !WebBrowserDomBridge.isBrowserEnvironment) {
             markMediaReady()
         }
@@ -125,27 +151,36 @@ class WebAudioPlayerImpl : WebBaseNativeImpl("audio", "audio-player"), AudioPlay
 
     override fun play() {
         playing = true
-        WebBrowserDomBridge.mediaPlay(nativeWidget) { errMsg ->
+        audioElement.setAttribute("data-playing", "true")
+        val analyzer = attachedAnalyzer
+        if (analyzer != null) {
+            WebAudioContextBridge.connectMediaElement(audioElement, analyzer.fftSize)
+        }
+        WebAudioContextBridge.resumeAudioContext()
+        WebBrowserDomBridge.mediaPlay(audioElement) { errMsg ->
             playing = false
+            audioElement.setAttribute("data-playing", "false")
             onErrorListener?.invoke(errMsg)
         }
     }
 
     override fun pause() {
         playing = false
-        WebBrowserDomBridge.mediaPause(nativeWidget)
+        audioElement.setAttribute("data-playing", "false")
+        WebBrowserDomBridge.mediaPause(audioElement)
     }
 
     override fun stop() {
         playing = false
         currentTimeSec = 0.0
-        WebBrowserDomBridge.mediaPause(nativeWidget)
-        WebBrowserDomBridge.mediaSeekTo(nativeWidget, 0.0)
+        audioElement.setAttribute("data-playing", "false")
+        WebBrowserDomBridge.mediaPause(audioElement)
+        WebBrowserDomBridge.mediaSeekTo(audioElement, 0.0)
     }
 
     override fun seekTo(seconds: Double) {
         currentTimeSec = seconds.coerceAtLeast(0.0)
-        WebBrowserDomBridge.mediaSeekTo(nativeWidget, currentTimeSec)
+        WebBrowserDomBridge.mediaSeekTo(audioElement, currentTimeSec)
         onTimeUpdateListener?.invoke(currentTimeSec)
     }
 
@@ -155,13 +190,20 @@ class WebAudioPlayerImpl : WebBaseNativeImpl("audio", "audio-player"), AudioPlay
 
     override fun setVolume(volume: Float) {
         volumeLevel = volume.coerceIn(0f, 1f)
-        WebBrowserDomBridge.mediaSetVolume(nativeWidget, volumeLevel)
+        WebBrowserDomBridge.mediaSetVolume(audioElement, volumeLevel)
     }
 
     override fun getVolume(): Float = volumeLevel
 
     override fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {
         attachedAnalyzer = analyzer
+        if (analyzer != null) {
+            audioElement.setAttribute("crossorigin", "anonymous")
+            WebAudioContextBridge.connectMediaElement(audioElement, analyzer.fftSize)
+            if (playing) {
+                WebAudioContextBridge.resumeAudioContext()
+            }
+        }
     }
 
     override fun setOnTimeUpdate(listener: ((Double) -> Unit)?) { onTimeUpdateListener = listener }
@@ -174,14 +216,14 @@ class WebAudioPlayerImpl : WebBaseNativeImpl("audio", "audio-player"), AudioPlay
 
     override fun setPreloadMode(mode: MediaPreloadMode) {
         preloadMode = mode
-        nativeWidget.setAttribute("preload", mode.htmlAttributeValue)
+        audioElement.setAttribute("preload", mode.htmlAttributeValue)
     }
 
     override fun getPreloadMode(): MediaPreloadMode = preloadMode
 
     override fun setAdaptivePreloadBufferingEnabled(enabled: Boolean) {
         adaptivePreloadBufferingEnabled = enabled
-        nativeWidget.setAttribute("data-adaptive-preload-buffering", enabled.toString())
+        audioElement.setAttribute("data-adaptive-preload-buffering", enabled.toString())
     }
 
     override fun isAdaptivePreloadBufferingEnabled(): Boolean = adaptivePreloadBufferingEnabled
@@ -200,5 +242,15 @@ class WebAudioPlayerImpl : WebBaseNativeImpl("audio", "audio-player"), AudioPlay
         val d = (durationSec - currentTimeSec).coerceAtLeast(0.0)
         if (d <= 0.0) return 0.0
         return min(d, 8.0)
+    }
+
+    override fun dispose() {
+        playing = false
+        currentTimeSec = 0.0
+        WebBrowserDomBridge.mediaPause(audioElement)
+        audioElement.removeAttribute("src")
+        audioElement.parent?.let { parent ->
+            WebBrowserDomBridge.removeChild(parent, audioElement)
+        }
     }
 }

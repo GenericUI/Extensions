@@ -46,6 +46,7 @@ class VideoPlayerOverlayBinder(
     fun bind() {
         if (isDisposed || bound) return
         bound = true
+        host.bindToFramePresentTarget(videoPlayer)
         videoPlayer.addStateChangeObserver(playerStateObserver)
         wireActionsToHost()
         syncStateFromPlayer()

@@ -16,7 +16,7 @@ import com.nexustools.genericui.nativeimpl.media.Canvas2DNativeImpl
  *
  * Manages the two-layer hardware stack inside the host OS container (`hostContainerImpl`):
  * 1. **Underlay Layer (Below `Canvas2D`)**: Any [AlienUnderlayExtensionSlotNode]s (`UnalienContainer`
- *    or extension components such as `GLCanvas`, `VKCanvas`, `VideoPlayer`, `WebView`) are attached
+ *    or extension components such as `Canvas3D`, `VideoPlayer`, `WebView`) are attached
  *    to `hostContainerImpl` **before** (below) the `Canvas2D`.
  * 2. **Top `Canvas2D` Layer**: `session.canvas2D`'s native implementation is attached on top of the
  *    underlay layer, rendering all `*AlienImpl` widgets and cutting transparent holes over underlay

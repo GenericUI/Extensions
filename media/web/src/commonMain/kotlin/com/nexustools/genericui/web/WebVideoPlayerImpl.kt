@@ -131,6 +131,9 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
         nativeWidget.addEventListener("loadeddata") {
             markMediaReady()
         }
+        nativeWidget.addEventListener("seeked") {
+            markMediaReady()
+        }
         nativeWidget.addEventListener("timeupdate") { payload ->
             val sec = (payload as? Number)?.toDouble()
                 ?: nativeWidget.getAttribute("data-current-time")?.toDoubleOrNull()
@@ -156,7 +159,9 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
                 ?: nativeWidget.getAttribute("data-duration")?.toDoubleOrNull()
             if (dur != null && !dur.isNaN() && dur > 0.0) {
                 durationSec = dur
-                markMediaReady()
+                if (!WebBrowserDomBridge.isBrowserEnvironment) {
+                    markMediaReady()
+                }
                 onDurationChangedListener?.invoke(durationSec)
             }
         }
@@ -165,6 +170,8 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             if (pendingSeek != null) {
                 pendingDirectSeekSec = null
                 WebBrowserDomBridge.mediaSeekTo(nativeWidget, pendingSeek)
+            } else if (!playing && preloadMode != MediaPreloadMode.NONE && currentTimeSec <= 0.0) {
+                WebBrowserDomBridge.mediaSeekTo(nativeWidget, 0.001)
             }
             if (durationOverrideSec == null || durationOverrideSec!! <= 0.0) {
                 val dur = nativeWidget.getAttribute("data-duration")?.toDoubleOrNull()
@@ -173,7 +180,9 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
                     onDurationChangedListener?.invoke(durationSec)
                 }
             }
-            markMediaReady()
+            if (!WebBrowserDomBridge.isBrowserEnvironment) {
+                markMediaReady()
+            }
         }
         nativeWidget.addEventListener("progress") { payload ->
             val parsedRanges = parseBufferedRangesFromWidget(payload)
@@ -229,100 +238,73 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
     private fun canPlayAnyMime(mimes: List<String>): Boolean =
         mimes.any { WebBrowserDomBridge.mediaCanPlayType(nativeWidget, it) }
 
-    override fun getMediaCapabilities(): MediaCapabilitiesReport {
-        if (!WebBrowserDomBridge.isBrowserEnvironment) {
-            return MediaCapabilitiesReport(
-                videoCodecs = mapOf(
-                    VideoCodec.H264 to CodecSupportLevel.HARDWARE_ACCELERATED,
-                    VideoCodec.HEVC to CodecSupportLevel.SUPPORTED,
-                    VideoCodec.VP8 to CodecSupportLevel.SUPPORTED,
-                    VideoCodec.VP9 to CodecSupportLevel.HARDWARE_ACCELERATED,
-                    VideoCodec.AV1 to CodecSupportLevel.HARDWARE_ACCELERATED
-                ),
-                audioCodecs = mapOf(
-                    AudioCodec.AAC to CodecSupportLevel.HARDWARE_ACCELERATED,
-                    AudioCodec.MP3 to CodecSupportLevel.SUPPORTED,
-                    AudioCodec.OPUS to CodecSupportLevel.SUPPORTED,
-                    AudioCodec.VORBIS to CodecSupportLevel.SUPPORTED,
-                    AudioCodec.FLAC to CodecSupportLevel.SUPPORTED
-                ),
-                containers = setOf(
-                    MediaContainer.MP4,
-                    MediaContainer.MOV,
-                    MediaContainer.WEBM,
-                    MediaContainer.MKV,
-                    MediaContainer.OGG,
-                    MediaContainer.HLS,
-                    MediaContainer.DASH
-                ),
-                maxWidth = 3840,
-                maxHeight = 2160,
-                maxFrameRate = 60,
-                supportsHdr10 = true,
-                supportsHlg = true,
-                supportsDolbyVision = false,
-                supportsSurround51 = true,
-                supportsSurround71 = false,
-                supportsAudioTrackSelection = false,
-                supportsSubtitleTrackSelection = true,
-                hardwareAccelerationBackend = "WebCodecs / HTMLMediaElement MSE"
-            )
-        }
+    override fun isVideoCodecSupported(codec: VideoCodec): Boolean =
+        canPlayAnyMime(codec.html5CanPlayProbes)
 
+    override fun isAudioCodecSupported(codec: AudioCodec): Boolean =
+        canPlayAnyMime(codec.html5CanPlayProbes)
+
+    override fun getSupportedVideoCodecs(): Set<VideoCodec> =
+        VideoCodec.entries.filterTo(linkedSetOf()) { isVideoCodecSupported(it) }
+
+    override fun getSupportedAudioCodecs(): Set<AudioCodec> =
+        AudioCodec.entries.filterTo(linkedSetOf()) { isAudioCodecSupported(it) }
+
+    override fun getMediaCapabilities(): MediaCapabilitiesReport {
         val videoMap = linkedMapOf<VideoCodec, CodecSupportLevel>()
-        if (canPlayAnyMime(listOf("video/mp4; codecs=\"avc1.42E01E\"", "video/mp4; codecs=\"avc1.640028\""))) {
-            videoMap[VideoCodec.H264] = CodecSupportLevel.HARDWARE_ACCELERATED
-        } else {
-            videoMap[VideoCodec.H264] = CodecSupportLevel.SUPPORTED
-        }
-        if (canPlayAnyMime(listOf("video/mp4; codecs=\"hvc1.1.6.L93.B0\"", "video/mp4; codecs=\"hev1.1.6.L93.B0\""))) {
-            videoMap[VideoCodec.HEVC] = CodecSupportLevel.HARDWARE_ACCELERATED
-        }
-        if (canPlayAnyMime(listOf("video/webm; codecs=\"vp9\"", "video/mp4; codecs=\"vp09.00.10.08\""))) {
-            videoMap[VideoCodec.VP9] = CodecSupportLevel.HARDWARE_ACCELERATED
-        }
-        if (canPlayAnyMime(listOf("video/mp4; codecs=\"av01.0.05M.08\"", "video/webm; codecs=\"av01.0.05M.08\""))) {
-            videoMap[VideoCodec.AV1] = CodecSupportLevel.HARDWARE_ACCELERATED
-        }
-        if (canPlayAnyMime(listOf("video/webm; codecs=\"vp8\""))) {
-            videoMap[VideoCodec.VP8] = CodecSupportLevel.SUPPORTED
+        for (codec in VideoCodec.entries) {
+            if (isVideoCodecSupported(codec)) {
+                videoMap[codec] = when (codec) {
+                    VideoCodec.H264,
+                    VideoCodec.HEVC,
+                    VideoCodec.VP9,
+                    VideoCodec.AV1,
+                    VideoCodec.VVC -> CodecSupportLevel.HARDWARE_ACCELERATED
+                    else -> CodecSupportLevel.SUPPORTED
+                }
+            }
         }
 
         val audioMap = linkedMapOf<AudioCodec, CodecSupportLevel>()
-        if (canPlayAnyMime(listOf("audio/mp4; codecs=\"mp4a.40.2\"", "audio/aac"))) {
-            audioMap[AudioCodec.AAC] = CodecSupportLevel.HARDWARE_ACCELERATED
-        } else {
-            audioMap[AudioCodec.AAC] = CodecSupportLevel.SUPPORTED
-        }
-        if (canPlayAnyMime(listOf("audio/mpeg", "audio/mp3"))) {
-            audioMap[AudioCodec.MP3] = CodecSupportLevel.SUPPORTED
-        }
-        if (canPlayAnyMime(listOf("audio/ogg; codecs=\"opus\"", "audio/webm; codecs=\"opus\"", "audio/mp4; codecs=\"opus\"", "video/mp4; codecs=\"Opus\""))) {
-            audioMap[AudioCodec.OPUS] = CodecSupportLevel.SUPPORTED
-        }
-        if (canPlayAnyMime(listOf("audio/ogg; codecs=\"vorbis\"", "audio/webm; codecs=\"vorbis\""))) {
-            audioMap[AudioCodec.VORBIS] = CodecSupportLevel.SUPPORTED
-        }
-        if (canPlayAnyMime(listOf("audio/flac", "audio/mp4; codecs=\"flac\""))) {
-            audioMap[AudioCodec.FLAC] = CodecSupportLevel.SUPPORTED
+        for (codec in AudioCodec.entries) {
+            if (isAudioCodecSupported(codec)) {
+                audioMap[codec] = when (codec) {
+                    AudioCodec.AAC,
+                    AudioCodec.AC3,
+                    AudioCodec.EAC3,
+                    AudioCodec.AC4 -> CodecSupportLevel.HARDWARE_ACCELERATED
+                    else -> CodecSupportLevel.SUPPORTED
+                }
+            }
         }
 
         val containerSet = linkedSetOf<MediaContainer>()
         if (canPlayAnyMime(listOf("video/mp4"))) {
             containerSet.add(MediaContainer.MP4)
+        }
+        if (canPlayAnyMime(listOf("video/quicktime"))) {
             containerSet.add(MediaContainer.MOV)
         }
         if (canPlayAnyMime(listOf("video/webm"))) {
             containerSet.add(MediaContainer.WEBM)
         }
-        if (canPlayAnyMime(listOf("video/x-matroska", "video/webm"))) {
+        if (canPlayAnyMime(listOf("video/x-matroska"))) {
             containerSet.add(MediaContainer.MKV)
         }
         if (canPlayAnyMime(listOf("video/ogg", "audio/ogg"))) {
             containerSet.add(MediaContainer.OGG)
         }
-        if (containerSet.isEmpty()) {
-            containerSet.add(MediaContainer.MP4)
+        if (canPlayAnyMime(listOf("video/x-msvideo", "video/avi"))) {
+            containerSet.add(MediaContainer.AVI)
+        }
+        if (canPlayAnyMime(listOf("video/mp2t"))) {
+            containerSet.add(MediaContainer.MPEG_TS)
+        }
+        if (canPlayAnyMime(listOf("application/vnd.apple.mpegurl", "application/x-mpegurl"))) {
+            containerSet.add(MediaContainer.HLS)
+        }
+        if (canPlayAnyMime(listOf("application/dash+xml"))) {
+            containerSet.add(MediaContainer.DASH)
         }
 
         return MediaCapabilitiesReport(
@@ -332,14 +314,14 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             maxWidth = 3840,
             maxHeight = 2160,
             maxFrameRate = 60,
-            supportsHdr10 = true,
-            supportsHlg = true,
-            supportsDolbyVision = false,
-            supportsSurround51 = true,
-            supportsSurround71 = false,
+            supportsHdr10 = isVideoCodecSupported(VideoCodec.HEVC) || isVideoCodecSupported(VideoCodec.VP9) || isVideoCodecSupported(VideoCodec.AV1),
+            supportsHlg = isVideoCodecSupported(VideoCodec.HEVC) || isVideoCodecSupported(VideoCodec.VP9) || isVideoCodecSupported(VideoCodec.AV1),
+            supportsDolbyVision = canPlayAnyMime(listOf("video/mp4; codecs=\"dvh1.05.06\"", "video/mp4; codecs=\"dvhe.05.06\"")),
+            supportsSurround51 = isAudioCodecSupported(AudioCodec.AC3) || isAudioCodecSupported(AudioCodec.EAC3) || isAudioCodecSupported(AudioCodec.OPUS) || isAudioCodecSupported(AudioCodec.AAC),
+            supportsSurround71 = isAudioCodecSupported(AudioCodec.EAC3) || isAudioCodecSupported(AudioCodec.TRUEHD) || isAudioCodecSupported(AudioCodec.DTS_HD),
             supportsAudioTrackSelection = false,
             supportsSubtitleTrackSelection = true,
-            hardwareAccelerationBackend = "WebCodecs / HTMLMediaElement MSE"
+            hardwareAccelerationBackend = "HTML5 <video>.canPlayType"
         )
     }
 

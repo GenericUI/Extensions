@@ -27,6 +27,7 @@ actual object LibVlcDynamicLoader {
             if (dir.isNotEmpty()) {
                 SetDllDirectoryA(dir)
                 SetEnvironmentVariableA("VLC_PLUGIN_PATH", "$dir\\plugins")
+                platform.posix._putenv("VLC_PLUGIN_PATH=$dir\\plugins")
                 LoadLibraryA("$dir\\libvlccore.dll")
             }
             val handle = LoadLibraryA(path)

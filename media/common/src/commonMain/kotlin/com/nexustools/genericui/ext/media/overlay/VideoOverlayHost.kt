@@ -24,6 +24,7 @@ open class VideoOverlayHost(
         htmlTag = "genericui:video-overlay-host"
         addClass("genericui-video-overlay-host")
         videoPlayer.attachedOverlayHost = this
+        bindToFramePresentTarget(videoPlayer)
         if (id.isNullOrBlank()) {
             id = "genericui-video-overlay-host-${++instanceCounter}"
         }

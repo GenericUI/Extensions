@@ -14,7 +14,7 @@ flowchart LR
     RigidBodies["RigidBody3D (DYNAMIC, STATIC, KINEMATIC)<br/>+ Collider3D (Box, Sphere, Capsule, Cylinder, ConvexHull, TriMesh, Heightfield)"]
     JointsAndCC["Joint3D & CharacterController3D<br/>(HingeJoint3D, FixedJoint3D, SpringJoint3D, SliderJoint3D, SphericalJoint3D)"]
     Sync["Automatic Transform Sync<br/>(RigidBody3D.boundObject3D -> Three.js Object3D.position & quaternion)"]
-    DebugRenderer["Box3DDebugRenderer<br/>(Wireframe Collider Meshes + bindToCanvas3D(camera, glCanvas))"]
+    DebugRenderer["Box3DDebugRenderer<br/>(Wireframe Collider Meshes + bindToCanvas3D(camera, canvas3D))"]
 
     RigidBodies --> World3D
     JointsAndCC --> World3D
@@ -56,7 +56,7 @@ genericui {
 | `ColliderShape3D` Implementations | `ext.box3d` | `BoxShape3D(hx, hy, hz)`, `SphereShape3D(radius)`, `CapsuleShape3D(halfHeight, radius)`, `CylinderShape3D(halfHeight, radius)`, `ConvexHullShape3D(points: List<Vec3>)`, `TriMeshShape3D(vertices: List<Vec3>, indices: IntArray)`, `HeightfieldShape3D(rows, cols, heights, scale)`. |
 | `Joint3D` Implementations | `ext.box3d` | `HingeJoint3D` (revolute axis with motor & limits), `FixedJoint3D` (6-DOF rigid lock), `SpringJoint3D` (3D Hooke's law spring-damper), `SliderJoint3D` (prismatic axis), `SphericalJoint3D` (ball-and-socket). |
 | `CharacterController3D` | `ext.box3d` | Kinematic capsule character controller (`radius`, `halfHeight`, `maxSlopeRadians`, `stepOffset`, `isGrounded: Boolean`, `move(body, desiredDisplacement, dt)`). |
-| `Box3DDebugRenderer` | `ext.box3d` | Synchronizes wireframe Three.js collider meshes in a `Scene` and binds VBlank simulation loops (`update()`, `bindToCanvas3D(camera, glCanvas, vkCanvas, substeps)`). |
+| `Box3DDebugRenderer` | `ext.box3d` | Synchronizes wireframe Three.js collider meshes in a `Scene` and binds VBlank simulation loops (`update()`, `bindToCanvas3D(camera, canvas3D, substeps)`). |
 | `Vec3` / `Quat3D` / `Mat33` / `Transform3D` / `AABB3D` / `Ray3D` | `ext.box3d` | 3D physics math primitives. |
 | `box3dDebugCanvas` / `world3D` | `ext.box3d.dsl` | Declarative DSL builders in `:extensions:box3d:dsl` (`Box3DWorldDslScope`: `rigidBody`, `dynamicRigidBody`, `staticRigidBody`, `kinematicRigidBody`; `Box3DRigidBodyDslScope`: `collider`, `boxCollider`, `sphereCollider`, `capsuleCollider`). |
 
@@ -77,7 +77,7 @@ import com.nexustools.genericui.ext.box3d.SphereShape3D
 import com.nexustools.genericui.ext.box3d.SpringJoint3D
 import com.nexustools.genericui.ext.box3d.Vec3
 import com.nexustools.genericui.ext.box3d.World3D
-import com.nexustools.genericui.ext.canvas3d.GLCanvasExt
+import com.nexustools.genericui.component.media.Canvas3D
 import com.nexustools.genericui.ext.threejs.cameras.PerspectiveCamera
 import com.nexustools.genericui.ext.threejs.geometries.BoxGeometry
 import com.nexustools.genericui.ext.threejs.geometries.SphereGeometry
@@ -88,7 +88,7 @@ import com.nexustools.genericui.ext.threejs.math.Color
 import com.nexustools.genericui.ext.threejs.objects.Mesh
 import com.nexustools.genericui.ext.threejs.scenes.Scene
 
-fun createPhysicsDrivenThreeJsScene(): GLCanvasExt {
+fun createPhysicsDrivenThreeJsScene(): Canvas3D {
     val scene = Scene().apply {
         background = Color(0x0f172a)
         add(AmbientLight(Color(0xffffff), 0.5f))
@@ -140,16 +140,16 @@ fun createPhysicsDrivenThreeJsScene(): GLCanvasExt {
     val hit = world.raycast(Ray3D(origin = Vec3(0f, 10f, 0f), direction = Vec3(0f, -1f, 0f)), maxDistance = 50f)
     println("Raycast hit body at distance: ${hit?.distance}")
 
-    // 5. Bind Box3DDebugRenderer to a GLCanvasExt
-    val glCanvas = GLCanvasExt(width = 1024, height = 600)
+    // 5. Bind Box3DDebugRenderer to a Canvas3D
+    val canvas3D = Canvas3D(width = 1024, height = 600)
     val camera = PerspectiveCamera(50f, 1024f / 600f, 0.1f, 1000f).apply {
         position.set(0f, 4f, 11f)
         lookAt(0f, 1.5f, 0f)
     }
     val debugRenderer = Box3DDebugRenderer(world, scene)
-    debugRenderer.bindToCanvas3D(camera = camera, glCanvas = glCanvas, substeps = 4)
+    debugRenderer.bindToCanvas3D(camera = camera, canvas3D = canvas3D, substeps = 4)
 
-    return glCanvas
+    return canvas3D
 }
 ```
 
@@ -220,7 +220,7 @@ val physics3DViewport = buildDiv(classes = "p-3") {
 
 - **Related Extensions**:
   - [`:extensions:threejs` (`threejs.md`)](threejs.md) — Provides `Scene`, `Object3D`, `Mesh`, `PerspectiveCamera`, and `WebGLRenderer` synchronized with `World3D`.
-  - [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Provides `GLCanvasExt`, `VKCanvasExt`, and `Canvas3DOverlayHost` viewports.
+  - [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Provides `Canvas3D` and `Canvas3DOverlayHost` viewports.
   - [`:extensions:gpu` (`gpu.md`)](gpu.md) — Provides the underlying Vulkan 1.2+ and OpenGL ES 3.0+ GPU foundation.
   - [`:extensions:box2d` (`box2d.md`)](box2d.md) — Sister 2D rigid-body physics engine.
   - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.

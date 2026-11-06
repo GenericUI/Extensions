@@ -26,7 +26,7 @@ class TabContainerAlienImpl(
     private class TabEntry(
         var title: String,
         var tabImpl: TabNativeImpl<*>?,
-        val contentImpl: NativeImpl<*>
+        val contentImpl: NativeImpl<*>?
     )
 
     private val entries = mutableListOf<TabEntry>()
@@ -131,6 +131,17 @@ class TabContainerAlienImpl(
         syncActiveTabVisibility()
     }
 
+    override fun addButtonTabNative(tabImpl: TabNativeImpl<*>, index: Int) {
+        val title = (tabImpl as? TabAlienImpl)?.titleText.orEmpty()
+        val entry = TabEntry(title = title, tabImpl = tabImpl, contentImpl = null)
+        if (index < 0 || index >= entries.size) {
+            entries.add(entry)
+        } else {
+            entries.add(index, entry)
+        }
+        syncActiveTabVisibility()
+    }
+
     override fun addTabNative(title: String, contentImpl: NativeImpl<*>, index: Int) {
         val entry = TabEntry(title = title, tabImpl = null, contentImpl = contentImpl)
         if (index < 0 || index >= entries.size) {
@@ -153,7 +164,7 @@ class TabContainerAlienImpl(
     override fun removeTabNative(index: Int) {
         if (index in entries.indices) {
             val removed = entries.removeAt(index)
-            removeChildNative(removed.contentImpl)
+            removed.contentImpl?.let { removeChildNative(it) }
             if (selectedIdx >= entries.size) {
                 selectedIdx = (entries.size - 1).coerceAtLeast(0)
             }
@@ -181,7 +192,11 @@ class TabContainerAlienImpl(
 
     override fun setSelectedTabIndex(index: Int, fadeTransition: Boolean) {
         if (entries.isEmpty()) return
-        selectedIdx = index.coerceIn(0, entries.lastIndex)
+        val clamped = index.coerceIn(0, entries.lastIndex)
+        if (entries[clamped].contentImpl == null && entries[clamped].tabImpl != null) {
+            return
+        }
+        selectedIdx = clamped
         syncActiveTabVisibility()
     }
 
@@ -197,8 +212,8 @@ class TabContainerAlienImpl(
 
     private fun syncActiveTabVisibility() {
         for ((idx, entry) in entries.withIndex()) {
-            val isSel = idx == selectedIdx
-            entry.contentImpl.setVisible(isSel)
+            val isSel = (idx == selectedIdx) && entry.contentImpl != null
+            entry.contentImpl?.setVisible(isSel)
             (entry.tabImpl as? TabAlienImpl)?.setSelectedNative(isSel)
         }
         node.markLayoutDirty()

@@ -1,18 +1,16 @@
 package com.nexustools.genericui.ext.canvas3d.overlay
 
-import com.nexustools.genericui.component.media.AbstractCanvas
+import com.nexustools.genericui.component.media.Canvas3D
 import com.nexustools.genericui.enums.bootstrap.PositionMode
 import com.nexustools.genericui.ext.canvas3d.ScrollCanvas3D
 import com.nexustools.genericui.ext.canvas3d.ScrollCanvas3DListener
-import com.nexustools.genericui.ext.canvas3d.ScrollGLCanvas
-import com.nexustools.genericui.ext.canvas3d.ScrollVKCanvas
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.ext.overlay.OverlayHostBox
 
 /**
- * Generic overlay host wrapping a [ScrollCanvas3D] ([ScrollGLCanvas] or [ScrollVKCanvas]) and extending
- * [OverlayHostBox] where [overlayRoot] covers only the visible viewport area (`viewportWidth` x `viewportHeight`),
- * excluding the horizontal and vertical scrollbars.
+ * Generic overlay host wrapping a [ScrollCanvas3D] and extending [OverlayHostBox] where [overlayRoot]
+ * covers only the visible viewport area (`viewportWidth` x `viewportHeight`), excluding the
+ * horizontal and vertical scrollbars.
  *
  * Does not attach any default overlay unless an [AbstractOverlay] is explicitly provided via
  * [initialOverlay] or [attachOverlay].
@@ -31,22 +29,10 @@ open class ScrollCanvas3DOverlayHost(
     val overlayCoversScrollbars: Boolean = false
 
     /**
-     * The active viewport-sized 3D canvas inside [scrollCanvas].
+     * The active viewport-sized 3D canvas ([Canvas3D]) inside [scrollCanvas].
      */
-    val viewportCanvas: AbstractCanvas<*>
+    val viewportCanvas: Canvas3D
         get() = scrollCanvas.viewportCanvas
-
-    /**
-     * Returns [scrollCanvas] as a [ScrollGLCanvas] when hosting a scrollable OpenGL ES canvas, or `null` otherwise.
-     */
-    val scrollGlCanvas: ScrollGLCanvas?
-        get() = scrollCanvas as? ScrollGLCanvas
-
-    /**
-     * Returns [scrollCanvas] as a [ScrollVKCanvas] when hosting a scrollable Vulkan canvas, or `null` otherwise.
-     */
-    val scrollVkCanvas: ScrollVKCanvas?
-        get() = scrollCanvas as? ScrollVKCanvas
 
     /**
      * Current width of [overlayRoot], matching [ScrollCanvas3D.viewportWidth].

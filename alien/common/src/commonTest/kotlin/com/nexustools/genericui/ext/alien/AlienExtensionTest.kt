@@ -333,15 +333,15 @@ class AlienExtensionTest {
 
     @Test
     fun testExtensionUnderlayTransparentHoleCuttingOverdrawingAndMousePassthrough() {
-        // Custom mock extension component (representing GLCanvas / VKCanvas / VideoPlayer / WebView)
-        class MockExtensionGlCanvas : AbstractComponent("gl-canvas", "canvas") {
+        // Custom mock extension component (representing Canvas3D / VideoPlayer / WebView)
+        class MockExtensionCanvas3D : AbstractComponent("canvas-3d", "canvas") {
             init {
                 widthPx = 200
                 heightPx = 150
             }
 
             protected override fun createNativeImpl(factory: NativeFactory): NativeImpl<*> =
-                hostFactory.createButton("gl-canvas-native")
+                hostFactory.createButton("canvas-3d-native")
         }
 
         val alienRoot = AlienContainer().apply {
@@ -351,7 +351,7 @@ class AlienExtensionTest {
         alienRoot.ensureNativeImpl()
         val session = assertNotNull(alienRoot.renderSession)
 
-        val extCanvas = MockExtensionGlCanvas()
+        val extCanvas = MockExtensionCanvas3D()
         alienRoot.addChild(extCanvas)
         assertEquals(1, session.underlaySlots.size)
         val slot = session.underlaySlots.first()

@@ -1,5 +1,6 @@
 package com.nexustools.genericui.ext.gpu.swing
 
+import com.nexustools.genericui.ext.gpu.GpuBackendSupport
 import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.gpu.GpuDevice
 import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
@@ -7,7 +8,7 @@ import com.nexustools.genericui.ext.gpu.GpuOffscreenContext
 /**
  * Runtime detector and provider for `:extensions:gpu:swing`, probing the JVM classpath for
  * optional LWJGL 3 Vulkan (`org.lwjgl.vulkan.VK`) as primary and LWJGL 3 OpenGL ES / Google ANGLE
- * (`org.lwjgl.opengles.GLES` / `org.lwjgl.opengl.GL`) as fallback.
+ * (`org.lwjgl.opengles.GLES` / `org.lwjgl.opengl.GL` / `org.lwjgl.egl.EGL`) as fallback.
  */
 object SwingGpuProvider {
     val isLwjglVulkanOnClasspath: Boolean by lazy {
@@ -15,7 +16,26 @@ object SwingGpuProvider {
     }
 
     val isLwjglOpenGlEsOnClasspath: Boolean by lazy {
-        isClassPresent("org.lwjgl.opengles.GLES") || isClassPresent("org.lwjgl.opengl.GL")
+        isClassPresent("org.lwjgl.opengles.GLES") ||
+            isClassPresent("org.lwjgl.opengl.GL") ||
+            isClassPresent("org.lwjgl.egl.EGL")
+    }
+
+    fun detectSupport(backend: GpuBackendType): GpuBackendSupport = when (backend) {
+        GpuBackendType.VULKAN -> GpuBackendSupport(
+            backend = GpuBackendType.VULKAN,
+            hardwareAvailable = isLwjglVulkanOnClasspath,
+            softwareAvailable = true
+        )
+        GpuBackendType.OPENGL_ES -> GpuBackendSupport(
+            backend = GpuBackendType.OPENGL_ES,
+            hardwareAvailable = isLwjglOpenGlEsOnClasspath,
+            softwareAvailable = true
+        )
+    }
+
+    fun register(preferVulkan: Boolean = true) {
+        install()
     }
 
     fun install() {

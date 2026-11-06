@@ -160,6 +160,11 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
         hardwareAccelerationBackend = "libvlcj (${MediaPlayerFactory::class.java.packageName})"
     )
 
+    override fun isVideoCodecSupported(codec: VideoCodec): Boolean = true
+    override fun isAudioCodecSupported(codec: AudioCodec): Boolean = true
+    override fun getSupportedVideoCodecs(): Set<VideoCodec> = VideoCodec.entries.toSet()
+    override fun getSupportedAudioCodecs(): Set<AudioCodec> = AudioCodec.entries.toSet()
+
     override fun supportsAudioTrackSelection(): Boolean = true
     override fun supportsSubtitleTrackSelection(): Boolean = true
 
