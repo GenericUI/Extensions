@@ -24,4 +24,6 @@ dependencies {
     // NJS :common & :jvm subprojects (symlinked at lib/NJS; Desktop builds ONLY)
     api("com.nexustools.njs:common:1.0")
     api("com.nexustools.njs:jvm:1.0")
+
+    testImplementation(libs.kotlin.test)
 }

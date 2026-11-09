@@ -195,13 +195,14 @@ inline fun AbstractContainer.alert(
 inline fun AbstractContainer.progressBar(
     progress: Float = 0f,
     indeterminate: Boolean = false,
+    busy: Boolean = false,
     type: BootstrapType = BootstrapType.PRIMARY,
     classes: String? = null,
     id: String? = null,
     block: (@GenericUiDslMarker ProgressBar).() -> Unit = {}
 ): ProgressBar = mountDslComponent(
     this,
-    ProgressBar(progress = progress, indeterminate = indeterminate, type = type),
+    ProgressBar(progress = progress, indeterminate = indeterminate, busy = busy, type = type),
     classes,
     id,
     block

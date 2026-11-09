@@ -233,16 +233,16 @@ object AlienCssStyleResolver {
                 mergeIntoCascade(resolveAlienSheet(alienSheets[i]))
             }
         }
-        val inlineStyle: ComponentStyle? = node.inlineComponentStyle
+        val nodeStyle: ComponentStyle? = node.inlineComponentStyle
         val stateComputed: ComputedStyle? = when {
-            inlineStyle != null -> inlineStyle.toComputedStyle(rawStateComputed)
+            nodeStyle != null -> nodeStyle.toComputedStyle(rawStateComputed)
             else -> rawStateComputed
         }
 
-        fun inlineWins(prop: CssProperty): Boolean {
-            if (inlineStyle == null) return false
-            val baseHasImp = rawStateComputed?.importantProperties?.contains(prop.cssName) == true
-            return !baseHasImp || inlineStyle.isImportant(prop)
+        fun nodeStyleWins(prop: CssProperty): Boolean {
+            if (nodeStyle == null) return false
+            val baseHasImp = rawStateComputed?.isImportant(prop) == true
+            return !baseHasImp || nodeStyle.isImportant(prop)
         }
 
         // 4. Typography Resolution (before padding/margin so `em` units resolve against `fontSizePx`)
@@ -255,11 +255,8 @@ object AlienCssStyleResolver {
         stateComputed?.fontSizePercent?.let { pct ->
             fontSizePx = (inherited.fontSizePx * (pct / 100f)).coerceAtLeast(6f)
         }
-        stateComputed?.rawDeclarations?.get("font-size")?.let { rawFs ->
-            parseLengthPx(rawFs, inherited.fontSizePx, inherited.fontSizePx)?.let { fontSizePx = it }
-        }
-        if (inlineStyle?.getFontSize() != null && inlineWins(CssProperty.FONT_SIZE)) {
-            inlineStyle.getFontSize()?.resolvePx(
+        if (nodeStyle?.getFontSize() != null && nodeStyleWins(CssProperty.FONT_SIZE)) {
+            nodeStyle.getFontSize()?.resolvePx(
                 referencePx = inherited.fontSizePx,
                 rootFontSizePx = 16f,
                 parentFontSizePx = inherited.fontSizePx
@@ -269,41 +266,51 @@ object AlienCssStyleResolver {
         var fontWeight = snapshot.fontWeight?.numericWeight
             ?: stateComputed?.fontWeightNumeric
             ?: if (isBadge || node.tagName.lowercase().startsWith("h")) 700 else inherited.fontWeight
-        if (inlineStyle?.fontWeightNumeric != null && inlineWins(CssProperty.FONT_WEIGHT)) {
-            fontWeight = inlineStyle.fontWeightNumeric!!
+        if (nodeStyle?.fontWeightNumeric != null && nodeStyleWins(CssProperty.FONT_WEIGHT)) {
+            fontWeight = nodeStyle.fontWeightNumeric!!
         }
 
-        val raw = stateComputed?.rawDeclarations.orEmpty()
         var italic = "fst-italic" in customClasses ||
-            raw["font-style"]?.trim()?.equals("italic", ignoreCase = true) == true ||
+            stateComputed?.fontStyle == CssFontStyle.ITALIC ||
+            stateComputed?.fontStyle == CssFontStyle.OBLIQUE ||
             inherited.italic
-        if (inlineStyle?.getFontStyle() != null && inlineWins(CssProperty.FONT_STYLE)) {
-            italic = inlineStyle.getFontStyle() == CssFontStyle.ITALIC || inlineStyle.getFontStyle() == CssFontStyle.OBLIQUE
+        if (nodeStyle?.getFontStyle() != null && nodeStyleWins(CssProperty.FONT_STYLE)) {
+            italic = nodeStyle.getFontStyle() == CssFontStyle.ITALIC || nodeStyle.getFontStyle() == CssFontStyle.OBLIQUE
         }
 
         var lineHeightPx: Float? = snapshot.lineHeight?.let { it.multiplier * fontSizePx } ?: inherited.lineHeightPx
-        raw["line-height"]?.let { rawLh ->
-            val cleaned = rawLh.replace("!important", "").trim().lowercase()
-            lineHeightPx = when {
-                cleaned == "normal" -> null
-                cleaned.toFloatOrNull() != null -> cleaned.toFloat() * fontSizePx
-                else -> parseLengthPx(cleaned, fontSizePx, fontSizePx)
+        stateComputed?.lineHeight?.let { lh ->
+            lineHeightPx = if (lh.isAuto || lh.isNone) {
+                null
+            } else {
+                lh.resolvePx(
+                    referencePx = fontSizePx,
+                    rootFontSizePx = 16f,
+                    parentFontSizePx = fontSizePx
+                )
             }
         }
-        if (inlineStyle?.getLineHeight() != null && inlineWins(CssProperty.LINE_HEIGHT)) {
-            lineHeightPx = inlineStyle.getLineHeight()?.resolvePx(
-                referencePx = fontSizePx,
-                rootFontSizePx = 16f,
-                parentFontSizePx = fontSizePx
-            )
+        if (nodeStyle?.getLineHeight() != null && nodeStyleWins(CssProperty.LINE_HEIGHT)) {
+            val lh = nodeStyle.getLineHeight()!!
+            lineHeightPx = if (lh.isAuto || lh.isNone) {
+                null
+            } else {
+                lh.resolvePx(
+                    referencePx = fontSizePx,
+                    rootFontSizePx = 16f,
+                    parentFontSizePx = fontSizePx
+                )
+            }
         }
 
         var letterSpacingPx: Float = inherited.letterSpacingPx
-        raw["letter-spacing"]?.let { rawLs ->
-            parseLengthPx(rawLs, fontSizePx, fontSizePx)?.let { letterSpacingPx = it }
-        }
-        if (inlineStyle?.getLetterSpacing() != null && inlineWins(CssProperty.LETTER_SPACING)) {
-            inlineStyle.getLetterSpacing()?.resolvePx(
+        stateComputed?.letterSpacing?.resolvePx(
+            referencePx = fontSizePx,
+            rootFontSizePx = 16f,
+            parentFontSizePx = fontSizePx
+        )?.let { letterSpacingPx = it }
+        if (nodeStyle?.getLetterSpacing() != null && nodeStyleWins(CssProperty.LETTER_SPACING)) {
+            nodeStyle.getLetterSpacing()?.resolvePx(
                 referencePx = fontSizePx,
                 rootFontSizePx = 16f,
                 parentFontSizePx = fontSizePx
@@ -327,25 +334,30 @@ object AlienCssStyleResolver {
             else -> inherited.textAlign
         }
 
-        var textDecoration: CssTextDecoration = raw["text-decoration"]?.let { CssTextDecoration.fromCss(it) }
-            ?: CssTextDecoration.NONE
-        if (inlineStyle?.getTextDecoration() != null && inlineWins(CssProperty.TEXT_DECORATION)) {
-            textDecoration = inlineStyle.getTextDecoration()!!
+        var textDecoration: CssTextDecoration = stateComputed?.textDecoration ?: CssTextDecoration.NONE
+        if (nodeStyle?.getTextDecoration() != null && nodeStyleWins(CssProperty.TEXT_DECORATION)) {
+            textDecoration = nodeStyle.getTextDecoration()!!
         }
 
-        val textTransform = when {
-            raw["text-transform"] != null -> raw["text-transform"]!!.replace("!important", "").trim().lowercase()
-            snapshot.textTransform == TextTransform.LOWERCASE -> "lowercase"
-            snapshot.textTransform == TextTransform.UPPERCASE -> "uppercase"
-            snapshot.textTransform == TextTransform.CAPITALIZE -> "capitalize"
-            else -> inherited.textTransform
+        val effectiveTextTransform = if (nodeStyle?.getTextTransform() != null && nodeStyleWins(CssProperty.TEXT_TRANSFORM)) {
+            nodeStyle.getTextTransform()
+        } else {
+            stateComputed?.textTransform ?: snapshot.textTransform
+        }
+        val textTransform = when (effectiveTextTransform) {
+            TextTransform.LOWERCASE -> "lowercase"
+            TextTransform.UPPERCASE -> "uppercase"
+            TextTransform.CAPITALIZE -> "capitalize"
+            TextTransform.NONE -> "none"
+            null -> inherited.textTransform
         }
 
-        val textOverflow = when {
-            raw["text-overflow"] != null -> raw["text-overflow"]!!.replace("!important", "").trim().lowercase()
-            snapshot.textOverflow == TextOverflow.ELLIPSIS -> "ellipsis"
-            else -> "clip"
+        val effectiveTextOverflow = if (nodeStyle?.getTextOverflow() != null && nodeStyleWins(CssProperty.TEXT_OVERFLOW)) {
+            nodeStyle.getTextOverflow()
+        } else {
+            stateComputed?.textOverflow ?: snapshot.textOverflow
         }
+        val textOverflow = if (effectiveTextOverflow == TextOverflow.ELLIPSIS) "ellipsis" else "clip"
 
         val whiteSpace = when {
             stateComputed?.whiteSpace != null -> stateComputed.whiteSpace!!
@@ -354,17 +366,16 @@ object AlienCssStyleResolver {
             else -> inherited.whiteSpace
         }
 
-        var wordBreak: CssWordBreak = raw["word-break"]?.let { CssWordBreak.fromCss(it) }
+        var wordBreak: CssWordBreak = stateComputed?.wordBreak
             ?: if ("text-break" in customClasses) CssWordBreak.BREAK_WORD else inherited.wordBreak
-        if (inlineStyle?.getWordBreak() != null && inlineWins(CssProperty.WORD_BREAK)) {
-            wordBreak = inlineStyle.getWordBreak()!!
+        if (nodeStyle?.getWordBreak() != null && nodeStyleWins(CssProperty.WORD_BREAK)) {
+            wordBreak = nodeStyle.getWordBreak()!!
         }
 
         var verticalAlign: CssVerticalAlign = stateComputed?.verticalAlign?.let { CssVerticalAlign.fromCss(it) }
-            ?: raw["vertical-align"]?.let { CssVerticalAlign.fromCss(it) }
             ?: CssVerticalAlign.BASELINE
-        if (inlineStyle?.getVerticalAlign() != null && inlineWins(CssProperty.VERTICAL_ALIGN)) {
-            verticalAlign = inlineStyle.getVerticalAlign()!!
+        if (nodeStyle?.getVerticalAlign() != null && nodeStyleWins(CssProperty.VERTICAL_ALIGN)) {
+            verticalAlign = nodeStyle.getVerticalAlign()!!
         }
 
         // 5. Padding & Margin Resolution (including directional Bootstrap SpacingScale & CSS shorthands)
@@ -420,13 +431,18 @@ object AlienCssStyleResolver {
         }
 
         if (stateComputed != null) {
-            raw["padding"]?.let { padShorthand ->
-                resolvedPadding = parseBoxShorthandInsets(padShorthand, fontSizePx, resolvedPadding).first
+            stateComputed.padding?.let { padEdges ->
+                resolvedPadding = EdgeInsets(
+                    top = padEdges.top.resolvePx(0f, 16f, fontSizePx)?.roundToInt() ?: resolvedPadding.top,
+                    right = padEdges.right.resolvePx(0f, 16f, fontSizePx)?.roundToInt() ?: resolvedPadding.right,
+                    bottom = padEdges.bottom.resolvePx(0f, 16f, fontSizePx)?.roundToInt() ?: resolvedPadding.bottom,
+                    left = padEdges.left.resolvePx(0f, 16f, fontSizePx)?.roundToInt() ?: resolvedPadding.left
+                )
             }
-            val padTop = raw["padding-top"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val padRight = raw["padding-right"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val padBottom = raw["padding-bottom"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val padLeft = raw["padding-left"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
+            val padTop = stateComputed.paddingTop?.resolvePx(0f, 16f, fontSizePx)?.roundToInt()
+            val padRight = stateComputed.paddingRight?.resolvePx(0f, 16f, fontSizePx)?.roundToInt()
+            val padBottom = stateComputed.paddingBottom?.resolvePx(0f, 16f, fontSizePx)?.roundToInt()
+            val padLeft = stateComputed.paddingLeft?.resolvePx(0f, 16f, fontSizePx)?.roundToInt()
             if (padTop != null || padRight != null || padBottom != null || padLeft != null) {
                 resolvedPadding = EdgeInsets(
                     top = padTop ?: resolvedPadding.top,
@@ -436,18 +452,22 @@ object AlienCssStyleResolver {
                 )
             }
 
-            raw["margin"]?.let { marginShorthand ->
-                val (insets, autoFlags) = parseBoxShorthandInsets(marginShorthand, fontSizePx, resolvedMargin)
-                resolvedMargin = insets
-                if (autoFlags.first) marginLeftAuto = true
-                if (autoFlags.second) marginRightAuto = true
+            stateComputed.margin?.let { marEdges ->
+                if (marEdges.left.isAuto) marginLeftAuto = true
+                if (marEdges.right.isAuto) marginRightAuto = true
+                resolvedMargin = EdgeInsets(
+                    top = marEdges.top.resolvePx(0f, 16f, fontSizePx)?.roundToInt() ?: resolvedMargin.top,
+                    right = if (marEdges.right.isAuto) 0 else (marEdges.right.resolvePx(0f, 16f, fontSizePx)?.roundToInt() ?: resolvedMargin.right),
+                    bottom = marEdges.bottom.resolvePx(0f, 16f, fontSizePx)?.roundToInt() ?: resolvedMargin.bottom,
+                    left = if (marEdges.left.isAuto) 0 else (marEdges.left.resolvePx(0f, 16f, fontSizePx)?.roundToInt() ?: resolvedMargin.left)
+                )
             }
-            val marTop = raw["margin-top"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val marRight = raw["margin-right"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val marBottom = raw["margin-bottom"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            val marLeft = raw["margin-left"]?.let { parseLengthPx(it, fontSizePx, null)?.roundToInt() }
-            if (raw["margin-left"]?.trim().equals("auto", ignoreCase = true)) marginLeftAuto = true
-            if (raw["margin-right"]?.trim().equals("auto", ignoreCase = true)) marginRightAuto = true
+            val marTop = stateComputed.marginTop?.resolvePx(0f, 16f, fontSizePx)?.roundToInt()
+            val marRight = stateComputed.marginRight?.resolvePx(0f, 16f, fontSizePx)?.roundToInt()
+            val marBottom = stateComputed.marginBottom?.resolvePx(0f, 16f, fontSizePx)?.roundToInt()
+            val marLeft = stateComputed.marginLeft?.resolvePx(0f, 16f, fontSizePx)?.roundToInt()
+            if (stateComputed.marginLeft?.isAuto == true) marginLeftAuto = true
+            if (stateComputed.marginRight?.isAuto == true) marginRightAuto = true
             if (marTop != null || marRight != null || marBottom != null || marLeft != null) {
                 resolvedMargin = EdgeInsets(
                     top = marTop ?: resolvedMargin.top,
@@ -470,24 +490,7 @@ object AlienCssStyleResolver {
             else -> null
         }
 
-        // 6. Custom ComputedStyle + Inline ComponentStyle + CSS Variables
-        // Resolve CSS variables in rawDeclarations first so typed overrides take precedence unless raw is !important
-        stateComputed?.rawDeclarations?.let { decls ->
-            decls["background"]?.let { v -> resolveValueColor(v, cssVars)?.let { bgColor = it } }
-            decls["background-color"]?.let { v -> resolveValueColor(v, cssVars)?.let { bgColor = it } }
-            decls["color"]?.let { v -> resolveValueColor(v, cssVars)?.let { textColor = it } }
-            decls["accent-color"]?.let { v -> resolveValueColor(v, cssVars)?.let { accentColor = it } }
-            decls["border-color"]?.let { v -> resolveValueColor(v, cssVars)?.let { borderColor = it } }
-            decls["border-radius"]?.let { v ->
-                val trimmed = v.replace("!important", "").trim()
-                if (trimmed.endsWith("%")) {
-                    borderRadiusPercent = trimmed.removeSuffix("%").trim().toFloatOrNull()
-                } else {
-                    parseLengthPx(trimmed, fontSizePx, null)?.let { borderRadiusPx = it }
-                }
-            }
-        }
-
+        // 6. Custom ComputedStyle + Inline ComponentStyle
         val backgroundGradient = node.backgroundGradient ?: stateComputed?.backgroundGradient
         stateComputed?.backgroundColor?.let { bgColor = it }
         stateComputed?.textColor?.let { textColor = it }
@@ -498,58 +501,60 @@ object AlienCssStyleResolver {
         stateComputed?.borderRadiusPercent?.let { borderRadiusPercent = it }
         stateComputed?.boxShadow?.let { boxShadowCss = if (it.equals("none", ignoreCase = true)) null else it }
 
-        var cornerRadii: CssCornerRadii? = raw["border-radius"]?.let { CssCornerRadii.parse(it) }
-        if (inlineStyle?.getBorderRadius() != null && inlineWins(CssProperty.BORDER_RADIUS)) {
-            cornerRadii = inlineStyle.getBorderRadius()
+        var cornerRadii: CssCornerRadii? = stateComputed?.borderRadius
+        if (nodeStyle?.getBorderRadius() != null && nodeStyleWins(CssProperty.BORDER_RADIUS)) {
+            cornerRadii = nodeStyle.getBorderRadius()
         }
 
-        var boxShadowList: CssShadowList? = boxShadowCss?.let { CssShadowList.parse(it) }
-        if (inlineStyle?.getBoxShadow() != null && inlineWins(CssProperty.BOX_SHADOW)) {
-            boxShadowList = inlineStyle.getBoxShadow()
+        var boxShadowList: CssShadowList? = stateComputed?.boxShadowList ?: boxShadowCss?.let { CssShadowList.parse(it) }
+        if (nodeStyle?.getBoxShadow() != null && nodeStyleWins(CssProperty.BOX_SHADOW)) {
+            boxShadowList = nodeStyle.getBoxShadow()
             boxShadowCss = boxShadowList?.toCssString()
         }
 
-        val rawBackgroundImage = raw["background-image"]
-            ?: stateComputed?.backgroundImageUrl
-            ?: raw["background"]?.takeIf { it.contains("url(", ignoreCase = true) }
-        var backgroundImage: CssBackgroundImage? = rawBackgroundImage?.let { CssBackgroundImage.parse(it) }
-        if (inlineStyle?.getBackgroundImage() != null && inlineWins(CssProperty.BACKGROUND_IMAGE)) {
-            backgroundImage = inlineStyle.getBackgroundImage()
+        val rawBackgroundImage = stateComputed?.backgroundImageUrl
+        var backgroundImage: CssBackgroundImage? = when {
+            stateComputed?.backgroundGradient != null -> CssBackgroundImage.fromGradient(stateComputed.backgroundGradient!!)
+            rawBackgroundImage != null -> CssBackgroundImage.parse(rawBackgroundImage)
+            else -> null
+        }
+        if (nodeStyle?.getBackgroundImage() != null && nodeStyleWins(CssProperty.BACKGROUND_IMAGE)) {
+            backgroundImage = nodeStyle.getBackgroundImage()
         }
         val backgroundImageUrl = backgroundImage?.urlOrPath ?: rawBackgroundImage?.let { extractCssUrl(it) }
-        val backgroundRepeat = (stateComputed?.backgroundRepeat ?: raw["background-repeat"] ?: "repeat")
+        val backgroundRepeat = (stateComputed?.backgroundRepeat ?: "repeat")
             .replace("!important", "")
             .trim()
             .lowercase()
             .ifEmpty { "repeat" }
-        val backgroundPosition = (stateComputed?.backgroundPosition ?: raw["background-position"] ?: "center")
+        val backgroundPosition = (stateComputed?.backgroundPosition ?: "center")
             .replace("!important", "")
             .trim()
             .lowercase()
             .ifEmpty { "center" }
-        val backgroundSize = (stateComputed?.backgroundSize ?: raw["background-size"] ?: "auto")
+        val backgroundSize = (stateComputed?.backgroundSize ?: "auto")
             .replace("!important", "")
             .trim()
             .lowercase()
             .ifEmpty { "auto" }
-        val backgroundClip = (if (inlineStyle?.getBackgroundClip() != null && inlineWins(CssProperty.BACKGROUND_CLIP)) {
-            inlineStyle.getBackgroundClip()
+        val backgroundClip = (if (nodeStyle?.getBackgroundClip() != null && nodeStyleWins(CssProperty.BACKGROUND_CLIP)) {
+            nodeStyle.getBackgroundClip()
         } else {
-            raw["background-clip"]?.let { CssBackgroundClip.fromCss(it) }
+            stateComputed?.backgroundClip
         }) ?: CssBackgroundClip.BORDER_BOX
-        val backgroundOrigin = (if (inlineStyle?.getBackgroundOrigin() != null && inlineWins(CssProperty.BACKGROUND_ORIGIN)) {
-            inlineStyle.getBackgroundOrigin()
+        val backgroundOrigin = (if (nodeStyle?.getBackgroundOrigin() != null && nodeStyleWins(CssProperty.BACKGROUND_ORIGIN)) {
+            nodeStyle.getBackgroundOrigin()
         } else {
-            raw["background-origin"]?.let { CssBackgroundOrigin.fromCss(it) }
+            stateComputed?.backgroundOrigin
         }) ?: CssBackgroundOrigin.PADDING_BOX
-        val backgroundAttachment = (if (inlineStyle?.getBackgroundAttachment() != null && inlineWins(CssProperty.BACKGROUND_ATTACHMENT)) {
-            inlineStyle.getBackgroundAttachment()
+        val backgroundAttachment = (if (nodeStyle?.getBackgroundAttachment() != null && nodeStyleWins(CssProperty.BACKGROUND_ATTACHMENT)) {
+            nodeStyle.getBackgroundAttachment()
         } else {
-            (stateComputed?.backgroundAttachment ?: raw["background-attachment"])?.let { CssBackgroundAttachment.fromCss(it) }
+            stateComputed?.backgroundAttachment?.let { CssBackgroundAttachment.fromCss(it) }
         }) ?: CssBackgroundAttachment.SCROLL
 
         // Resolve opacity without squaring when `node.opacity` was synced from `computedStyle` or `inlineComponentStyle`
-        val hasComputedOpacity = stateComputed != null && ("opacity" in raw || stateComputed.opacity != 1.0f)
+        val hasComputedOpacity = stateComputed != null && (stateComputed.hasProperty(CssProperty.OPACITY) || stateComputed.opacity != 1.0f)
         val baseNodeOpacity = when {
             hasComputedOpacity && (node.opacity == 1.0f || abs(node.opacity - stateComputed!!.opacity) < 1e-4f) ->
                 stateComputed!!.opacity
@@ -577,12 +582,10 @@ object AlienCssStyleResolver {
 
         val visible = when {
             !node.visible -> false
-            inlineStyle?.getVisibility() != null && inlineWins(CssProperty.VISIBILITY) ->
-                inlineStyle.getVisibility() != CssVisibility.HIDDEN && inlineStyle.getVisibility() != CssVisibility.COLLAPSE
-            raw["visibility"] != null -> {
-                val vis = CssVisibility.fromCss(raw["visibility"]!!)
-                vis != CssVisibility.HIDDEN && vis != CssVisibility.COLLAPSE
-            }
+            nodeStyle?.getVisibility() != null && nodeStyleWins(CssProperty.VISIBILITY) ->
+                nodeStyle.getVisibility() != CssVisibility.HIDDEN && nodeStyle.getVisibility() != CssVisibility.COLLAPSE
+            stateComputed?.visibility != null ->
+                stateComputed.visibility != CssVisibility.HIDDEN && stateComputed.visibility != CssVisibility.COLLAPSE
             snapshot.visibility == BootstrapVisibility.INVISIBLE || "invisible" in customClasses -> false
             snapshot.visibility == BootstrapVisibility.VISIBLE || "visible" in customClasses -> true
             else -> inherited.visible
@@ -593,17 +596,16 @@ object AlienCssStyleResolver {
             addAll(customClasses)
         }
         val responsiveDisplay = resolveResponsiveBootstrapDisplay(allNodeClasses, viewportWidthPx)
-        val rawDisplay = raw["display"]?.replace("!important", "")?.trim()?.lowercase()
-        val rawDisplayImportant = stateComputed?.importantProperties?.contains("display") == true
+        val computedDisplay = stateComputed?.display?.replace("!important", "")?.trim()?.lowercase()
+        val computedDisplayImportant = stateComputed?.isImportant(CssProperty.DISPLAY) == true
 
         val display = when {
             !node.visible || "hidden" in customClasses -> "none"
             responsiveDisplay != null -> responsiveDisplay
-            inlineStyle?.getDisplay() != null && inlineWins(CssProperty.DISPLAY) ->
-                inlineStyle.getDisplay()!!.cssValue
-            rawDisplayImportant && !rawDisplay.isNullOrBlank() -> rawDisplay
-            stateComputed?.display != null -> stateComputed.display!!.lowercase()
-            !rawDisplay.isNullOrBlank() -> rawDisplay
+            nodeStyle?.getDisplay() != null && nodeStyleWins(CssProperty.DISPLAY) ->
+                nodeStyle.getDisplay()!!.cssValue
+            computedDisplayImportant && !computedDisplay.isNullOrBlank() -> computedDisplay
+            !computedDisplay.isNullOrBlank() -> computedDisplay
             snapshot.display == DisplayMode.NONE -> "none"
             snapshot.display == DisplayMode.FLEX -> "flex"
             snapshot.display == DisplayMode.INLINE_FLEX -> "inline-flex"
@@ -627,10 +629,10 @@ object AlienCssStyleResolver {
             else -> "static"
         }
 
-        val leftCss = stateComputed?.left ?: raw["left"]
-        val topCss = stateComputed?.top ?: raw["top"]
-        val rightCss = stateComputed?.right ?: raw["right"]
-        val bottomCss = stateComputed?.bottom ?: raw["bottom"]
+        val leftCss = stateComputed?.left
+        val topCss = stateComputed?.top
+        val rightCss = stateComputed?.right
+        val bottomCss = stateComputed?.bottom
 
         val bootstrapWidthCss = when (snapshot.width) {
             BootstrapWidth.W_25 -> "25%"
@@ -651,38 +653,31 @@ object AlienCssStyleResolver {
             else -> null
         }
 
-        val widthCss = raw["width"] ?: stateComputed?.width ?: bootstrapWidthCss
+        val widthCss = stateComputed?.width ?: bootstrapWidthCss
             ?: if ("w-100" in customClasses) "100%" else null
-        val heightCss = raw["height"] ?: stateComputed?.height ?: bootstrapHeightCss
+        val heightCss = stateComputed?.height ?: bootstrapHeightCss
             ?: if ("h-100" in customClasses) "100%" else null
-        val minWidthCss = raw["min-width"] ?: stateComputed?.minWidth
+        val minWidthCss = stateComputed?.minWidth
             ?: if (snapshot.width == BootstrapWidth.MIN_VW_100) "100%" else null
-        val minHeightCss = raw["min-height"] ?: stateComputed?.minHeight
+        val minHeightCss = stateComputed?.minHeight
             ?: if (snapshot.height == BootstrapHeight.MIN_VH_100) "100%" else null
-        val maxWidthCss = raw["max-width"] ?: stateComputed?.maxWidth
+        val maxWidthCss = stateComputed?.maxWidth
             ?: if (snapshot.width == BootstrapWidth.MW_100 || "mw-100" in customClasses) "100%" else null
-        val maxHeightCss = raw["max-height"] ?: stateComputed?.maxHeight
+        val maxHeightCss = stateComputed?.maxHeight
             ?: if (snapshot.height == BootstrapHeight.MH_100 || "mh-100" in customClasses) "100%" else null
 
-        val boxSizing = (if (inlineStyle?.getBoxSizing() != null && inlineWins(CssProperty.BOX_SIZING)) {
-            inlineStyle.getBoxSizing()
+        val boxSizing = (if (nodeStyle?.getBoxSizing() != null && nodeStyleWins(CssProperty.BOX_SIZING)) {
+            nodeStyle.getBoxSizing()
         } else {
-            raw["box-sizing"]?.let { CssBoxSizing.fromCss(it) }
+            stateComputed?.boxSizing
         }) ?: CssBoxSizing.BORDER_BOX
 
         val aspectRatio = stateComputed?.aspectRatio
-            ?: parseAspectRatio(raw["aspect-ratio"])
             ?: snapshot.aspectRatio?.numericRatio
 
         val objectFit: ObjectFit = when {
-            inlineStyle?.getObjectFit() != null && inlineWins(CssProperty.OBJECT_FIT) -> inlineStyle.getObjectFit()!!
-            raw["object-fit"] != null -> when (raw["object-fit"]!!.trim().lowercase()) {
-                "contain" -> ObjectFit.CONTAIN
-                "cover" -> ObjectFit.COVER
-                "scale-down", "scale" -> ObjectFit.SCALE_DOWN
-                "none" -> ObjectFit.NONE
-                else -> ObjectFit.FILL
-            }
+            nodeStyle?.getObjectFit() != null && nodeStyleWins(CssProperty.OBJECT_FIT) -> nodeStyle.getObjectFit()!!
+            stateComputed?.objectFit != null -> stateComputed.objectFit
             snapshot.objectFit == BootstrapObjectFit.CONTAIN -> ObjectFit.CONTAIN
             snapshot.objectFit == BootstrapObjectFit.COVER -> ObjectFit.COVER
             snapshot.objectFit == BootstrapObjectFit.SCALE -> ObjectFit.SCALE_DOWN
@@ -697,14 +692,14 @@ object AlienCssStyleResolver {
             "overflow-visible" in customClasses -> OverflowBehavior.VISIBLE
             else -> null
         }
-        val overflow = parseOverflow(stateComputed?.overflow ?: raw["overflow"])
+        val overflow = parseOverflow(stateComputed?.overflow)
             ?: snapshot.overflow
             ?: classOverflow
             ?: if (snapshot.textOverflow == TextOverflow.ELLIPSIS) OverflowBehavior.HIDDEN else OverflowBehavior.VISIBLE
-        val overflowX = (if (inlineStyle?.getOverflowX() != null && inlineWins(CssProperty.OVERFLOW_X)) {
-            inlineStyle.getOverflowX()
+        val overflowX = (if (nodeStyle?.getOverflowX() != null && nodeStyleWins(CssProperty.OVERFLOW_X)) {
+            nodeStyle.getOverflowX()
         } else {
-            parseOverflow(raw["overflow-x"])
+            stateComputed?.overflowX
                 ?: when {
                     "overflow-x-hidden" in customClasses -> OverflowBehavior.HIDDEN
                     "overflow-x-auto" in customClasses -> OverflowBehavior.AUTO
@@ -713,10 +708,10 @@ object AlienCssStyleResolver {
                     else -> null
                 }
         }) ?: overflow
-        val overflowY = (if (inlineStyle?.getOverflowY() != null && inlineWins(CssProperty.OVERFLOW_Y)) {
-            inlineStyle.getOverflowY()
+        val overflowY = (if (nodeStyle?.getOverflowY() != null && nodeStyleWins(CssProperty.OVERFLOW_Y)) {
+            nodeStyle.getOverflowY()
         } else {
-            parseOverflow(raw["overflow-y"])
+            stateComputed?.overflowY
                 ?: when {
                     "overflow-y-hidden" in customClasses -> OverflowBehavior.HIDDEN
                     "overflow-y-auto" in customClasses -> OverflowBehavior.AUTO
@@ -726,126 +721,90 @@ object AlienCssStyleResolver {
                 }
         }) ?: overflow
 
-        val flexDirection = when (raw["flex-direction"]?.trim()?.lowercase()) {
-            "row" -> FlexDirection.ROW
-            "row-reverse" -> FlexDirection.ROW_REVERSE
-            "column" -> FlexDirection.COLUMN
-            "column-reverse" -> FlexDirection.COLUMN_REVERSE
-            else -> snapshot.flexDirection ?: FlexDirection.ROW
-        }
-        val flexWrap = when (raw["flex-wrap"]?.trim()?.lowercase()) {
-            "wrap" -> FlexWrap.WRAP
-            "wrap-reverse" -> FlexWrap.WRAP_REVERSE
-            "nowrap" -> FlexWrap.NOWRAP
-            else -> snapshot.flexWrap ?: FlexWrap.NOWRAP
-        }
-        val justifyContent = when (raw["justify-content"]?.trim()?.lowercase()) {
-            "center" -> JustifyContent.CENTER
-            "flex-end", "end", "right" -> JustifyContent.END
-            "space-between", "between" -> JustifyContent.BETWEEN
-            "space-around", "around" -> JustifyContent.AROUND
-            "space-evenly", "evenly" -> JustifyContent.EVENLY
-            "flex-start", "start", "left" -> JustifyContent.START
-            else -> snapshot.justifyContent ?: JustifyContent.START
-        }
-        val alignItems = when (raw["align-items"]?.trim()?.lowercase()) {
-            "flex-start", "start" -> AlignItems.START
-            "flex-end", "end" -> AlignItems.END
-            "center" -> AlignItems.CENTER
-            "baseline" -> AlignItems.BASELINE
-            "stretch" -> AlignItems.STRETCH
-            else -> snapshot.alignItems ?: AlignItems.STRETCH
-        }
-        val alignSelf = when (raw["align-self"]?.trim()?.lowercase()) {
-            "flex-start", "start" -> AlignSelf.START
-            "flex-end", "end" -> AlignSelf.END
-            "center" -> AlignSelf.CENTER
-            "baseline" -> AlignSelf.BASELINE
-            "stretch" -> AlignSelf.STRETCH
-            "auto" -> AlignSelf.AUTO
-            else -> snapshot.alignSelf ?: AlignSelf.AUTO
-        }
-        val alignContent = (if (inlineStyle?.getAlignContent() != null && inlineWins(CssProperty.ALIGN_CONTENT)) {
-            inlineStyle.getAlignContent()
+        val flexDirection = stateComputed?.flexDirection ?: snapshot.flexDirection ?: FlexDirection.ROW
+        val flexWrap = stateComputed?.flexWrap ?: snapshot.flexWrap ?: FlexWrap.NOWRAP
+        val justifyContent = stateComputed?.justifyContent ?: snapshot.justifyContent ?: JustifyContent.START
+        val alignItems = stateComputed?.alignItems ?: snapshot.alignItems ?: AlignItems.STRETCH
+        val alignSelf = stateComputed?.alignSelf ?: snapshot.alignSelf ?: AlignSelf.AUTO
+        val alignContent = (if (nodeStyle?.getAlignContent() != null && nodeStyleWins(CssProperty.ALIGN_CONTENT)) {
+            nodeStyle.getAlignContent()
         } else {
-            raw["align-content"]?.let { CssAlignContent.fromCss(it) }
+            stateComputed?.alignContent
         }) ?: CssAlignContent.STRETCH
 
-        val flexGrow = raw["flex-grow"]?.trim()?.toFloatOrNull()
-            ?: raw["flex"]?.trim()?.split(Regex("\\s+"))?.firstOrNull()?.toFloatOrNull()
+        val flexGrow = stateComputed?.flexGrow
             ?: snapshot.flexGrow?.factor?.toFloat()
             ?: if (snapshot.flexFill || "flex-grow-1" in customClasses || "flex-fill" in customClasses) 1f else 0f
-        val flexShrink = raw["flex-shrink"]?.trim()?.toFloatOrNull()
+        val flexShrink = stateComputed?.flexShrink
             ?: snapshot.flexShrink?.factor?.toFloat()
             ?: 1f
-        val flexBasisCss = raw["flex-basis"] ?: if (snapshot.flexFill) "auto" else null
+        val flexBasisCss = stateComputed?.flexBasis?.toCssString() ?: if (snapshot.flexFill) "auto" else null
 
         val defaultComponentGap = if (prefix == "vstack" || prefix == "hstack") 8f else 0f
         val customClassGap = resolveCustomClassGapPx(customClasses)
-        val baseGapPx = raw["gap"]?.let { parseLengthPx(it, fontSizePx, null) }
+        val baseGapPx = stateComputed?.gap?.resolvePx(0f, 16f, fontSizePx)
             ?: snapshot.gap?.toPixels()?.toFloat()
             ?: customClassGap
             ?: defaultComponentGap
-        val rowGapPx = raw["row-gap"]?.let { parseLengthPx(it, fontSizePx, null) }
+        val rowGapPx = stateComputed?.rowGap?.resolvePx(0f, 16f, fontSizePx)
             ?: snapshot.rowGap?.toPixels()?.toFloat()
             ?: baseGapPx
-        val columnGapPx = raw["column-gap"]?.let { parseLengthPx(it, fontSizePx, null) }
+        val columnGapPx = stateComputed?.columnGap?.resolvePx(0f, 16f, fontSizePx)
             ?: snapshot.columnGap?.toPixels()?.toFloat()
             ?: baseGapPx
 
-        val floatMode = (stateComputed?.floatSide ?: raw["float"] ?: when {
+        val floatMode = (stateComputed?.floatSide ?: when {
             snapshot.floatSide == BootstrapFloat.START -> "left"
             snapshot.floatSide == BootstrapFloat.END -> "right"
             snapshot.floatSide == BootstrapFloat.NONE -> "none"
-            "float-start" in customClasses || ("prev" in customClasses && raw["float"] == null && "controls" in (node.parent?.styleSnapshot?.customClasses ?: emptySet())) -> "left"
+            "float-start" in customClasses || ("prev" in customClasses && stateComputed?.floatSide == null && "controls" in (node.parent?.styleSnapshot?.customClasses ?: emptySet())) -> "left"
             "float-end" in customClasses -> "right"
             else -> "none"
         }).lowercase()
-        val clearMode = (stateComputed?.clearSide ?: raw["clear"] ?: "none").lowercase()
+        val clearMode = (stateComputed?.clearSide ?: "none").lowercase()
 
         val textShadowCss = when {
             stateComputed?.textShadow != null ->
                 if (stateComputed.textShadow.equals("none", ignoreCase = true)) null else stateComputed.textShadow
             else -> inherited.textShadowCss
         }
-        val textShadow = (if (inlineStyle?.getTextShadow() != null && inlineWins(CssProperty.TEXT_SHADOW)) {
-            inlineStyle.getTextShadow()?.shadows?.firstOrNull()
+        val textShadow = (if (nodeStyle?.getTextShadow() != null && nodeStyleWins(CssProperty.TEXT_SHADOW)) {
+            nodeStyle.getTextShadow()?.shadows?.firstOrNull()
         } else {
-            textShadowCss?.let { CssShadow.parse(it) }
+            stateComputed?.textShadowList?.shadows?.firstOrNull() ?: textShadowCss?.let { CssShadow.parse(it) }
         }) ?: inherited.textShadow
 
         val cursor: CssCursorValue = when {
             node.customCursor != null -> node.customCursor!!
             stateComputed?.customCursor != null -> stateComputed.customCursor!!
             stateComputed?.cursor != null -> CssCustomCursor.parse(stateComputed.cursor) ?: CssCursor.DEFAULT
-            raw["cursor"] != null -> CssCustomCursor.parse(raw["cursor"]!!) ?: CssCursor.DEFAULT
             isButton && !isDisabledClass -> CssCursor.POINTER
             else -> inherited.cursor
         }
 
         val userSelect: CssUserSelect = when {
-            inlineStyle?.getUserSelect() != null && inlineWins(CssProperty.USER_SELECT) -> inlineStyle.getUserSelect()!!
-            raw["user-select"] != null -> CssUserSelect.fromCss(raw["user-select"]!!) ?: CssUserSelect.AUTO
+            nodeStyle?.getUserSelect() != null && nodeStyleWins(CssProperty.USER_SELECT) -> nodeStyle.getUserSelect()!!
+            stateComputed?.userSelect != null -> stateComputed.userSelect
             snapshot.userSelect == BootstrapUserSelect.ALL -> CssUserSelect.ALL
             snapshot.userSelect == BootstrapUserSelect.NONE -> CssUserSelect.NONE
             snapshot.userSelect == BootstrapUserSelect.AUTO -> CssUserSelect.AUTO
             else -> inherited.userSelect
         }
 
-        val transform2D = if (inlineStyle?.getTransform() != null && inlineWins(CssProperty.TRANSFORM)) {
-            inlineStyle.getTransform()!!
+        val transform2D = if (nodeStyle?.getTransform() != null && nodeStyleWins(CssProperty.TRANSFORM)) {
+            nodeStyle.getTransform()!!
         } else {
-            CssTransform2D.parse(stateComputed?.transform)
+            stateComputed?.transform2D ?: CssTransform2D.parse(stateComputed?.transform)
         }
-        val filter = if (inlineStyle?.getFilter() != null && inlineWins(CssProperty.FILTER)) {
-            inlineStyle.getFilter()
+        val filter = if (nodeStyle?.getFilter() != null && nodeStyleWins(CssProperty.FILTER)) {
+            nodeStyle.getFilter()
         } else {
-            raw["filter"]?.let { CssFilter.parse(it) }
+            stateComputed?.filter
         }
-        val backdropFilter = if (inlineStyle?.getBackdropFilter() != null && inlineWins(CssProperty.BACKDROP_FILTER)) {
-            inlineStyle.getBackdropFilter()
+        val backdropFilter = if (nodeStyle?.getBackdropFilter() != null && nodeStyleWins(CssProperty.BACKDROP_FILTER)) {
+            nodeStyle.getBackdropFilter()
         } else {
-            (raw["backdrop-filter"] ?: raw["-webkit-backdrop-filter"])?.let { CssFilter.parse(it) }
+            stateComputed?.backdropFilter
         }
 
         val zIndex = stateComputed?.zIndex ?: 0
@@ -998,7 +957,6 @@ object AlienCssStyleResolver {
             val inline = anc.inlineComponentStyle
             val cs = if (inline != null) inline.toComputedStyle(anc.computedStyle) else anc.computedStyle
             snap.textColorType?.takeIf { it.isSemantic }?.let { textColor = resolveTypeColor(it, cssVars) }
-            cs?.rawDeclarations?.get("color")?.let { v -> resolveValueColor(v, cssVars)?.let { textColor = it } }
             cs?.textColor?.let { textColor = it }
             cs?.fontFamily?.let { fontFamily = it }
             snap.fontSize?.let { fontSizePx = it.sizePx }
@@ -1006,9 +964,11 @@ object AlienCssStyleResolver {
             cs?.fontSizePercent?.let { pct -> fontSizePx = (fontSizePx * (pct / 100f)).coerceAtLeast(6f) }
             cs?.fontWeightNumeric?.let { fontWeight = it }
             snap.fontWeight?.numericWeight?.let { fontWeight = it }
-            if ("fst-italic" in snap.customClasses || inline?.getFontStyle() == CssFontStyle.ITALIC) italic = true
+            if ("fst-italic" in snap.customClasses || cs?.fontStyle == CssFontStyle.ITALIC || cs?.fontStyle == CssFontStyle.OBLIQUE || inline?.getFontStyle() == CssFontStyle.ITALIC) italic = true
             snap.lineHeight?.let { lineHeightPx = it.multiplier * fontSizePx }
+            cs?.lineHeight?.resolvePx(fontSizePx, 16f, fontSizePx)?.let { lineHeightPx = it }
             inline?.getLineHeight()?.resolvePx(fontSizePx, 16f, fontSizePx)?.let { lineHeightPx = it }
+            cs?.letterSpacing?.resolvePx(fontSizePx, 16f, fontSizePx)?.let { letterSpacingPx = it }
             inline?.getLetterSpacing()?.resolvePx(fontSizePx, 16f, fontSizePx)?.let { letterSpacingPx = it }
             when (snap.textAlignment) {
                 TextAlignment.CENTER -> textAlign = "center"
@@ -1018,26 +978,27 @@ object AlienCssStyleResolver {
                 else -> {}
             }
             cs?.textAlign?.let { textAlign = it }
-            when (snap.textTransform) {
+            when (cs?.textTransform ?: snap.textTransform) {
                 TextTransform.LOWERCASE -> textTransform = "lowercase"
                 TextTransform.UPPERCASE -> textTransform = "uppercase"
                 TextTransform.CAPITALIZE -> textTransform = "capitalize"
                 TextTransform.NONE -> textTransform = "none"
                 null -> {}
             }
-            cs?.rawDeclarations?.get("text-transform")?.let { textTransform = it.lowercase() }
             cs?.textShadow?.let { ts ->
                 textShadowCss = if (ts.equals("none", ignoreCase = true)) null else ts
-                textShadow = textShadowCss?.let { CssShadow.parse(it) }
+                textShadow = cs.textShadowList?.shadows?.firstOrNull() ?: textShadowCss?.let { CssShadow.parse(it) }
             }
             cs?.whiteSpace?.let { whiteSpace = it }
+            cs?.wordBreak?.let { wordBreak = it }
             inline?.getWordBreak()?.let { wordBreak = it }
             anc.customCursor?.let { cursor = it }
             cs?.customCursor?.let { cursor = it }
+            cs?.userSelect?.let { userSelect = it }
             inline?.getUserSelect()?.let { userSelect = it }
-            if (snap.visibility == BootstrapVisibility.INVISIBLE || inline?.getVisibility() == CssVisibility.HIDDEN) {
+            if (snap.visibility == BootstrapVisibility.INVISIBLE || cs?.visibility == CssVisibility.HIDDEN || inline?.getVisibility() == CssVisibility.HIDDEN) {
                 visible = false
-            } else if (snap.visibility == BootstrapVisibility.VISIBLE || inline?.getVisibility() == CssVisibility.VISIBLE) {
+            } else if (snap.visibility == BootstrapVisibility.VISIBLE || cs?.visibility == CssVisibility.VISIBLE || inline?.getVisibility() == CssVisibility.VISIBLE) {
                 visible = true
             }
         }
@@ -1212,8 +1173,7 @@ object AlienCssStyleResolver {
         }
         for (i in lineage.indices.reversed()) {
             val anc = lineage[i]
-            val raw = anc.computedStyle?.rawDeclarations.orEmpty()
-            for ((k, v) in raw) {
+            for ((k, v) in anc.attributes) {
                 if (k.startsWith("--")) {
                     vars[k] = v
                 }

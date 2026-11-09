@@ -24,6 +24,8 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
     private var durationSec: Double = 0.0
     private var durationOverrideSec: Double? = null
     private var isTranscodeStream: Boolean = false
+    private var isChangingSource: Boolean = false
+    private var wantsPlayback: Boolean = false
     private var playing: Boolean = false
     private var buffering: Boolean = false
     private var speed: Float = 1.0f
@@ -95,11 +97,16 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             onPlayingStateChangedListener?.invoke(true)
         }
         nativeWidget.addEventListener("pause") {
+            if (isChangingSource && wantsPlayback) {
+                return@addEventListener
+            }
             playing = false
             nativeWidget.setAttribute("data-playing", "false")
             onPlayingStateChangedListener?.invoke(false)
         }
         nativeWidget.addEventListener("ended") {
+            isChangingSource = false
+            wantsPlayback = false
             playing = false
             nativeWidget.setAttribute("data-playing", "false")
             onPlayingStateChangedListener?.invoke(false)
@@ -110,7 +117,15 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             onBufferingChangedListener?.invoke(true)
             onBufferingStateChangedListener?.invoke(true)
         }
+        nativeWidget.addEventListener("stalled") {
+            if (!buffering) {
+                buffering = true
+                onBufferingChangedListener?.invoke(true)
+                onBufferingStateChangedListener?.invoke(true)
+            }
+        }
         nativeWidget.addEventListener("playing") {
+            isChangingSource = false
             playing = true
             nativeWidget.setAttribute("data-playing", "true")
             if (buffering) {
@@ -121,10 +136,17 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             onPlayingStateChangedListener?.invoke(true)
         }
         nativeWidget.addEventListener("canplay") {
+            isChangingSource = false
             if (buffering) {
                 buffering = false
                 onBufferingChangedListener?.invoke(false)
                 onBufferingStateChangedListener?.invoke(false)
+            }
+            if (wantsPlayback && !playing) {
+                playing = true
+                nativeWidget.setAttribute("data-playing", "true")
+                onPlayingStateChangedListener?.invoke(true)
+                WebBrowserDomBridge.mediaPlay(nativeWidget)
             }
             markMediaReady()
         }
@@ -166,12 +188,19 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             }
         }
         nativeWidget.addEventListener("loadedmetadata") {
+            isChangingSource = false
             val pendingSeek = pendingDirectSeekSec
             if (pendingSeek != null) {
                 pendingDirectSeekSec = null
                 WebBrowserDomBridge.mediaSeekTo(nativeWidget, pendingSeek)
-            } else if (!playing && preloadMode != MediaPreloadMode.NONE && currentTimeSec <= 0.0) {
+            } else if (!isTranscodeStream && !playing && !wantsPlayback && preloadMode != MediaPreloadMode.NONE && currentTimeSec <= 0.0) {
                 WebBrowserDomBridge.mediaSeekTo(nativeWidget, 0.001)
+            }
+            if (wantsPlayback && !playing) {
+                playing = true
+                nativeWidget.setAttribute("data-playing", "true")
+                onPlayingStateChangedListener?.invoke(true)
+                WebBrowserDomBridge.mediaPlay(nativeWidget)
             }
             if (durationOverrideSec == null || durationOverrideSec!! <= 0.0) {
                 val dur = nativeWidget.getAttribute("data-duration")?.toDoubleOrNull()
@@ -288,7 +317,17 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
         if (canPlayAnyMime(listOf("video/webm"))) {
             containerSet.add(MediaContainer.WEBM)
         }
-        if (canPlayAnyMime(listOf("video/x-matroska"))) {
+        if (
+            canPlayAnyMime(
+                listOf(
+                    "video/x-matroska; codecs=\"avc1.42E01E\"",
+                    "video/x-matroska; codecs=\"vp8\"",
+                    "video/x-matroska"
+                )
+            ) ||
+            MediaContainer.MP4 in containerSet ||
+            MediaContainer.WEBM in containerSet
+        ) {
             containerSet.add(MediaContainer.MKV)
         }
         if (canPlayAnyMime(listOf("video/ogg", "audio/ogg"))) {
@@ -328,14 +367,19 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
     override fun supportsAudioTrackSelection(): Boolean = false
     override fun supportsSubtitleTrackSelection(): Boolean = true
 
+    private fun isTranscodeUrl(url: String): Boolean {
+        if (url.isBlank()) return false
+        return url.contains("mode=transcode", ignoreCase = true) ||
+            url.contains("/v1/transcode/", ignoreCase = true) ||
+            TRANS_QUERY_PARAM_REGEX.containsMatchIn(url)
+    }
+
     override fun setSource(url: String, seekOffsetSeconds: Double, durationOverrideSeconds: Double?) {
         val urlChanged = sourceUrl != url || url.isBlank()
         sourceUrl = url
         durationOverrideSec = durationOverrideSeconds?.takeIf { it > 0.0 }
         val targetSeek = seekOffsetSeconds.coerceAtLeast(0.0)
-        val isTranscoded = url.contains("mode=transcode", ignoreCase = true) ||
-            url.contains("?start=") ||
-            url.contains("&start=")
+        val isTranscoded = isTranscodeUrl(url)
         isTranscodeStream = isTranscoded
         if (isTranscoded) {
             transcodeBaseOffsetSec = targetSeek
@@ -351,6 +395,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             onDurationChangedListener?.invoke(durationSec)
         }
         if (urlChanged) {
+            isChangingSource = url.isNotBlank()
             mediaReadyFlag = false
             nativeWidget.setAttribute("data-media-ready", "false")
             nativeWidget.setAttribute("src", url)
@@ -365,6 +410,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
     }
 
     override fun play() {
+        wantsPlayback = true
         playing = true
         nativeWidget.setAttribute("data-playing", "true")
         onPlayingStateChangedListener?.invoke(true)
@@ -372,6 +418,8 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             if (!playing || errMsg.contains("AbortError", ignoreCase = true) || errMsg.contains("interrupted", ignoreCase = true)) {
                 return@mediaPlay
             }
+            wantsPlayback = false
+            isChangingSource = false
             playing = false
             nativeWidget.setAttribute("data-playing", "false")
             onPlayingStateChangedListener?.invoke(false)
@@ -380,6 +428,8 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
     }
 
     override fun pause() {
+        wantsPlayback = false
+        isChangingSource = false
         playing = false
         nativeWidget.setAttribute("data-playing", "false")
         onPlayingStateChangedListener?.invoke(false)
@@ -387,6 +437,8 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
     }
 
     override fun stop() {
+        wantsPlayback = false
+        isChangingSource = false
         playing = false
         currentTimeSec = 0.0
         transcodeBaseOffsetSec = 0.0
@@ -399,9 +451,9 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
     }
 
     override fun seekTo(seconds: Double) {
+        pendingDirectSeekSec = null
         val clamped = seconds.coerceAtLeast(0.0)
         currentTimeSec = clamped
-        pendingDirectSeekSec = null
         val mediaTarget = (clamped - transcodeBaseOffsetSec).coerceAtLeast(0.0)
         WebBrowserDomBridge.mediaSeekTo(nativeWidget, mediaTarget)
         onTimeUpdateListener?.invoke(currentTimeSec)
@@ -612,5 +664,12 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             return listOf(baseOffset to (baseOffset + bufEnd))
         }
         return bufferedRangesList
+    }
+
+    companion object {
+        private val TRANS_QUERY_PARAM_REGEX = Regex(
+            "(?:\\?|&)(?:start|start_seconds|tv|ta|tc)=",
+            RegexOption.IGNORE_CASE
+        )
     }
 }

@@ -9,16 +9,20 @@ import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
+import com.nexustools.genericui.enums.bootstrap.OverflowBehavior
 import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.enums.css.CssBorderStyle
+import com.nexustools.genericui.enums.css.CssBoxSizing
 import com.nexustools.genericui.enums.css.CssCursor
 import com.nexustools.genericui.enums.css.CssDisplay
+import com.nexustools.genericui.enums.css.CssPointerEvents
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssCornerRadii
 import com.nexustools.genericui.style.css.CssEdgeLengths
 import com.nexustools.genericui.style.css.CssLength
+import com.nexustools.genericui.style.transition.CssTransitionSpec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -119,26 +123,26 @@ open class ExpandingVolumeSlider(
         trackColor = RgbaColor(255, 255, 255, 62)
         thumbColor = RgbaColor(242, 245, 250, 255)
         val initialW = expandedSliderWidthPx.coerceAtLeast(48)
-        setStyleProperty("width", "${initialW}px")
-        setStyleProperty("min-width", "${initialW}px")
-        setStyleProperty("flex-shrink", "0")
-        setStyleProperty("box-sizing", "border-box")
+        style.width = CssLength.px(initialW)
+        style.minWidth = CssLength.px(initialW)
+        style.flexShrink = 0f
+        style.boxSizing = CssBoxSizing.BORDER_BOX
     }
 
     val sliderContainer: Container = Container(
         tagName = "div",
         classPrefix = "expanding-volume-slider-track-host"
     ).apply {
-        setDisplay(DisplayMode.FLEX)
+        setDisplay(DisplayMode.INLINE_FLEX)
         alignItems = AlignItems.CENTER
-        getStyle().setDisplay(CssDisplay.FLEX)
-        setStyleProperty("display", "inline-flex")
-        setStyleProperty("align-items", "center")
-        setStyleProperty("overflow", "hidden")
-        setStyleProperty("box-sizing", "border-box")
-        setStyleProperty(
-            "transition",
-            "width ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), max-width ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${(animationDurationMs * 0.8).toLong()}ms ease, margin-left ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), margin-right ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1)"
+        style.display = CssDisplay.INLINE_FLEX
+        style.alignItems = AlignItems.CENTER
+        style.overflow = OverflowBehavior.HIDDEN
+        style.boxSizing = CssBoxSizing.BORDER_BOX
+        style.setTransitions(
+            CssTransitionSpec.parseList(
+                "width ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), max-width ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${(animationDurationMs * 0.8).toLong()}ms ease, margin-left ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), margin-right ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1)"
+            )
         )
         addChild(slider)
     }
@@ -242,16 +246,14 @@ open class ExpandingVolumeSlider(
         backgroundColor = RgbaColor(18, 18, 22, 188)
         setBorder(1, RgbaColor(255, 255, 255, 36), CssBorderStyle.SOLID, radiusPx = 20)
         getStyle().apply {
-            setDisplay(CssDisplay.FLEX)
+            setDisplay(CssDisplay.INLINE_FLEX)
+            setFlexDirection(FlexDirection.ROW)
+            setAlignItems(AlignItems.CENTER)
             setHeight(CssLength.px(40))
             setPadding(CssEdgeLengths.px(3, 4))
             setBorderRadius(CssCornerRadii.px(20))
+            setBoxSizing(CssBoxSizing.BORDER_BOX)
         }
-        setStyleProperty("display", "inline-flex")
-        setStyleProperty("flex-direction", "row")
-        setStyleProperty("align-items", "center")
-        setStyleProperty("height", "40px")
-        setStyleProperty("box-sizing", "border-box")
 
         addChild(muteButton)
         addChild(sliderContainer)
@@ -344,28 +346,29 @@ open class ExpandingVolumeSlider(
         val showInlineSlider = isExpanded && !compactPopupMode
         sliderContainer.isVisible = !compactPopupMode
         val w = expandedSliderWidthPx.coerceAtLeast(48)
-        slider.setStyleProperty("width", "${w}px")
-        slider.setStyleProperty("min-width", "${w}px")
-        slider.setStyleProperty("flex-shrink", "0")
-        sliderContainer.setStyleProperty(
-            "transition",
-            "width ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), max-width ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${(animationDurationMs * 0.8).toLong()}ms ease, margin-left ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), margin-right ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1)"
+        slider.style.width = CssLength.px(w)
+        slider.style.minWidth = CssLength.px(w)
+        slider.style.flexShrink = 0f
+        sliderContainer.style.setTransitions(
+            CssTransitionSpec.parseList(
+                "width ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), max-width ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${(animationDurationMs * 0.8).toLong()}ms ease, margin-left ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), margin-right ${animationDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1)"
+            )
         )
         if (showInlineSlider) {
-            sliderContainer.setStyleProperty("width", "${w}px")
-            sliderContainer.setStyleProperty("max-width", "${w}px")
-            sliderContainer.setStyleProperty("opacity", "1")
-            sliderContainer.setStyleProperty("margin-left", "4px")
-            sliderContainer.setStyleProperty("margin-right", "6px")
-            sliderContainer.setStyleProperty("pointer-events", "auto")
+            sliderContainer.style.width = CssLength.px(w)
+            sliderContainer.style.maxWidth = CssLength.px(w)
+            sliderContainer.style.opacity = 1f
+            sliderContainer.style.marginLeft = CssLength.px(4)
+            sliderContainer.style.marginRight = CssLength.px(6)
+            sliderContainer.style.pointerEvents = CssPointerEvents.AUTO
             setAttribute("data-expanded", "true")
         } else {
-            sliderContainer.setStyleProperty("width", "0px")
-            sliderContainer.setStyleProperty("max-width", "0px")
-            sliderContainer.setStyleProperty("opacity", "0")
-            sliderContainer.setStyleProperty("margin-left", "0px")
-            sliderContainer.setStyleProperty("margin-right", "0px")
-            sliderContainer.setStyleProperty("pointer-events", "none")
+            sliderContainer.style.width = CssLength.ZERO
+            sliderContainer.style.maxWidth = CssLength.ZERO
+            sliderContainer.style.opacity = 0f
+            sliderContainer.style.marginLeft = CssLength.ZERO
+            sliderContainer.style.marginRight = CssLength.ZERO
+            sliderContainer.style.pointerEvents = CssPointerEvents.NONE
             setAttribute("data-expanded", "false")
         }
         val targetProgress = if (showInlineSlider) 1f else 0f

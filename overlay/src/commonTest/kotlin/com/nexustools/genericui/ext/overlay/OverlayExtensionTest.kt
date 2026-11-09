@@ -5,7 +5,9 @@ import com.nexustools.genericui.component.layout.LayerAlignment
 import com.nexustools.genericui.component.layout.LayerConstraint
 import com.nexustools.genericui.component.layout.LayerSizingMode
 import com.nexustools.genericui.core.UiTimerScheduler
+import com.nexustools.genericui.enums.css.CssPointerEvents
 import com.nexustools.genericui.event.KeyEvent
+import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -52,15 +54,17 @@ class OverlayExtensionTest {
         assertNull(host.activeOverlay)
         assertSame(target, host.targetComponent)
         assertSame(target, host.contentComponent)
-        assertEquals("transparent", host.getStyleProperty("background"))
-        assertEquals("transparent", host.getStyleProperty("background-color"))
-        assertEquals("transparent", host.overlayRoot.getStyleProperty("background"))
+        assertEquals(RgbaColor.TRANSPARENT, host.style.backgroundColor)
+        assertEquals(RgbaColor.TRANSPARENT, host.overlayRoot.style.backgroundColor)
+        assertEquals(10, host.overlayRoot.style.zIndex)
+        assertEquals(CssPointerEvents.NONE, host.overlayRoot.style.pointerEvents)
         assertEquals(1280, host.overlayRoot.widthPx)
         assertEquals(720, host.overlayRoot.heightPx)
 
         val overlay = OverlayExtension.createOverlay(tagName = "test-overlay", host = host)
-        assertEquals("transparent", overlay.getStyleProperty("background"))
-        assertEquals("transparent", overlay.getStyleProperty("background-color"))
+        assertEquals(RgbaColor.TRANSPARENT, overlay.style.backgroundColor)
+        assertEquals(10, host.overlayRoot.style.zIndex)
+        assertEquals(CssPointerEvents.AUTO, host.overlayRoot.style.pointerEvents)
         assertSame(overlay, host.overlay)
         assertSame(overlay, host.activeOverlay)
         assertEquals(1280, overlay.targetWidthPx)
@@ -166,7 +170,7 @@ class OverlayExtensionTest {
         assertTrue(overlay.inputRouter.handleKeyDown(KeyEvent(key = "m"), overlay.state, overlay.actions))
         assertEquals(1, muteCount)
         assertTrue(overlay.inputRouter.handleKeyDown(KeyEvent(key = "ArrowRight"), overlay.state, overlay.actions))
-        assertEquals(40.0, lastSeekSec)
+        assertEquals(35.0, lastSeekSec)
 
         overlay.autoHideController.setPinned("scrubbing", true)
         assertTrue(overlay.autoHideController.isPinned)

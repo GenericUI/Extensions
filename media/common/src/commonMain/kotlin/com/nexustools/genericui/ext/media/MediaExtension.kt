@@ -6,6 +6,7 @@ import com.nexustools.genericui.nativeimpl.media.AudioAnalyzerNativeImpl
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import com.nexustools.genericui.nativeimpl.media.SeekBarNativeImpl
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
+import com.nexustools.genericui.nativeimpl.system.MediaNotificationNativeImpl
 import com.nexustools.genericui.nativeimpl.system.MediaSessionManagerNativeImpl
 
 /**
@@ -23,19 +24,22 @@ object MediaExtension {
     private var seekBarProvider: (() -> SeekBarNativeImpl<*>)? = null
     private var audioAnalyzerProvider: ((Int) -> AudioAnalyzerNativeImpl)? = null
     private var mediaSessionManagerProvider: (() -> MediaSessionManagerNativeImpl)? = null
+    var mediaNotificationFactory: (() -> MediaNotificationNativeImpl)? = null
 
     fun registerProviders(
         videoPlayer: (() -> VideoPlayerNativeImpl<*>)? = null,
         audioPlayer: (() -> AudioPlayerNativeImpl)? = null,
         audioAnalyzer: ((Int) -> AudioAnalyzerNativeImpl)? = null,
         mediaSessionManager: (() -> MediaSessionManagerNativeImpl)? = null,
-        seekBar: (() -> SeekBarNativeImpl<*>)? = null
+        seekBar: (() -> SeekBarNativeImpl<*>)? = null,
+        mediaNotification: (() -> MediaNotificationNativeImpl)? = null
     ) {
         if (videoPlayer != null) videoPlayerProvider = videoPlayer
         if (audioPlayer != null) audioPlayerProvider = audioPlayer
         if (audioAnalyzer != null) audioAnalyzerProvider = audioAnalyzer
         if (mediaSessionManager != null) mediaSessionManagerProvider = mediaSessionManager
         if (seekBar != null) seekBarProvider = seekBar
+        if (mediaNotification != null) mediaNotificationFactory = mediaNotification
     }
 
     fun createVideoPlayerNative(): VideoPlayerNativeImpl<*>? = videoPlayerProvider?.invoke()
@@ -62,6 +66,9 @@ object MediaExtension {
 
     fun createMediaSessionManagerNative(): MediaSessionManagerNativeImpl? =
         mediaSessionManagerProvider?.invoke()
+
+    fun createMediaNotificationNative(): MediaNotificationNativeImpl? =
+        mediaNotificationFactory?.invoke()
 
     /**
      * Checks whether the given [VideoCodec] is supported on the active media backend.

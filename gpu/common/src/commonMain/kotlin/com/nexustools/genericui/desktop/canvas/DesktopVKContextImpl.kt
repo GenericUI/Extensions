@@ -96,6 +96,7 @@ open class DesktopVKContextImpl(
     private var swapchainColorBuffer = ByteArray(swapchainWidth * swapchainHeight * 4)
 
     private val shaderModules = mutableMapOf<Long, GpuShaderStageSource>()
+    private val shaderModuleFlags = mutableMapOf<Long, Int>()
     private val pipelines = mutableMapOf<Long, VKRenderPipelineDescriptor>()
     private val buffers = mutableMapOf<Long, BufferRecord>()
     private val textures = mutableMapOf<Long, TextureRecord>()
@@ -190,11 +191,26 @@ open class DesktopVKContextImpl(
     override fun createShaderModule(source: GpuShaderStageSource): VKShaderModule {
         val id = nextResourceId++
         shaderModules[id] = source
+        val src = source.wgslSource.ifEmpty { source.glsl450Source.ifEmpty { source.glslEs300Source } }
+        var flags = 0
+        if (src.contains("uDecay", ignoreCase = true) || src.contains("uWarp", ignoreCase = true)) {
+            flags = flags or 1
+        }
+        if (src.contains("uEchoAlpha", ignoreCase = true) ||
+            src.contains("uVideoEchoAlpha", ignoreCase = true) ||
+            src.contains("uGamma", ignoreCase = true) ||
+            src.contains("echo", ignoreCase = true) ||
+            src.contains("gamma", ignoreCase = true)
+        ) {
+            flags = flags or 2
+        }
+        shaderModuleFlags[id] = flags
         return VKShaderModule(id, source.stage)
     }
 
     override fun destroyShaderModule(module: VKShaderModule) {
         shaderModules.remove(module.id)
+        shaderModuleFlags.remove(module.id)
     }
 
     override fun createRenderPipeline(descriptor: VKRenderPipelineDescriptor): VKPipeline {
@@ -458,6 +474,7 @@ open class DesktopVKContextImpl(
         vertexIndex: Int,
         pipeline: VKRenderPipelineDescriptor?,
         uniforms: FloatArray,
+        hasBoundTexture: Boolean,
         targetW: Int,
         targetH: Int
     ): ShadedVKVertex {
@@ -516,14 +533,15 @@ open class DesktopVKContextImpl(
             }
         }
 
-        // If uniforms contain a 4-float color (and no vertex color attribute overrode it), apply it
-        if (uniforms.size in 3..8 && (layout == null || layout.attributes.size < 2 || layout.attributes[1].components == 2)) {
+        val isTexturedQuadLayout = layout != null && layout.attributes.size == 1 && layout.attributes[0].components == 4
+        val hasVertexColorAttr = layout != null && layout.attributes.size >= 2 && layout.attributes[1].components >= 3
+
+        // Only apply a 4-float color uniform when rendering untextured geometry without vertex colors
+        if (!isTexturedQuadLayout && !hasVertexColorAttr && !hasBoundTexture && uniforms.size == 4) {
             r = uniforms[0].coerceIn(0f, 1f)
             g = uniforms[1].coerceIn(0f, 1f)
             b = uniforms[2].coerceIn(0f, 1f)
-            if (uniforms.size >= 4) {
-                a = uniforms[3].coerceIn(0f, 1f)
-            }
+            a = uniforms[3].coerceIn(0f, 1f)
         }
 
         val vw = min(viewportW, targetW.toFloat())
@@ -601,113 +619,85 @@ open class DesktopVKContextImpl(
         vg: Float,
         vb: Float,
         va: Float,
-        pipeline: VKRenderPipelineDescriptor?,
+        fragFlags: Int,
         uniforms: FloatArray,
         tex: TextureRecord?,
         sampler: VKSamplerDescriptor
     ): FloatArray {
-        val fragModule = pipeline?.fragment?.let { shaderModules[it.id] }
-        val fragSrc = fragModule?.wgslSource?.ifEmpty { fragModule.glsl450Source.ifEmpty { fragModule.glslEs300Source } } ?: ""
+        val sampled = sampleVKTexture(tex, sampler, u, v)
+        if (sampled != null) {
+            if ((fragFlags and 1) != 0) {
+                val decay = when {
+                    uniforms.size >= 12 && uniforms[11] in 0.5f..0.9999f && uniforms[1] >= 1.0f -> uniforms[11].coerceIn(0f, 1f)
+                    uniforms.size >= 2 -> uniforms[1].coerceIn(0f, 1f)
+                    uniforms.size == 1 -> uniforms[0].coerceIn(0f, 1f)
+                    else -> 0.98f
+                }
+                return floatArrayOf(
+                    (sampled[0] * decay).coerceIn(0f, 1f),
+                    (sampled[1] * decay).coerceIn(0f, 1f),
+                    (sampled[2] * decay).coerceIn(0f, 1f),
+                    1f
+                )
+            }
 
-        // Check for MilkDrop warp UBO layout (16+ floats with zoom/decay)
-        if (uniforms.size >= 16 && (fragSrc.contains("uWarp", ignoreCase = true) || fragSrc.contains("zoom", ignoreCase = true))) {
-            val time = uniforms[0]
-            val zoom = uniforms[1].let { if (abs(it) < 0.001f) 1f else it }
-            val zoomExp = uniforms[2].let { if (abs(it) < 0.001f) 1f else it }
-            val rot = uniforms[3]
-            val warp = uniforms[4]
-            val cx = uniforms[5]
-            val cy = uniforms[6]
-            val dx = uniforms[7]
-            val dy = uniforms[8]
-            val sx = uniforms[9].let { if (abs(it) < 0.001f) 1f else it }
-            val sy = uniforms[10].let { if (abs(it) < 0.001f) 1f else it }
-            val decay = uniforms[11]
-            val bass = uniforms[12]
-            val mid = uniforms[13]
-            val treb = uniforms[14]
-            val darkCenter = uniforms[15]
+            if ((fragFlags and 2) != 0) {
+                val gamma = uniforms.getOrElse(0) { 1f }.coerceAtLeast(0.1f)
+                val echoAlpha = uniforms.getOrElse(1) { 0f }.coerceIn(0f, 1f)
+                val echoZoom = uniforms.getOrElse(2) { 1f }.coerceAtLeast(0.01f)
+                val echoOrient = uniforms.getOrElse(6) { 0f }.roundToInt()
+                val brighten = uniforms.getOrElse(7) { 0f } > 0.5f
+                val darken = uniforms.getOrElse(8) { 0f } > 0.5f
+                val solarize = uniforms.getOrElse(9) { 0f } > 0.5f
+                val invert = uniforms.getOrElse(10) { 0f } > 0.5f
 
-            val centeredX = u - cx
-            val centeredY = v - cy
-            val rad = sqrt(centeredX * centeredX + centeredY * centeredY)
-            val ang = atan2(centeredY, centeredX)
-            val zFactor = zoom.pow(zoomExp.pow(rad * 2f - 1f))
-            val px = centeredX / (zFactor * sx)
-            val py = centeredY / (zFactor * sy)
-            val cosR = cos(rot)
-            val sinR = sin(rot)
-            val rx = px * cosR - py * sinR
-            val ry = px * sinR + py * cosR
-            val wx = sin(rad * 12f - time * 2.4f + ang * 2f) * warp * 0.035f
-            val wy = cos(rad * 12f + time * 2.1f - ang * 2f) * warp * 0.035f
-            val sampleU = cx + rx + wx - dx
-            val sampleV = cy + ry + wy - dy
-
-            val prev = sampleVKTexture(tex, sampler, sampleU, sampleV) ?: floatArrayOf(0f, 0f, 0f, 1f)
-            var r = prev[0] * decay
-            var g = prev[1] * decay
-            var b = prev[2] * decay
-            val plasma = 0.012f * (0.5f + 0.5f * sin(u * 10f + time * 1.7f + bass * 2f))
-            r += plasma * (0.4f + 0.6f * bass)
-            g += plasma * (0.4f + 0.6f * mid)
-            b += plasma * (0.4f + 0.6f * treb)
-            if (darkCenter > 0.5f && rad < 0.06f) {
-                val atten = 0.94f + 0.06f * (rad / 0.06f)
-                r *= atten; g *= atten; b *= atten
+                var cr = sampled[0]
+                var cg = sampled[1]
+                var cb = sampled[2]
+                if (echoAlpha > 0.001f) {
+                    var eu = (u - 0.5f) / echoZoom + 0.5f
+                    var ev = (v - 0.5f) / echoZoom + 0.5f
+                    if (echoOrient == 1 || echoOrient == 3) eu = 1f - eu
+                    if (echoOrient == 2 || echoOrient == 3) ev = 1f - ev
+                    val echo = sampleVKTexture(tex, sampler, eu, ev) ?: sampled
+                    cr = cr * (1f - echoAlpha) + echo[0] * echoAlpha
+                    cg = cg * (1f - echoAlpha) + echo[1] * echoAlpha
+                    cb = cb * (1f - echoAlpha) + echo[2] * echoAlpha
+                }
+                if (brighten) {
+                    cr = sqrt(cr.coerceAtLeast(0f))
+                    cg = sqrt(cg.coerceAtLeast(0f))
+                    cb = sqrt(cb.coerceAtLeast(0f))
+                }
+                if (darken) {
+                    cr *= cr
+                    cg *= cg
+                    cb *= cb
+                }
+                if (solarize) {
+                    cr = (if (cr > 0.5f) 1f - cr else cr) * 2f
+                    cg = (if (cg > 0.5f) 1f - cg else cg) * 2f
+                    cb = (if (cb > 0.5f) 1f - cb else cb) * 2f
+                }
+                if (invert) {
+                    cr = 1f - cr
+                    cg = 1f - cg
+                    cb = 1f - cb
+                }
+                if (abs(gamma - 1f) > 0.001f) {
+                    val invGamma = 1f / gamma
+                    cr = cr.coerceAtLeast(0f).pow(invGamma)
+                    cg = cg.coerceAtLeast(0f).pow(invGamma)
+                    cb = cb.coerceAtLeast(0f).pow(invGamma)
+                }
+                return floatArrayOf(cr.coerceIn(0f, 1f), cg.coerceIn(0f, 1f), cb.coerceIn(0f, 1f), 1f)
             }
-            return floatArrayOf(r.coerceIn(0f, 1f), g.coerceIn(0f, 1f), b.coerceIn(0f, 1f), 1f)
-        }
-
-        // Check for MilkDrop composite UBO layout (8..12 floats with echoZoom/gamma)
-        if (uniforms.size in 8..12 && (fragSrc.contains("echo", ignoreCase = true) || fragSrc.contains("gamma", ignoreCase = true))) {
-            val base = sampleVKTexture(tex, sampler, u, v) ?: floatArrayOf(0f, 0f, 0f, 1f)
-            val echoZoom = uniforms[0].coerceAtLeast(0.01f)
-            val echoAlpha = uniforms[1].coerceIn(0f, 1f)
-            val echoOrient = uniforms[2].roundToInt()
-            val gamma = uniforms[3].coerceAtLeast(0.1f)
-            val invert = uniforms[4] > 0.5f
-            val brighten = uniforms[5] > 0.5f
-            val darken = uniforms[6] > 0.5f
-            val solarize = uniforms[7] > 0.5f
-
-            var r = base[0]
-            var g = base[1]
-            var b = base[2]
-            if (echoAlpha > 0.001f) {
-                var eu = (u - 0.5f) / echoZoom + 0.5f
-                var ev = (v - 0.5f) / echoZoom + 0.5f
-                if (echoOrient == 1 || echoOrient == 3) eu = 1f - eu
-                if (echoOrient == 2 || echoOrient == 3) ev = 1f - ev
-                val echo = sampleVKTexture(tex, sampler, eu, ev) ?: base
-                r = r * (1f - echoAlpha) + echo[0] * echoAlpha
-                g = g * (1f - echoAlpha) + echo[1] * echoAlpha
-                b = b * (1f - echoAlpha) + echo[2] * echoAlpha
-            }
-            if (brighten) {
-                r = sqrt(r.coerceAtLeast(0f)); g = sqrt(g.coerceAtLeast(0f)); b = sqrt(b.coerceAtLeast(0f))
-            }
-            if (darken) {
-                r *= r; g *= g; b *= b
-            }
-            if (solarize) {
-                r = abs(r * 2f - 1f); g = abs(g * 2f - 1f); b = abs(b * 2f - 1f)
-            }
-            if (invert) {
-                r = 1f - r; g = 1f - g; b = 1f - b
-            }
-            val invGamma = 1f / gamma
-            r = r.coerceAtLeast(0f).pow(invGamma)
-            g = g.coerceAtLeast(0f).pow(invGamma)
-            b = b.coerceAtLeast(0f).pow(invGamma)
-            return floatArrayOf(r.coerceIn(0f, 1f), g.coerceIn(0f, 1f), b.coerceIn(0f, 1f), 1f)
         }
 
         var r = vr
         var g = vg
         var b = vb
         var a = va
-        val sampled = sampleVKTexture(tex, sampler, u, v)
         if (sampled != null) {
             r *= sampled[0]
             g *= sampled[1]
@@ -774,15 +764,17 @@ open class DesktopVKContextImpl(
     private fun executeDraw(indices: IntArray) {
         val (targetPixels, targetW, targetH) = resolveTargetBuffer()
         val pipeline = boundPipelineId?.let { pipelines[it] }
+        val fragFlags = pipeline?.fragment?.let { shaderModuleFlags[it.id] } ?: 0
         val uniforms = resolveUniformFloats()
         val (tex, sampler) = resolveBoundTextureAndSampler()
-        val vertices = Array(indices.size) { i -> shadeVertex(indices[i], pipeline, uniforms, targetW, targetH) }
+        val hasBoundTexture = tex != null
+        val vertices = Array(indices.size) { i -> shadeVertex(indices[i], pipeline, uniforms, hasBoundTexture, targetW, targetH) }
         val topology = pipeline?.topology ?: VKPrimitiveTopology.TRIANGLE_LIST
 
         when (topology) {
             VKPrimitiveTopology.POINT_LIST -> {
                 for (v in vertices) {
-                    val frag = evaluateFragment(v.u, v.v, v.r, v.g, v.b, v.a, pipeline, uniforms, tex, sampler)
+                    val frag = evaluateFragment(v.u, v.v, v.r, v.g, v.b, v.a, fragFlags, uniforms, tex, sampler)
                     val cx = v.screenX.roundToInt()
                     val cy = v.screenY.roundToInt()
                     for (dy in -1..1) {
@@ -795,28 +787,28 @@ open class DesktopVKContextImpl(
             VKPrimitiveTopology.LINE_LIST -> {
                 var i = 0
                 while (i + 1 < vertices.size) {
-                    rasterizeLine(vertices[i], vertices[i + 1], pipeline, uniforms, tex, sampler, targetPixels, targetW, targetH)
+                    rasterizeLine(vertices[i], vertices[i + 1], pipeline, fragFlags, uniforms, tex, sampler, targetPixels, targetW, targetH)
                     i += 2
                 }
             }
             VKPrimitiveTopology.LINE_STRIP -> {
                 for (i in 0 until vertices.size - 1) {
-                    rasterizeLine(vertices[i], vertices[i + 1], pipeline, uniforms, tex, sampler, targetPixels, targetW, targetH)
+                    rasterizeLine(vertices[i], vertices[i + 1], pipeline, fragFlags, uniforms, tex, sampler, targetPixels, targetW, targetH)
                 }
             }
             VKPrimitiveTopology.TRIANGLE_LIST -> {
                 var i = 0
                 while (i + 2 < vertices.size) {
-                    rasterizeTriangle(vertices[i], vertices[i + 1], vertices[i + 2], pipeline, uniforms, tex, sampler, targetPixels, targetW, targetH)
+                    rasterizeTriangle(vertices[i], vertices[i + 1], vertices[i + 2], pipeline, fragFlags, uniforms, tex, sampler, targetPixels, targetW, targetH)
                     i += 3
                 }
             }
             VKPrimitiveTopology.TRIANGLE_STRIP -> {
                 for (i in 0 until vertices.size - 2) {
                     if (i % 2 == 0) {
-                        rasterizeTriangle(vertices[i], vertices[i + 1], vertices[i + 2], pipeline, uniforms, tex, sampler, targetPixels, targetW, targetH)
+                        rasterizeTriangle(vertices[i], vertices[i + 1], vertices[i + 2], pipeline, fragFlags, uniforms, tex, sampler, targetPixels, targetW, targetH)
                     } else {
-                        rasterizeTriangle(vertices[i + 1], vertices[i], vertices[i + 2], pipeline, uniforms, tex, sampler, targetPixels, targetW, targetH)
+                        rasterizeTriangle(vertices[i + 1], vertices[i], vertices[i + 2], pipeline, fragFlags, uniforms, tex, sampler, targetPixels, targetW, targetH)
                     }
                 }
             }
@@ -827,6 +819,7 @@ open class DesktopVKContextImpl(
         v0: ShadedVKVertex,
         v1: ShadedVKVertex,
         pipeline: VKRenderPipelineDescriptor?,
+        fragFlags: Int,
         uniforms: FloatArray,
         tex: TextureRecord?,
         sampler: VKSamplerDescriptor,
@@ -847,7 +840,7 @@ open class DesktopVKContextImpl(
             val g = v0.g + (v1.g - v0.g) * t
             val b = v0.b + (v1.b - v0.b) * t
             val a = v0.a + (v1.a - v0.a) * t
-            val frag = evaluateFragment(u, v, r, g, b, a, pipeline, uniforms, tex, sampler)
+            val frag = evaluateFragment(u, v, r, g, b, a, fragFlags, uniforms, tex, sampler)
             writeFragment(px, py, frag, pipeline, targetPixels, targetW, targetH)
         }
     }
@@ -857,6 +850,7 @@ open class DesktopVKContextImpl(
         v1: ShadedVKVertex,
         v2: ShadedVKVertex,
         pipeline: VKRenderPipelineDescriptor?,
+        fragFlags: Int,
         uniforms: FloatArray,
         tex: TextureRecord?,
         sampler: VKSamplerDescriptor,
@@ -888,7 +882,7 @@ open class DesktopVKContextImpl(
                     val g = w0 * v0.g + w1 * v1.g + w2 * v2.g
                     val b = w0 * v0.b + w1 * v1.b + w2 * v2.b
                     val a = w0 * v0.a + w1 * v1.a + w2 * v2.a
-                    val frag = evaluateFragment(u, v, r, g, b, a, pipeline, uniforms, tex, sampler)
+                    val frag = evaluateFragment(u, v, r, g, b, a, fragFlags, uniforms, tex, sampler)
                     writeFragment(px, py, frag, pipeline, targetPixels, targetW, targetH)
                 }
             }

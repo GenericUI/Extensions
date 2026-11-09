@@ -129,6 +129,7 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     override fun setSource(url: String, seekOffsetSeconds: Double) {
         currentSourceUrl = url
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
+        playingFallback = false
         mediaReady = false
 
         if (url.isNotBlank()) {
@@ -210,9 +211,16 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     }
 
     override fun isPlaying(): Boolean {
+        if (!playingFallback) return false
         val player = vlcMediaPlayer
         return if (player != null && LibVlcBindings.isAvailable) {
-            LibVlcBindings.libvlc_media_player_is_playing(player)
+            val state = LibVlcBindings.libvlc_media_player_get_state(player)
+            when {
+                state == 3 -> true
+                state in 4..7 -> false
+                state in 0..2 -> true
+                else -> LibVlcBindings.libvlc_media_player_is_playing(player)
+            }
         } else {
             playingFallback
         }

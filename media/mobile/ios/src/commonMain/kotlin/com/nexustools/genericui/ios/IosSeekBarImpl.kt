@@ -124,7 +124,5 @@ class IosSeekBarImpl : IosBaseNativeImpl<IosNativeView>(
         nativeWidget.attributes["trackHeightPx"] = trackHeightPx.toString()
         nativeWidget.attributes["thumbRadiusPx"] = thumbRadiusPx.toString()
         nativeWidget.attributes["thumbInsetPx"] = thumbInsetPx.toString()
-        nativeWidget.styleProperties["padding-left"] = "${thumbInsetPx}px"
-        nativeWidget.styleProperties["padding-right"] = "${thumbInsetPx}px"
     }
 }

@@ -244,8 +244,8 @@ class AlienFullCssAndTransitionTest {
         cardImpl.applyComputedStyle(
             ComputedStyle(
                 backgroundColor = RgbaColor(200, 10, 10, 255),
-                rawDeclarations = mapOf("background-color" to "rgb(200, 10, 10)"),
-                importantProperties = setOf("background-color")
+                activeBitmaskLow = 1L shl CssProperty.BACKGROUND_COLOR.ordinal,
+                importantBitmaskLow = 1L shl CssProperty.BACKGROUND_COLOR.ordinal
             )
         )
         // Non-important inline backgroundColor yields to !important ComputedStyle

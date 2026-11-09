@@ -13,6 +13,16 @@ import com.nexustools.genericui.component.media.VKDeviceType
 import com.nexustools.genericui.ext.gpu.GpuAcceleration
 import com.nexustools.genericui.ext.gpu.GpuBackendSupport
 import com.nexustools.genericui.ext.gpu.GpuBackendType
+import kotlinx.cinterop.ByteVar
+import kotlinx.cinterop.COpaquePointer
+import kotlinx.cinterop.UIntVar
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.allocArray
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.toKString
+import kotlinx.cinterop.value
+import platform.darwin._NSGetExecutablePath
 import platform.posix.RTLD_LAZY
 import platform.posix.dlopen
 import platform.posix.dlsym
@@ -27,17 +37,36 @@ actual object DesktopGpuDynamicLoader {
     private var angleHardwareAvailable = false
     private var angleSoftwareAvailable = false
 
+    private fun queryExecutableDir(): String? = memScoped {
+        val sizeVar = alloc<UIntVar>()
+        sizeVar.value = 1024u
+        val buf = allocArray<ByteVar>(1024)
+        if (_NSGetExecutablePath(buf, sizeVar.ptr) != 0) return null
+        val full = buf.toKString()
+        val lastSep = full.lastIndexOf('/')
+        if (lastSep > 0) full.substring(0, lastSep) else null
+    }
+
+    private fun openBundledOrSystemDylib(fileName: String): COpaquePointer? {
+        val exeDir = queryExecutableDir()
+        if (!exeDir.isNullOrBlank()) {
+            dlopen("$exeDir/../Frameworks/$fileName", RTLD_LAZY)?.let { return it }
+            dlopen("$exeDir/$fileName", RTLD_LAZY)?.let { return it }
+        }
+        return dlopen(fileName, RTLD_LAZY)
+            ?: dlopen("/opt/homebrew/lib/$fileName", RTLD_LAZY)
+            ?: dlopen("/usr/local/lib/$fileName", RTLD_LAZY)
+    }
+
     private fun ensureVulkanProbed() {
         if (probedVulkan) return
         probedVulkan = true
-        val handle = dlopen("libMoltenVK.dylib", RTLD_LAZY)
-            ?: dlopen("/opt/homebrew/lib/libMoltenVK.dylib", RTLD_LAZY)
-            ?: dlopen("/usr/local/lib/libMoltenVK.dylib", RTLD_LAZY)
-            ?: dlopen("libvulkan.1.dylib", RTLD_LAZY)
+        val handle = openBundledOrSystemDylib("libMoltenVK.dylib")
+            ?: openBundledOrSystemDylib("libvulkan.1.dylib")
         if (handle != null && dlsym(handle, "vkCreateInstance") != null) {
             vulkanHardwareAvailable = true
         }
-        val swHandle = dlopen("libvk_swiftshader.dylib", RTLD_LAZY)
+        val swHandle = openBundledOrSystemDylib("libvk_swiftshader.dylib")
         if (swHandle != null) {
             vulkanSoftwareAvailable = true
         }
@@ -46,16 +75,12 @@ actual object DesktopGpuDynamicLoader {
     private fun ensureAngleProbed() {
         if (probedAngle) return
         probedAngle = true
-        val egl = dlopen("libEGL.dylib", RTLD_LAZY)
-            ?: dlopen("/opt/homebrew/lib/libEGL.dylib", RTLD_LAZY)
-            ?: dlopen("/usr/local/lib/libEGL.dylib", RTLD_LAZY)
-        val gles = dlopen("libGLESv2.dylib", RTLD_LAZY)
-            ?: dlopen("/opt/homebrew/lib/libGLESv2.dylib", RTLD_LAZY)
-            ?: dlopen("/usr/local/lib/libGLESv2.dylib", RTLD_LAZY)
+        val egl = openBundledOrSystemDylib("libEGL.dylib")
+        val gles = openBundledOrSystemDylib("libGLESv2.dylib")
         if (egl != null && gles != null && dlsym(egl, "eglGetDisplay") != null) {
             angleHardwareAvailable = true
         }
-        if (dlopen("libvk_swiftshader.dylib", RTLD_LAZY) != null) {
+        if (openBundledOrSystemDylib("libvk_swiftshader.dylib") != null) {
             angleSoftwareAvailable = true
         }
     }

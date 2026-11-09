@@ -24,4 +24,9 @@ interface WebViewNativeImpl<out W> : NativeImpl<W> {
     fun postWebMessage(message: String)
     fun setOnWebMessageReceived(listener: ((String) -> Unit)?)
     fun setOnPageFinished(listener: ((String) -> Unit)?)
+    fun registerCommunicationFunction(name: String, handler: (String) -> String)
+    fun unregisterCommunicationFunction(name: String)
+    fun callCommunicationFunction(name: String, payloadJson: String = "", callback: ((String?) -> Unit)? = null)
+    fun setOnConsoleMessage(listener: ((com.nexustools.genericui.ext.webview.WebViewConsoleMessage) -> Unit)?)
+    fun setOnJavaScriptError(listener: ((String) -> Unit)?)
 }

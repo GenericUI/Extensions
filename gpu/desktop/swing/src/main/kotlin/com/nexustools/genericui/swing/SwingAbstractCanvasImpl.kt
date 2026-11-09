@@ -14,7 +14,7 @@ import javax.swing.JPanel
 abstract class SwingAbstractCanvasImpl<C>(
     panel: JPanel = JPanel()
 ) : SwingBaseNativeImpl(panel, "canvas"), AbstractCanvasNativeImpl<JComponent, C> {
-    override val nativeWidget: JPanel = super.nativeWidget as JPanel
+    override val nativeWidget: JPanel get() = super.nativeWidget as JPanel
 
     protected var vblankActive: Boolean = false
     protected var vblankCallback: ((Double?) -> Unit)? = null

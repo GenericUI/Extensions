@@ -109,7 +109,14 @@ open class DesktopGLContextImpl(
         val uniformLocations: MutableMap<String, Int> = mutableMapOf(),
         val uniformNamesByLocation: MutableMap<Int, String> = mutableMapOf(),
         val floatUniforms: MutableMap<String, FloatArray> = mutableMapOf(),
-        val intUniforms: MutableMap<String, Int> = mutableMapOf()
+        val intUniforms: MutableMap<String, Int> = mutableMapOf(),
+        var posAttribLocation: Int = 0,
+        var uvAttribLocation: Int? = null,
+        var colorAttribLocation: Int? = null,
+        var isWarpShader: Boolean = false,
+        var isCompShader: Boolean = false,
+        var samplesTexture: Boolean = false,
+        var literalVec4Color: FloatArray? = null
     )
 
     private var nextResourceId = 1
@@ -382,6 +389,30 @@ open class DesktopGLContextImpl(
                     record.uniformNamesByLocation[loc] = name
                 }
             }
+        }
+        record.posAttribLocation = record.attribLocations.entries.firstOrNull {
+            it.key.contains("pos", ignoreCase = true)
+        }?.value ?: 0
+        record.uvAttribLocation = record.attribLocations.entries.firstOrNull {
+            it.key.contains("uv", ignoreCase = true) || it.key.contains("tex", ignoreCase = true)
+        }?.value
+        record.colorAttribLocation = record.attribLocations.entries.firstOrNull {
+            it.key.contains("col", ignoreCase = true)
+        }?.value
+        val fSrc = record.fragmentSource
+        record.isWarpShader = fSrc.contains("uDecay", ignoreCase = true)
+        record.isCompShader = fSrc.contains("uEchoAlpha", ignoreCase = true) ||
+            fSrc.contains("uVideoEchoAlpha", ignoreCase = true) ||
+            fSrc.contains("uGamma", ignoreCase = true)
+        record.samplesTexture = fSrc.contains("texture(") || fSrc.contains("texture2D(")
+        val vec4Match = Regex("""vec4\s*\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\)""").find(fSrc)
+        if (vec4Match != null) {
+            record.literalVec4Color = floatArrayOf(
+                vec4Match.groupValues[1].toFloatOrNull() ?: 1f,
+                vec4Match.groupValues[2].toFloatOrNull() ?: 1f,
+                vec4Match.groupValues[3].toFloatOrNull() ?: 1f,
+                vec4Match.groupValues[4].toFloatOrNull() ?: 1f
+            )
         }
     }
 
@@ -869,15 +900,9 @@ open class DesktopGLContextImpl(
     }
 
     private fun shadeVertex(vertexIndex: Int, program: ProgramRecord?, targetW: Int, targetH: Int): ShadedVertex {
-        val posLocation = program?.attribLocations?.entries?.firstOrNull {
-            it.key.contains("pos", ignoreCase = true)
-        }?.value ?: 0
-        val uvLocation = program?.attribLocations?.entries?.firstOrNull {
-            it.key.contains("uv", ignoreCase = true) || it.key.contains("tex", ignoreCase = true)
-        }?.value
-        val colorLocation = program?.attribLocations?.entries?.firstOrNull {
-            it.key.contains("col", ignoreCase = true)
-        }?.value
+        val posLocation = program?.posAttribLocation ?: 0
+        val uvLocation = program?.uvAttribLocation
+        val colorLocation = program?.colorAttribLocation
 
         val hasPosBuffer = vertexAttribStates.containsKey(posLocation)
         val rawPos = if (hasPosBuffer) {
@@ -913,26 +938,36 @@ open class DesktopGLContextImpl(
             }
         }
 
-        val uniformColor = program?.floatUniforms?.entries?.firstOrNull {
-            it.key.equals("uColor", ignoreCase = true) ||
-                it.key.equals("color", ignoreCase = true) ||
-                it.key.equals("uBaseColor", ignoreCase = true) ||
-                it.key.equals("uDiffuse", ignoreCase = true)
-        }?.value
-
-        var r = uniformColor?.getOrNull(0) ?: 1f
-        var g = uniformColor?.getOrNull(1) ?: 1f
-        var b = uniformColor?.getOrNull(2) ?: 1f
-        var a = uniformColor?.getOrNull(3) ?: 1f
-
+        val isTexturedQuad = posState != null && posState.layout.size == 4
         val resolvedColorLoc = colorLocation ?: if (vertexAttribStates[1]?.layout?.size in 3..4) 1 else null
-        if (resolvedColorLoc != null && vertexAttribStates.containsKey(resolvedColorLoc)) {
-            val colArr = readVertexAttribute(resolvedColorLoc, vertexIndex, floatArrayOf(r, g, b, a))
+        val hasVertexColor = resolvedColorLoc != null && vertexAttribStates.containsKey(resolvedColorLoc)
+
+        var r = 1f
+        var g = 1f
+        var b = 1f
+        var a = 1f
+
+        if (hasVertexColor) {
+            val loc = resolvedColorLoc ?: 1
+            val colArr = readVertexAttribute(loc, vertexIndex, floatArrayOf(1f, 1f, 1f, 1f))
             r = colArr[0]
             g = colArr[1]
             b = colArr[2]
-            if ((vertexAttribStates[resolvedColorLoc]?.layout?.size ?: 3) >= 4) {
+            if ((vertexAttribStates[loc]?.layout?.size ?: 3) >= 4) {
                 a = colArr[3]
+            }
+        } else if (!isTexturedQuad) {
+            val uniformColor = program?.floatUniforms?.entries?.firstOrNull {
+                it.key.equals("uColor", ignoreCase = true) ||
+                    it.key.equals("color", ignoreCase = true) ||
+                    it.key.equals("uBaseColor", ignoreCase = true) ||
+                    it.key.equals("uDiffuse", ignoreCase = true)
+            }?.value
+            if (uniformColor != null) {
+                r = uniformColor.getOrNull(0) ?: 1f
+                g = uniformColor.getOrNull(1) ?: 1f
+                b = uniformColor.getOrNull(2) ?: 1f
+                a = uniformColor.getOrNull(3) ?: 1f
             }
         }
 
@@ -1112,115 +1147,88 @@ open class DesktopGLContextImpl(
         if (program == null) {
             return floatArrayOf(vr, vg, vb, va)
         }
-        val fSrc = program.fragmentSource
         val uniforms = program.floatUniforms
 
-        // Check for MilkDrop warp shader pass
-        if (uniforms.containsKey("uZoom") && uniforms.containsKey("uDecay")) {
-            val time = uniforms["uTime"]?.getOrNull(0) ?: 0f
-            val zoom = uniforms["uZoom"]?.getOrNull(0) ?: 1f
-            val zoomExp = uniforms["uZoomExp"]?.getOrNull(0) ?: 1f
-            val rot = uniforms["uRot"]?.getOrNull(0) ?: 0f
-            val warp = uniforms["uWarp"]?.getOrNull(0) ?: 0f
-            val cx = uniforms["uCx"]?.getOrNull(0) ?: 0.5f
-            val cy = uniforms["uCy"]?.getOrNull(0) ?: 0.5f
-            val dx = uniforms["uDx"]?.getOrNull(0) ?: 0f
-            val dy = uniforms["uDy"]?.getOrNull(0) ?: 0f
-            val sx = (uniforms["uSx"]?.getOrNull(0) ?: 1f).let { if (abs(it) < 0.001f) 1f else it }
-            val sy = (uniforms["uSy"]?.getOrNull(0) ?: 1f).let { if (abs(it) < 0.001f) 1f else it }
-            val decay = uniforms["uDecay"]?.getOrNull(0) ?: 0.98f
-            val bass = uniforms["uBass"]?.getOrNull(0) ?: 0f
-            val mid = uniforms["uMid"]?.getOrNull(0) ?: 0f
-            val treb = uniforms["uTreb"]?.getOrNull(0) ?: 0f
-            val darkCenter = uniforms["uDarkenCenter"]?.getOrNull(0) ?: 0f
-
-            val centeredX = u - cx
-            val centeredY = v - cy
-            val rad = sqrt(centeredX * centeredX + centeredY * centeredY)
-            val ang = atan2(centeredY, centeredX)
-            val zFactor = zoom.pow(zoomExp.pow(rad * 2f - 1f))
-            var px = centeredX / (zFactor * sx)
-            var py = centeredY / (zFactor * sy)
-            val cosR = cos(rot)
-            val sinR = sin(rot)
-            val rx = px * cosR - py * sinR
-            val ry = px * sinR + py * cosR
-            val wx = sin(rad * 12f - time * 2.4f + ang * 2f) * warp * 0.035f
-            val wy = cos(rad * 12f + time * 2.1f - ang * 2f) * warp * 0.035f
-            val sampleU = cx + rx + wx - dx
-            val sampleV = cy + ry + wy - dy
-
-            val prev = sampleBoundTexture(0, sampleU, sampleV) ?: floatArrayOf(0f, 0f, 0f, 1f)
-            var r = prev[0] * decay
-            var g = prev[1] * decay
-            var b = prev[2] * decay
-
-            val plasma = 0.012f * (0.5f + 0.5f * sin(u * 10f + time * 1.7f + bass * 2f))
-            r += plasma * (0.4f + 0.6f * bass)
-            g += plasma * (0.4f + 0.6f * mid)
-            b += plasma * (0.4f + 0.6f * treb)
-
-            if (darkCenter > 0.5f && rad < 0.06f) {
-                val atten = 0.94f + 0.06f * (rad / 0.06f)
-                r *= atten
-                g *= atten
-                b *= atten
-            }
-            return floatArrayOf(r.coerceIn(0f, 1f), g.coerceIn(0f, 1f), b.coerceIn(0f, 1f), 1f)
-        }
-
-        // Check for MilkDrop composite shader pass
-        if (uniforms.containsKey("uEchoZoom") && uniforms.containsKey("uGamma")) {
-            val base = sampleBoundTexture(0, u, v) ?: floatArrayOf(0f, 0f, 0f, 1f)
-            val echoZoom = (uniforms["uEchoZoom"]?.getOrNull(0) ?: 1f).coerceAtLeast(0.01f)
-            val echoAlpha = (uniforms["uEchoAlpha"]?.getOrNull(0) ?: 0f).coerceIn(0f, 1f)
-            val echoOrient = (uniforms["uEchoOrient"]?.getOrNull(0) ?: 0f).roundToInt()
-            val gamma = (uniforms["uGamma"]?.getOrNull(0) ?: 1f).coerceAtLeast(0.1f)
-            val invert = (uniforms["uInvert"]?.getOrNull(0) ?: 0f) > 0.5f
-            val brighten = (uniforms["uBrighten"]?.getOrNull(0) ?: 0f) > 0.5f
-            val darken = (uniforms["uDarken"]?.getOrNull(0) ?: 0f) > 0.5f
-            val solarize = (uniforms["uSolarize"]?.getOrNull(0) ?: 0f) > 0.5f
-
-            var r = base[0]
-            var g = base[1]
-            var b = base[2]
-
-            if (echoAlpha > 0.001f) {
-                var eu = (u - 0.5f) / echoZoom + 0.5f
-                var ev = (v - 0.5f) / echoZoom + 0.5f
-                if (echoOrient == 1 || echoOrient == 3) eu = 1f - eu
-                if (echoOrient == 2 || echoOrient == 3) ev = 1f - ev
-                val echo = sampleBoundTexture(0, eu, ev) ?: base
-                r = r * (1f - echoAlpha) + echo[0] * echoAlpha
-                g = g * (1f - echoAlpha) + echo[1] * echoAlpha
-                b = b * (1f - echoAlpha) + echo[2] * echoAlpha
+        val needTextureSample = program.isWarpShader ||
+            program.isCompShader ||
+            program.samplesTexture ||
+            uniforms.containsKey("uDecay") ||
+            uniforms.containsKey("uEchoAlpha") ||
+            uniforms.containsKey("uVideoEchoAlpha") ||
+            uniforms.containsKey("uGamma") ||
+            uniforms.containsKey("uGammaAdj")
+        val texSample = if (needTextureSample) sampleBoundTexture(0, u, v) else null
+        if (texSample != null) {
+            // Check for MilkDrop warp shader pass (u, v already deformed by vertex grid)
+            if (program.isWarpShader || uniforms.containsKey("uDecay")) {
+                val decay = (uniforms["uDecay"]?.getOrNull(0) ?: 0.98f).coerceIn(0f, 1f)
+                return floatArrayOf(
+                    (texSample[0] * decay).coerceIn(0f, 1f),
+                    (texSample[1] * decay).coerceIn(0f, 1f),
+                    (texSample[2] * decay).coerceIn(0f, 1f),
+                    1f
+                )
             }
 
-            if (brighten) {
-                r = sqrt(r.coerceAtLeast(0f))
-                g = sqrt(g.coerceAtLeast(0f))
-                b = sqrt(b.coerceAtLeast(0f))
+            // Check for MilkDrop composite shader pass
+            if (program.isCompShader ||
+                uniforms.containsKey("uEchoAlpha") ||
+                uniforms.containsKey("uVideoEchoAlpha") ||
+                uniforms.containsKey("uGamma") ||
+                uniforms.containsKey("uGammaAdj")
+            ) {
+                val gamma = (uniforms["uGamma"]?.getOrNull(0) ?: uniforms["uGammaAdj"]?.getOrNull(0) ?: 1f).coerceAtLeast(0.1f)
+                val echoAlpha = (uniforms["uEchoAlpha"]?.getOrNull(0) ?: uniforms["uVideoEchoAlpha"]?.getOrNull(0) ?: 0f).coerceIn(0f, 1f)
+                val echoZoom = (uniforms["uEchoZoom"]?.getOrNull(0) ?: uniforms["uVideoEchoZoom"]?.getOrNull(0) ?: 1f).coerceAtLeast(0.01f)
+                val echoOrient = (uniforms["uEchoOrient"]?.getOrNull(0) ?: uniforms["uVideoEchoOrientation"]?.getOrNull(0) ?: 0f).roundToInt()
+                val brighten = (uniforms["uBrighten"]?.getOrNull(0) ?: 0f) > 0.5f
+                val darken = (uniforms["uDarken"]?.getOrNull(0) ?: 0f) > 0.5f
+                val solarize = (uniforms["uSolarize"]?.getOrNull(0) ?: 0f) > 0.5f
+                val invert = (uniforms["uInvert"]?.getOrNull(0) ?: 0f) > 0.5f
+
+                var cr = texSample[0]
+                var cg = texSample[1]
+                var cb = texSample[2]
+
+                if (echoAlpha > 0.001f) {
+                    var eu = (u - 0.5f) / echoZoom + 0.5f
+                    var ev = (v - 0.5f) / echoZoom + 0.5f
+                    if (echoOrient == 1 || echoOrient == 3) eu = 1f - eu
+                    if (echoOrient == 2 || echoOrient == 3) ev = 1f - ev
+                    val echo = sampleBoundTexture(0, eu, ev) ?: texSample
+                    cr = cr * (1f - echoAlpha) + echo[0] * echoAlpha
+                    cg = cg * (1f - echoAlpha) + echo[1] * echoAlpha
+                    cb = cb * (1f - echoAlpha) + echo[2] * echoAlpha
+                }
+
+                if (brighten) {
+                    cr = sqrt(cr.coerceAtLeast(0f))
+                    cg = sqrt(cg.coerceAtLeast(0f))
+                    cb = sqrt(cb.coerceAtLeast(0f))
+                }
+                if (darken) {
+                    cr *= cr
+                    cg *= cg
+                    cb *= cb
+                }
+                if (solarize) {
+                    cr = (if (cr > 0.5f) 1f - cr else cr) * 2f
+                    cg = (if (cg > 0.5f) 1f - cg else cg) * 2f
+                    cb = (if (cb > 0.5f) 1f - cb else cb) * 2f
+                }
+                if (invert) {
+                    cr = 1f - cr
+                    cg = 1f - cg
+                    cb = 1f - cb
+                }
+                if (abs(gamma - 1f) > 0.001f) {
+                    val invGamma = 1f / gamma
+                    cr = cr.coerceAtLeast(0f).pow(invGamma)
+                    cg = cg.coerceAtLeast(0f).pow(invGamma)
+                    cb = cb.coerceAtLeast(0f).pow(invGamma)
+                }
+                return floatArrayOf(cr.coerceIn(0f, 1f), cg.coerceIn(0f, 1f), cb.coerceIn(0f, 1f), 1f)
             }
-            if (darken) {
-                r *= r
-                g *= g
-                b *= b
-            }
-            if (solarize) {
-                r = abs(r * 2f - 1f)
-                g = abs(g * 2f - 1f)
-                b = abs(b * 2f - 1f)
-            }
-            if (invert) {
-                r = 1f - r
-                g = 1f - g
-                b = 1f - b
-            }
-            val invGamma = 1f / gamma
-            r = r.coerceAtLeast(0f).pow(invGamma)
-            g = g.coerceAtLeast(0f).pow(invGamma)
-            b = b.coerceAtLeast(0f).pow(invGamma)
-            return floatArrayOf(r.coerceIn(0f, 1f), g.coerceIn(0f, 1f), b.coerceIn(0f, 1f), 1f)
         }
 
         // Standard shader evaluation: combine vertex/uniform color with bound texture if sampled
@@ -1229,20 +1237,18 @@ open class DesktopGLContextImpl(
         var b = vb
         var a = va
 
-        val texSample = sampleBoundTexture(0, u, v)
-        if (texSample != null && (fSrc.contains("texture(") || fSrc.contains("texture2D("))) {
+        if (texSample != null && program.samplesTexture) {
             r *= texSample[0]
             g *= texSample[1]
             b *= texSample[2]
             a *= texSample[3]
         } else if (vr == 1f && vg == 1f && vb == 1f && uniforms.isEmpty() && texSample == null) {
-            // Check for literal vec4(r, g, b, a) in fragment shader source
-            val vec4Match = Regex("""vec4\s*\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\)""").find(fSrc)
-            if (vec4Match != null) {
-                r = vec4Match.groupValues[1].toFloatOrNull() ?: r
-                g = vec4Match.groupValues[2].toFloatOrNull() ?: g
-                b = vec4Match.groupValues[3].toFloatOrNull() ?: b
-                a = vec4Match.groupValues[4].toFloatOrNull() ?: a
+            val lit = program.literalVec4Color
+            if (lit != null) {
+                r = lit[0]
+                g = lit[1]
+                b = lit[2]
+                a = lit[3]
             }
         }
 

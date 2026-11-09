@@ -24,6 +24,9 @@ class ProgressBarAlienImpl(
 
     private var progressValue: Float = 0f
     private var indeterminateState: Boolean = false
+    private var busyState: Boolean = false
+    private var busyBouncePhase: Float = 0f
+    private var busyBounceDirection: Float = 1f
     private var labelValue: String? = null
 
     init {
@@ -55,13 +58,30 @@ class ProgressBarAlienImpl(
                 r
             )
 
-            val frac = if (indeterminateState) 0.35f else progressValue.coerceIn(0f, 1f)
+            val frac = when {
+                busyState -> 0.30f
+                indeterminateState -> 0.35f
+                else -> progressValue.coerceIn(0f, 1f)
+            }
             val fillW = (bounds.width * frac).coerceAtLeast(0f)
+            val fillX = if (busyState && bounds.width > fillW) {
+                busyBouncePhase += busyBounceDirection * 0.025f
+                if (busyBouncePhase >= 1f) {
+                    busyBouncePhase = 1f
+                    busyBounceDirection = -1f
+                } else if (busyBouncePhase <= 0f) {
+                    busyBouncePhase = 0f
+                    busyBounceDirection = 1f
+                }
+                bounds.x.toFloat() + (bounds.width - fillW) * busyBouncePhase
+            } else {
+                bounds.x.toFloat()
+            }
             if (fillW > 0f) {
                 ctx.setFillColor(fillColor)
                 AlienBootstrapPainter.fillRoundedRect(
                     ctx,
-                    bounds.x.toFloat(),
+                    fillX,
                     bounds.y.toFloat(),
                     fillW,
                     bounds.height.toFloat(),
@@ -97,11 +117,19 @@ class ProgressBarAlienImpl(
 
     override fun setIndeterminate(indeterminate: Boolean) {
         indeterminateState = indeterminate
-        node.hasContinuousAnimation = indeterminate
+        node.hasContinuousAnimation = indeterminateState || busyState
         node.invalidateBounds()
     }
 
     override fun isIndeterminate(): Boolean = indeterminateState
+
+    override fun setBusy(busy: Boolean) {
+        busyState = busy
+        node.hasContinuousAnimation = indeterminateState || busyState
+        node.invalidateBounds()
+    }
+
+    override fun isBusy(): Boolean = busyState
 
     override fun setLabel(label: String?) {
         labelValue = label

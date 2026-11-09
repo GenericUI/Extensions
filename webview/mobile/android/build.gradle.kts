@@ -11,6 +11,8 @@ kotlin {
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
 
+        withHostTest {}
+
         compilerOptions {
             jvmTarget = JvmTarget.JVM_11
         }
@@ -27,6 +29,9 @@ kotlin {
             implementation(libs.androidx.recyclerview)
             implementation(libs.google.material)
             implementation(libs.kotlinx.coroutinesAndroid)
+        }
+        commonTest.dependencies {
+            implementation(libs.kotlin.test)
         }
     }
 }

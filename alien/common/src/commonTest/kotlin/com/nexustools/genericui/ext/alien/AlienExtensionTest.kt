@@ -65,6 +65,8 @@ import com.nexustools.genericui.nativeimpl.system.PermissionManagerNativeImpl
 import com.nexustools.genericui.nativeimpl.system.SystemTrayNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.ComputedStyle
+import com.nexustools.genericui.style.css.CssLength
+import com.nexustools.genericui.enums.css.CssPosition
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -380,9 +382,9 @@ class AlienExtensionTest {
         // 3. Now add a higher-Z Alien overlay button positioned directly over the extension hole
         var overlayClicked = 0
         val overlayButton = Button("Floating Overlay", BootstrapType.DANGER).apply {
-            positionMode = PositionMode.ABSOLUTE
-            leftOffset = "${slotBounds.x + 10}px"
-            topOffset = "${slotBounds.y + 10}px"
+            style.position = CssPosition.ABSOLUTE
+            style.left = CssLength.px(slotBounds.x + 10)
+            style.top = CssLength.px(slotBounds.y + 10)
             widthPx = 120
             heightPx = 40
             zIndex = 10
@@ -458,14 +460,8 @@ class AlienExtensionTest {
             widthPx = 400
             heightPx = 300
         }
-        alienRoot.ensureNativeImpl()
-        alienRoot.applyComputedStyle(
-            ComputedStyle(
-                rawDeclarations = mapOf(
-                    "--bs-primary" to "#ff5500"
-                )
-            )
-        )
+        val rootImpl = assertIs<AlienHostCanvasContainerAlienImpl>(alienRoot.ensureNativeImpl())
+        rootImpl.node.attributes["--bs-primary"] = "#ff5500"
 
         val btn = Button("Themed Button", BootstrapType.PRIMARY)
         alienRoot.addChild(btn)
@@ -552,12 +548,9 @@ class AlienExtensionTest {
         fragment.applyComputedStyle(
             ComputedStyle(
                 backgroundImageUrl = "bg.jpg?2",
-                rawDeclarations = mapOf(
-                    "background-image" to "url('bg.jpg?2')",
-                    "background-size" to "cover",
-                    "background-position" to "center center",
-                    "background-repeat" to "no-repeat"
-                )
+                backgroundSize = "cover",
+                backgroundPosition = "center center",
+                backgroundRepeat = "no-repeat"
             )
         )
         fragment.ensureNativeImpl()
@@ -575,10 +568,10 @@ class AlienExtensionTest {
             heightPx = 80
             applyComputedStyle(
                 ComputedStyle(
-                    rawDeclarations = mapOf(
-                        "background" to "url('bg.jpg?2') no-repeat center center",
-                        "background-size" to "100% 100%"
-                    )
+                    backgroundImageUrl = "bg.jpg?2",
+                    backgroundRepeat = "no-repeat",
+                    backgroundPosition = "center center",
+                    backgroundSize = "100% 100%"
                 )
             )
         }
@@ -922,7 +915,7 @@ class AlienExtensionTest {
             applyComputedStyle(
                 ComputedStyle(
                     height = "80px",
-                    rawDeclarations = mapOf("vertical-align" to "bottom")
+                    verticalAlign = "bottom"
                 )
             )
         }

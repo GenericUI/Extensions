@@ -5,6 +5,7 @@ package com.nexustools.genericui.ext.webview
  */
 data class WebViewConfig(
     val enableJavaScript: Boolean = true,
+    val domStorageEnabled: Boolean = true,
     val enableDevTools: Boolean = false,
     val userAgentOverride: String? = null,
     val allowFileAccess: Boolean = false

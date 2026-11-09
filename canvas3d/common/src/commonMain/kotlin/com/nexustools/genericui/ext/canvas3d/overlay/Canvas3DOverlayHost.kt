@@ -3,9 +3,14 @@ package com.nexustools.genericui.ext.canvas3d.overlay
 import com.nexustools.genericui.component.media.Canvas3D
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.FramePresentTarget
+import com.nexustools.genericui.enums.bootstrap.OverflowBehavior
 import com.nexustools.genericui.enums.bootstrap.PositionMode
+import com.nexustools.genericui.enums.css.CssDisplay
+import com.nexustools.genericui.enums.css.CssPointerEvents
+import com.nexustools.genericui.enums.css.CssPosition
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.ext.overlay.OverlayHostBox
+import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Generic overlay host wrapping a 3D canvas surface ([Canvas3D] or any [AbstractComponent])
@@ -31,6 +36,29 @@ open class Canvas3DOverlayHost(
     init {
         htmlTag = "genericui:canvas-3d-overlay-host"
         addClass("canvas-3d-overlay-host")
+        positionMode = PositionMode.RELATIVE
+        style.position = CssPosition.RELATIVE
+        style.display = CssDisplay.FLEX
+        style.flexGrow = 1f
+        style.flexShrink = 1f
+        style.flexBasis = CssLength.percent(0f)
+        style.width = CssLength.percent(100f)
+        style.height = CssLength.percent(100f)
+        style.minWidth = CssLength.ZERO
+        style.minHeight = CssLength.ZERO
+        style.overflow = OverflowBehavior.HIDDEN
+        canvas.style.width = CssLength.percent(100f)
+        canvas.style.height = CssLength.percent(100f)
+        canvas.style.display = CssDisplay.BLOCK
+        overlayRoot.positionMode = PositionMode.ABSOLUTE
+        overlayRoot.style.position = CssPosition.ABSOLUTE
+        overlayRoot.style.top = CssLength.ZERO
+        overlayRoot.style.left = CssLength.ZERO
+        overlayRoot.style.right = CssLength.ZERO
+        overlayRoot.style.bottom = CssLength.ZERO
+        overlayRoot.style.width = CssLength.percent(100f)
+        overlayRoot.style.height = CssLength.percent(100f)
+        overlayRoot.style.pointerEvents = CssPointerEvents.NONE
         if (canvas is FramePresentTarget) {
             bindToFramePresentTarget(canvas)
         }
@@ -45,8 +73,9 @@ open class Canvas3DOverlayHost(
      */
     fun syncOverlayBoundsToCanvas() {
         overlayRoot.positionMode = PositionMode.ABSOLUTE
-        overlayRoot.topOffset = "0px"
-        overlayRoot.leftOffset = "0px"
+        overlayRoot.style.position = CssPosition.ABSOLUTE
+        overlayRoot.style.top = CssLength.ZERO
+        overlayRoot.style.left = CssLength.ZERO
         val w = canvas.widthPx
         val h = canvas.heightPx
         if (w != null && h != null) {

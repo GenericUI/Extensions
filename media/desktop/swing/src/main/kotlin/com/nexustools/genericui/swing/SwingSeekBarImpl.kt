@@ -17,7 +17,7 @@ import javax.swing.JPanel
 import kotlin.math.roundToInt
 
 class SwingSeekBarImpl : SwingBaseNativeImpl(
-    nativeWidget = JPanel(null),
+    baseWidget = JPanel(null),
     componentClassPrefix = "seek-bar"
 ), SeekBarNativeImpl<JComponent> {
 

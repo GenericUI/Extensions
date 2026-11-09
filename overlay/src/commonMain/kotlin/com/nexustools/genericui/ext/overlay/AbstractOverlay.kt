@@ -4,6 +4,8 @@ import com.nexustools.genericui.component.layout.LayerConstraint
 import com.nexustools.genericui.component.layout.LayeredContainer
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Pure, background-free layered overlay container.
@@ -84,13 +86,12 @@ abstract class AbstractOverlay(
     var onBeforeTargetFramePresentCallback: ((frameIndex: Long, timestampMs: Double) -> Unit)? = null
 
     init {
-        setStyleProperty("width", "100%")
-        setStyleProperty("height", "100%")
+        style.width = CssLength.percent(100f)
+        style.height = CssLength.percent(100f)
         setAttribute("data-overlay-id", overlayId)
         setAttribute("data-overlay-layer", "true")
         setAttribute("data-overlay-root", "true")
-        setStyleProperty("background", "transparent")
-        setStyleProperty("background-color", "transparent")
+        style.backgroundColor = RgbaColor.TRANSPARENT
         inputRouter.bindToComponent(
             component = this,
             stateProvider = { state },

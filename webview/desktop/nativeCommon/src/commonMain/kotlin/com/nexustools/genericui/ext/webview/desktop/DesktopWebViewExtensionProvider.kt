@@ -2,6 +2,7 @@ package com.nexustools.genericui.ext.webview.desktop
 
 import com.nexustools.genericui.ext.webview.WebViewEngineType
 import com.nexustools.genericui.ext.webview.WebViewExtension
+import com.nexustools.njs.compiler.NativeJitCompiler
 
 /**
  * Installs the Desktop Chromium + NJS Native JIT provider into [WebViewExtension]
@@ -9,6 +10,7 @@ import com.nexustools.genericui.ext.webview.WebViewExtension
  */
 object DesktopWebViewExtensionProvider {
     fun install() {
+        NativeJitCompiler.installIntoRuntimeCompiler()
         WebViewExtension.registerProvider(WebViewEngineType.CHROMIUM_NJS_JIT_DESKTOP) { config ->
             DesktopChromiumNjsWebViewImpl(config)
         }

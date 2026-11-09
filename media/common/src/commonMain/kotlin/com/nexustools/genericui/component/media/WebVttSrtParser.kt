@@ -4,18 +4,27 @@ package com.nexustools.genericui.component.media
  * Built-in cross-platform parser for WebVTT (`.vtt`) and SubRip (`.srt`) subtitle files.
  */
 object WebVttSrtParser {
+    private val INLINE_TAG_REGEX = Regex("<[^>]+>")
+
     fun parse(content: String): List<SubtitleCue> {
-        val normalized = content.replace("\r\n", "\n").replace('\r', '\n').trim()
+        val normalized = content.removePrefix("\uFEFF").replace("\r\n", "\n").replace('\r', '\n').trim()
         if (normalized.isEmpty()) return emptyList()
         val blocks = normalized.split(Regex("\n{2,}"))
         val cues = mutableListOf<SubtitleCue>()
         var cueCounter = 0
 
         for (block in blocks) {
-            val lines = block.lines().map { it.trim() }.filter { it.isNotEmpty() }
-            if (lines.isEmpty()) continue
-            if (lines[0].startsWith("WEBVTT", ignoreCase = true) || lines[0].startsWith("NOTE", ignoreCase = true)) {
+            val rawLines = block.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            if (rawLines.isEmpty()) continue
+            if (rawLines[0].startsWith("NOTE", ignoreCase = true) || rawLines[0].startsWith("STYLE", ignoreCase = true)) {
                 continue
+            }
+            val lines = if (rawLines[0].startsWith("WEBVTT", ignoreCase = true)) {
+                val idx = rawLines.indexOfFirst { it.contains("-->") }
+                if (idx < 0) continue
+                if (idx > 1) rawLines.subList(idx - 1, rawLines.size) else rawLines.subList(idx, rawLines.size)
+            } else {
+                rawLines
             }
 
             val arrowLineIdx = lines.indexOfFirst { it.contains("-->") }
@@ -30,6 +39,8 @@ object WebVttSrtParser {
             val endSec = parseTimestampSeconds(endTokens[0].trim()) ?: continue
 
             val textLines = lines.subList(arrowLineIdx + 1, lines.size)
+                .map { stripTagsAndDecodeEntities(it) }
+                .filter { it.isNotEmpty() }
             if (textLines.isEmpty()) continue
 
             cues.add(
@@ -43,6 +54,17 @@ object WebVttSrtParser {
         }
         return cues
     }
+
+    fun stripTagsAndDecodeEntities(raw: String): String =
+        raw.replace(INLINE_TAG_REGEX, "")
+            .replace("&nbsp;", " ")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
+            .trim()
 
     fun parseTimestampSeconds(raw: String): Double? {
         val cleaned = raw.replace(',', '.').trim()

@@ -6,10 +6,21 @@ kotlin {
     applyDefaultHierarchyTemplate()
 
     // Desktop Native targets ONLY — uses Chromium + NJS (:common + :native AsmJit/SLJIT JIT)
-    mingwX64()
-    linuxX64()
-    linuxArm64()
-    macosArm64()
+    val desktopNativeTargets = listOf(
+        mingwX64(),
+        linuxX64(),
+        linuxArm64(),
+        macosArm64()
+    )
+
+    desktopNativeTargets.forEach { target ->
+        target.binaries {
+            executable("webviewProcess") {
+                baseName = "genericui-webview-process"
+                entryPoint = "com.nexustools.genericui.ext.webview.desktop.process.main"
+            }
+        }
+    }
 
     sourceSets {
         commonMain.dependencies {

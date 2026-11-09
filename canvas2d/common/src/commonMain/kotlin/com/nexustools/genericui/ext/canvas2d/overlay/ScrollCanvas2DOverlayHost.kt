@@ -2,10 +2,12 @@ package com.nexustools.genericui.ext.canvas2d.overlay
 
 import com.nexustools.genericui.component.media.Canvas2D
 import com.nexustools.genericui.enums.bootstrap.PositionMode
+import com.nexustools.genericui.enums.css.CssPosition
 import com.nexustools.genericui.ext.canvas2d.ScrollCanvas2D
 import com.nexustools.genericui.ext.canvas2d.ScrollCanvas2DListener
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.ext.overlay.OverlayHostBox
+import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Generic overlay host wrapping a [ScrollCanvas2D] and extending [OverlayHostBox] where
@@ -72,8 +74,9 @@ open class ScrollCanvas2DOverlayHost(
         val safeW = viewportWidth.coerceAtLeast(1)
         val safeH = viewportHeight.coerceAtLeast(1)
         overlayRoot.positionMode = PositionMode.ABSOLUTE
-        overlayRoot.topOffset = "0px"
-        overlayRoot.leftOffset = "0px"
+        overlayRoot.style.position = CssPosition.ABSOLUTE
+        overlayRoot.style.top = CssLength.ZERO
+        overlayRoot.style.left = CssLength.ZERO
         overlayRoot.setAttribute("data-overlay-region", "viewport-only")
         overlayRoot.setAttribute("data-excludes-scrollbars", "true")
         syncWithTargetResize(safeW, safeH)

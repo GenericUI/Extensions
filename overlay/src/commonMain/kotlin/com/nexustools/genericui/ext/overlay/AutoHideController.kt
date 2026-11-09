@@ -3,6 +3,9 @@ package com.nexustools.genericui.ext.overlay
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.core.UiTimerScheduler
+import com.nexustools.genericui.enums.css.CssCursor
+import com.nexustools.genericui.enums.css.CssPointerEvents
+import com.nexustools.genericui.style.transition.CssTransitionSpec
 
 /**
  * Lifecycle-bound controller managing auto-hide timers, fade transitions (`200ms` default),
@@ -87,9 +90,9 @@ class AutoHideController(
             isOverlayVisible = false
             currentOpacity = 0.0f
             targetComponent?.let { target ->
-                target.transition = null
+                target.style.setTransitions(null)
                 target.opacity = 0.0f
-                target.pointerEventsEnabled = false
+                target.style.pointerEvents = CssPointerEvents.NONE
                 target.isVisible = false
             }
             onVisibilityChanged?.invoke(false, 0.0f)
@@ -111,14 +114,14 @@ class AutoHideController(
         targetComponent?.let { target ->
             target.isVisible = true
             if (spec.fadeInMs > 0) {
-                target.transition = "opacity ${spec.fadeInMs}ms ease"
+                target.style.setTransitions(CssTransitionSpec.parseList("opacity ${spec.fadeInMs}ms ease"))
             } else {
-                target.transition = null
+                target.style.setTransitions(null)
             }
             target.opacity = 1.0f
-            target.pointerEventsEnabled = true
+            target.style.pointerEvents = CssPointerEvents.AUTO
             if (spec.hideCursorWhenOverlayHidden) {
-                target.cursor = null
+                target.style.cursor = null
             }
         }
         if (changed) {
@@ -141,14 +144,14 @@ class AutoHideController(
         currentOpacity = 0.0f
         targetComponent?.let { target ->
             if (!instant && spec.fadeOutMs > 0) {
-                target.transition = "opacity ${spec.fadeOutMs}ms ease"
+                target.style.setTransitions(CssTransitionSpec.parseList("opacity ${spec.fadeOutMs}ms ease"))
             } else {
-                target.transition = null
+                target.style.setTransitions(null)
             }
             target.opacity = 0.0f
-            target.pointerEventsEnabled = false
+            target.style.pointerEvents = CssPointerEvents.NONE
             if (spec.hideCursorWhenOverlayHidden) {
-                target.cursor = "none"
+                target.style.cursor = CssCursor.NONE
             }
         }
         if (changed) {

@@ -1,7 +1,10 @@
 package com.nexustools.genericui.ext.alien
 
+import com.nexustools.genericui.enums.bootstrap.AlignItems
+import com.nexustools.genericui.enums.bootstrap.AlignSelf
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
+import com.nexustools.genericui.enums.bootstrap.FlexWrap
 import com.nexustools.genericui.enums.bootstrap.JustifyContent
 import com.nexustools.genericui.enums.css.CssVerticalAlign
 import com.nexustools.genericui.geometry.Rect
@@ -356,13 +359,50 @@ class AlienLayoutEngine {
                 }
                 val isTable = style.display == "table" || "d-table" in node.styleSnapshot.customClasses
                 val effectiveGap = if (isTable) style.columnGapPx.roundToInt().coerceAtLeast(0) else gapPx
-                for ((idx, child) in flowChildren.withIndex()) {
-                    val childStyle = child.resolveVisualStyle()
-                    val cw = child.measuredSize.width + childStyle.margin.left + childStyle.margin.right
-                    val ch = child.measuredSize.height + childStyle.margin.top + childStyle.margin.bottom
-                    accumW += cw + (if (idx > 0) effectiveGap else 0)
-                    if (!hasNonShrinkingFlowChild || !isShrinkCrossAxisChild(child)) {
-                        accumH = max(accumH, ch)
+                val isFlexWrap = !isTable && (
+                    style.flexWrap == FlexWrap.WRAP ||
+                        style.flexWrap == FlexWrap.WRAP_REVERSE ||
+                        node.styleSnapshot.flexWrap == FlexWrap.WRAP ||
+                        node.styleSnapshot.flexWrap == FlexWrap.WRAP_REVERSE
+                    )
+                if (isFlexWrap && innerAvailW > 0) {
+                    val rowGap = if (style.rowGapPx > 0f) style.rowGapPx.roundToInt() else effectiveGap
+                    var currentLineW = 0
+                    var currentLineH = 0
+                    var lineCount = 0
+                    var itemsInLine = 0
+                    accumH = 0
+                    for (child in flowChildren) {
+                        val childStyle = child.resolveVisualStyle()
+                        val cw = child.measuredSize.width + childStyle.margin.left + childStyle.margin.right
+                        val ch = child.measuredSize.height + childStyle.margin.top + childStyle.margin.bottom
+                        val nextW = currentLineW + (if (itemsInLine > 0) effectiveGap else 0) + cw
+                        if (itemsInLine > 0 && nextW > innerAvailW) {
+                            accumW = max(accumW, currentLineW)
+                            accumH += currentLineH + (if (lineCount > 0) rowGap else 0)
+                            lineCount++
+                            currentLineW = cw
+                            currentLineH = ch
+                            itemsInLine = 1
+                        } else {
+                            currentLineW = nextW
+                            currentLineH = max(currentLineH, ch)
+                            itemsInLine++
+                        }
+                    }
+                    if (itemsInLine > 0) {
+                        accumW = max(accumW, currentLineW)
+                        accumH += currentLineH + (if (lineCount > 0) rowGap else 0)
+                    }
+                } else {
+                    for ((idx, child) in flowChildren.withIndex()) {
+                        val childStyle = child.resolveVisualStyle()
+                        val cw = child.measuredSize.width + childStyle.margin.left + childStyle.margin.right
+                        val ch = child.measuredSize.height + childStyle.margin.top + childStyle.margin.bottom
+                        accumW += cw + (if (idx > 0) effectiveGap else 0)
+                        if (!hasNonShrinkingFlowChild || !isShrinkCrossAxisChild(child)) {
+                            accumH = max(accumH, ch)
+                        }
                     }
                 }
             }
@@ -910,7 +950,83 @@ class AlienLayoutEngine {
             return
         }
 
-        // Standard HStack / Flex-Row
+        // Standard HStack / Flex-Row (with FlexWrap.WRAP / FlexWrap.WRAP_REVERSE multi-line support)
+        val isFlexWrap = style.flexWrap == FlexWrap.WRAP ||
+            style.flexWrap == FlexWrap.WRAP_REVERSE ||
+            node.styleSnapshot.flexWrap == FlexWrap.WRAP ||
+            node.styleSnapshot.flexWrap == FlexWrap.WRAP_REVERSE
+
+        if (isFlexWrap && contentW > 0) {
+            val lines = mutableListOf<MutableList<AlienWidgetNode>>()
+            var currentLine = mutableListOf<AlienWidgetNode>()
+            var currentLineW = 0
+            for (child in flowChildren) {
+                val cs = child.resolveVisualStyle()
+                val cw = child.measuredSize.width.coerceAtLeast(1) + cs.margin.left + cs.margin.right
+                val nextW = currentLineW + (if (currentLine.isNotEmpty()) gapPx else 0) + cw
+                if (currentLine.isNotEmpty() && nextW > contentW) {
+                    lines.add(currentLine)
+                    currentLine = mutableListOf(child)
+                    currentLineW = cw
+                } else {
+                    currentLine.add(child)
+                    currentLineW = nextW
+                }
+            }
+            if (currentLine.isNotEmpty()) {
+                lines.add(currentLine)
+            }
+            if (lines.size > 1) {
+                val rowGap = if (style.rowGapPx > 0f) style.rowGapPx.roundToInt() else gapPx
+                var cursorY = contentY
+                for (line in lines) {
+                    val lineFlexGrow = line.sumOf { it.resolveVisualStyle().flexGrow.toDouble() }.toFloat()
+                    val lineFixedW = line.sumOf { c ->
+                        val cs = c.resolveVisualStyle()
+                        val w = if (lineFlexGrow > 0f && cs.flexGrow > 0f) 0 else c.measuredSize.width.coerceAtLeast(1)
+                        w + cs.margin.left + cs.margin.right
+                    } + gapPx * (line.size - 1).coerceAtLeast(0)
+                    val lineRemW = (contentW - lineFixedW).coerceAtLeast(0)
+                    val lineTotalW = if (lineFlexGrow > 0f) contentW else lineFixedW
+                    val lineH = line.maxOf { c ->
+                        val cs = c.resolveVisualStyle()
+                        max(c.measuredSize.height, 1) + cs.margin.top + cs.margin.bottom
+                    }
+
+                    var lineCursorX = when (style.justifyContent) {
+                        JustifyContent.CENTER -> contentX + ((contentW - lineTotalW) / 2).coerceAtLeast(0)
+                        JustifyContent.END -> contentX + (contentW - lineTotalW).coerceAtLeast(0)
+                        else -> contentX
+                    }
+
+                    for (child in line) {
+                        val cs = child.resolveVisualStyle()
+                        val m = cs.margin
+                        val childX = lineCursorX + m.left
+                        val childH = max(child.measuredSize.height, 1)
+                        val childY = when {
+                            cs.alignSelf == AlignSelf.CENTER -> cursorY + ((lineH - childH - m.top - m.bottom) / 2).coerceAtLeast(0) + m.top
+                            cs.alignSelf == AlignSelf.END -> cursorY + (lineH - childH - m.bottom).coerceAtLeast(m.top)
+                            style.alignItems == AlignItems.CENTER && cs.alignSelf == AlignSelf.AUTO ->
+                                cursorY + ((lineH - childH - m.top - m.bottom) / 2).coerceAtLeast(0) + m.top
+                            style.alignItems == AlignItems.END && cs.alignSelf == AlignSelf.AUTO ->
+                                cursorY + (lineH - childH - m.bottom).coerceAtLeast(m.top)
+                            else -> cursorY + m.top
+                        }
+                        val childW = if (lineFlexGrow > 0f && cs.flexGrow > 0f) {
+                            ((lineRemW * (cs.flexGrow / lineFlexGrow)).roundToInt()).coerceAtLeast(child.measuredSize.width.coerceAtLeast(1))
+                        } else {
+                            child.measuredSize.width.coerceAtLeast(1)
+                        }
+                        arrangeNode(child, Rect(childX, childY, childW, childH), updateTracker)
+                        lineCursorX = childX + childW + m.right + gapPx
+                    }
+                    cursorY += lineH + rowGap
+                }
+                return
+            }
+        }
+
         for (child in flowChildren) {
             if (!isShrinkCrossAxisChild(child)) continue
             val cs = child.resolveVisualStyle()
@@ -1004,8 +1120,8 @@ class AlienLayoutEngine {
         if (style.display == "table" || "d-table" in node.styleSnapshot.customClasses) return true
         val prefix = node.componentClassPrefix.lowercase()
         val classes = node.styleSnapshot.customClasses
-        val rawFlexDir = node.computedStyle?.rawDeclarations?.get("flex-direction")?.lowercase()
-        if (rawFlexDir == "column" || rawFlexDir == "column-reverse" ||
+        val computedFlexDir = node.computedStyle?.flexDirection
+        if (computedFlexDir == FlexDirection.COLUMN || computedFlexDir == FlexDirection.COLUMN_REVERSE ||
             "flex-column" in classes ||
             node.styleSnapshot.flexDirection == FlexDirection.COLUMN ||
             node.styleSnapshot.flexDirection == FlexDirection.COLUMN_REVERSE ||
@@ -1020,7 +1136,9 @@ class AlienLayoutEngine {
         if (prefix == "hstack" || prefix == "row" || prefix == "navbar" || prefix == "menubar" || prefix == "btn-group" || prefix == "input-group") {
             return true
         }
-        if ("hstack" in classes || "row" in classes || "flex-row" in classes || "btn-group" in classes || rawFlexDir == "row") {
+        if ("hstack" in classes || "row" in classes || "flex-row" in classes || "btn-group" in classes ||
+            computedFlexDir == FlexDirection.ROW || computedFlexDir == FlexDirection.ROW_REVERSE
+        ) {
             return true
         }
         if (node.styleSnapshot.flexDirection == FlexDirection.ROW ||

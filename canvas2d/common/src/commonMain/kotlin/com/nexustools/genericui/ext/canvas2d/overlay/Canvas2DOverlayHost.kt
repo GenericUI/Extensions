@@ -2,8 +2,10 @@ package com.nexustools.genericui.ext.canvas2d.overlay
 
 import com.nexustools.genericui.component.media.Canvas2D
 import com.nexustools.genericui.enums.bootstrap.PositionMode
+import com.nexustools.genericui.enums.css.CssPosition
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.ext.overlay.OverlayHostBox
+import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Generic overlay host wrapping a [Canvas2D] and extending [OverlayHostBox].
@@ -34,8 +36,9 @@ open class Canvas2DOverlayHost(
      */
     fun syncOverlayBoundsToCanvas() {
         overlayRoot.positionMode = PositionMode.ABSOLUTE
-        overlayRoot.topOffset = "0px"
-        overlayRoot.leftOffset = "0px"
+        overlayRoot.style.position = CssPosition.ABSOLUTE
+        overlayRoot.style.top = CssLength.ZERO
+        overlayRoot.style.left = CssLength.ZERO
         val w = canvas.widthPx
         val h = canvas.heightPx
         if (w != null && h != null) {

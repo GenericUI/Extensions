@@ -51,8 +51,8 @@ class OverlayInputRouter(
     /**
      * Installs the standard generic media/overlay keyboard shortcuts:
      * - `Space` / `K`: Play/Pause
-     * - `ArrowLeft` / `J`: Skip backward `10s`
-     * - `ArrowRight` / `L`: Skip forward `10s`
+     * - `ArrowLeft` / `J`: Skip backward `5s`
+     * - `ArrowRight` / `L`: Skip forward `5s`
      * - `ArrowUp`: Volume `+5%`
      * - `ArrowDown`: Volume `-5%`
      * - `M`: Toggle mute
@@ -244,7 +244,7 @@ class OverlayInputRouter(
 
     companion object {
         const val DEFAULT_CLICK_DEBOUNCE_MS: Int = 250
-        const val DEFAULT_SKIP_DELTA_SEC: Double = 10.0
+        const val DEFAULT_SKIP_DELTA_SEC: Double = 5.0
         const val DEFAULT_VOLUME_STEP: Int = 5
     }
 }

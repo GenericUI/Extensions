@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
 }
@@ -7,10 +9,12 @@ kotlin {
     // DO NOT USE NJS ON WEB.
     js {
         browser()
+        nodejs()
     }
-    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    @OptIn(ExperimentalWasmDsl::class)
     wasmJs {
         browser()
+        nodejs()
     }
 
     sourceSets {
@@ -18,6 +22,9 @@ kotlin {
             api(project(":common"))
             api(project(":web"))
             api(project(":extensions:webview:common"))
+        }
+        commonTest.dependencies {
+            implementation(libs.kotlin.test)
         }
     }
 }

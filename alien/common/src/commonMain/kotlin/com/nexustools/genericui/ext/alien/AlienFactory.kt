@@ -53,6 +53,9 @@ class AlienFactory(
     override val backendName: String
         get() = "alien(${hostFactory.backendName})"
 
+    override val ignoresAestheticStylesOnStandardComponents: Boolean
+        get() = false
+
     override fun supportsTcp(): Boolean = hostFactory.supportsTcp()
     override fun supportsUdp(): Boolean = hostFactory.supportsUdp()
     override fun supportsMulticastUdp(): Boolean = hostFactory.supportsMulticastUdp()

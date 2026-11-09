@@ -6,6 +6,8 @@ import com.nexustools.genericui.component.layout.LayeredContainer
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.FramePresentTarget
 import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Pure, background-free [LayeredContainer] implementing [OverlayHost].
@@ -21,10 +23,9 @@ open class OverlayHostBox(
 
     private var fallbackTarget: Container? = if (content == null) {
         Container("genericui-overlay-host-target").apply {
-            setStyleProperty("width", "100%")
-            setStyleProperty("height", "100%")
-            setStyleProperty("background", "transparent")
-            setStyleProperty("background-color", "transparent")
+            style.width = CssLength.percent(100f)
+            style.height = CssLength.percent(100f)
+            style.backgroundColor = RgbaColor.TRANSPARENT
         }
     } else {
         null
@@ -40,10 +41,9 @@ open class OverlayHostBox(
         tagName = "genericui:overlay-host-root",
         classPrefix = "gui-overlay-host-root"
     ).apply {
-        setStyleProperty("width", "100%")
-        setStyleProperty("height", "100%")
-        setStyleProperty("background", "transparent")
-        setStyleProperty("background-color", "transparent")
+        style.width = CssLength.percent(100f)
+        style.height = CssLength.percent(100f)
+        style.backgroundColor = RgbaColor.TRANSPARENT
     }
 
     private var overlayBacking: AbstractOverlay? = null
@@ -108,10 +108,9 @@ open class OverlayHostBox(
     init {
         setAttribute("data-overlay-host", "true")
         overlayRoot.setAttribute("data-overlay-root", "true")
-        setStyleProperty("width", "100%")
-        setStyleProperty("height", "100%")
-        setStyleProperty("background", "transparent")
-        setStyleProperty("background-color", "transparent")
+        style.width = CssLength.percent(100f)
+        style.height = CssLength.percent(100f)
+        style.backgroundColor = RgbaColor.TRANSPARENT
         addLayer(targetComponent, LayerConstraint.fill(zIndex = 0))
         addLayer(overlayRoot, LayerConstraint.fill(zIndex = 10, passThroughPointerEvents = true))
         val initW = content?.widthPx ?: 0
@@ -155,10 +154,9 @@ open class OverlayHostBox(
         }
         if (component == null && fallbackTarget == null) {
             fallbackTarget = Container("genericui-overlay-host-target").apply {
-                setStyleProperty("width", "100%")
-                setStyleProperty("height", "100%")
-                setStyleProperty("background", "transparent")
-                setStyleProperty("background-color", "transparent")
+                style.width = CssLength.percent(100f)
+                style.height = CssLength.percent(100f)
+                style.backgroundColor = RgbaColor.TRANSPARENT
             }
         }
         addLayer(targetComponent, LayerConstraint.fill(zIndex = 0))

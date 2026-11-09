@@ -50,8 +50,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         "--no-stats",
         "--avcodec-hw=any",
         "--avcodec-fast",
-        "--network-caching=1500",
-        "--file-caching=1000",
+        "--http-reconnect",
+        "--network-caching=3000",
+        "--file-caching=60",
         "--quiet"
     )
 ) : DesktopBaseNativeImpl<W>(nativeWidget, "libvlc-video-player"), VideoPlayerNativeImpl<W> {
@@ -103,10 +104,16 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     private var lastReportedDurationSec: Double = -1.0
     private var lastNotifiedBufferedEndSec: Double = -1.0
     private var cachedPlayingState: Boolean = false
+    private var cachedBufferingState: Boolean = false
     private var lastVlcPollMark: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
     private var cachedIsPlaying: Boolean = false
     private var cachedTimeSec: Double = 0.0
     private var cachedDurationSec: Double = 0.0
+    private var vblankFrameCounter: Long = 0L
+    private var mediaLoadVBlankFrame: Long = 0L
+    private var streamReconnectAttempts: Int = 0
+    private var lastReconnectAttemptFrame: Long = -1000L
+    private var lastProgressResetTimeSec: Double = 0.0
 
     private var pendingAudioTrackSelection: String? = null
     private var pendingSubtitleTrackSelection: String? = null
@@ -376,9 +383,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     private val networkCachingBufferSec: Double = 15.0
     private var bufferedRangesState: List<Pair<Double, Double>> = emptyList()
 
-    private val audioTracksList = mutableListOf(
-        MediaTrackInfo(id = "1", label = "Default Audio", language = "und", isSelected = true)
-    )
+    private val audioTracksList = mutableListOf<MediaTrackInfo>()
     private val subtitleTracksList = mutableListOf<SubtitleTrackInfo>()
     private var attachedAnalyzer: AudioAnalyzer? = null
 
@@ -480,6 +485,8 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         }
         endedFiredForCurrentMedia = false
         spuDisabledAppliedForMedia = false
+        audioTracksList.clear()
+        subtitleTracksList.clear()
         lastReportedTimeSec = -1.0
         lastReportedDurationSec = -1.0
         lastNotifiedBufferedEndSec = -1.0
@@ -488,32 +495,14 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         nativeWidget.attributes["src"] = url
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
         cachedTimeSec = currentSecFallback
+        lastProgressResetTimeSec = currentSecFallback
+        streamReconnectAttempts = 0
         durationSecOverride = durationOverrideSeconds
         cachedDurationSec = durationOverrideSeconds ?: 0.0
 
         if (url.isNotBlank()) {
             val player = ensureVlcPlayer()
-            LibVlcBindings.libvlc_media_release(currentVlcMedia)
-            val isRemoteOrUri = url.contains("://")
-            val media = if (isRemoteOrUri) {
-                LibVlcBindings.libvlc_media_new_location(vlcInstance, url)
-            } else {
-                val normalizedPath = if (platformName.contains("Windows", ignoreCase = true) || url.length >= 2 && url[1] == ':') {
-                    url.replace('/', '\\')
-                } else {
-                    url
-                }
-                LibVlcBindings.libvlc_media_new_path(vlcInstance, normalizedPath)
-            }
-            if (seekOffsetSeconds > 0.0) {
-                LibVlcBindings.libvlc_media_add_option(media, ":start-time=$seekOffsetSeconds")
-            }
-            if (disableSpuByDefault) {
-                LibVlcBindings.libvlc_media_add_option(media, ":no-spu")
-                spuDisabledAppliedForMedia = true
-            }
-            currentVlcMedia = media
-            LibVlcBindings.libvlc_media_player_set_media(player, media)
+            loadMediaIntoPlayer(player, url, seekOffsetSeconds)
             if (LibVlcBindings.isAvailable && player != null) {
                 if (!playingFallback && preloadModeState != MediaPreloadMode.NONE) {
                     isPrerollingFirstFrame = true
@@ -537,6 +526,47 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         updateAndNotifyBufferedHorizon(currentSecFallback)
     }
 
+    private fun loadMediaIntoPlayer(player: COpaquePointer?, resolvedUri: String, startSec: Double) {
+        mediaLoadVBlankFrame = vblankFrameCounter
+        LibVlcBindings.libvlc_media_release(currentVlcMedia)
+        val isRemoteOrUri = resolvedUri.contains("://")
+        val media = if (isRemoteOrUri) {
+            LibVlcBindings.libvlc_media_new_location(vlcInstance, resolvedUri)
+        } else {
+            val strippedUri = if (
+                resolvedUri.length >= 3 &&
+                (resolvedUri[0] == '/' || resolvedUri[0] == '\\') &&
+                resolvedUri[2] == ':'
+            ) {
+                resolvedUri.substring(1)
+            } else {
+                resolvedUri
+            }
+            val normalizedPath = if (
+                platformName.contains("Windows", ignoreCase = true) ||
+                (strippedUri.length >= 2 && strippedUri[1] == ':')
+            ) {
+                strippedUri.replace('/', '\\')
+            } else {
+                strippedUri
+            }
+            LibVlcBindings.libvlc_media_new_path(vlcInstance, normalizedPath)
+        }
+        if (resolvedUri.startsWith("http://", ignoreCase = true) || resolvedUri.startsWith("https://", ignoreCase = true)) {
+            LibVlcBindings.libvlc_media_add_option(media, ":http-reconnect")
+            LibVlcBindings.libvlc_media_add_option(media, ":network-caching=3000")
+        }
+        if (startSec > 0.0) {
+            LibVlcBindings.libvlc_media_add_option(media, ":start-time=$startSec")
+        }
+        if (disableSpuByDefault) {
+            LibVlcBindings.libvlc_media_add_option(media, ":no-spu")
+            spuDisabledAppliedForMedia = true
+        }
+        currentVlcMedia = media
+        LibVlcBindings.libvlc_media_player_set_media(player, media)
+    }
+
     override fun play() {
         endedFiredForCurrentMedia = false
         lastReportedTimeSec = -1.0
@@ -552,17 +582,22 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                 LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
                 LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
             }
-            val res = LibVlcBindings.libvlc_media_player_play(player)
-            if (res < 0 && LibVlcBindings.isAvailable) {
-                playingFallback = false
-                cachedPlayingState = false
-                cachedIsPlaying = false
-                nativeWidget.attributes["playing"] = false
-                nativeWidget.attributes["isPlaying"] = false
-                nativeWidget.notifyTreeInvalidated(visualOnly = true)
-                onPlayingStateChangedListener?.invoke(false)
-                onErrorListener?.invoke(LibVlcBindings.libvlc_errmsg() ?: "libvlc_media_player_play failed")
-                return
+            val state = if (LibVlcBindings.isAvailable) LibVlcBindings.libvlc_media_player_get_state(player) else -1
+            if (state == 4 || (wasPrerolling && state == 3)) {
+                LibVlcBindings.libvlc_media_player_set_pause(player, 0)
+            } else if (!wasPrerolling || state !in 0..3) {
+                val res = LibVlcBindings.libvlc_media_player_play(player)
+                if (res < 0 && LibVlcBindings.isAvailable) {
+                    playingFallback = false
+                    cachedPlayingState = false
+                    cachedIsPlaying = false
+                    nativeWidget.attributes["playing"] = false
+                    nativeWidget.attributes["isPlaying"] = false
+                    nativeWidget.notifyTreeInvalidated(visualOnly = true)
+                    onPlayingStateChangedListener?.invoke(false)
+                    onErrorListener?.invoke(LibVlcBindings.libvlc_errmsg() ?: "libvlc_media_player_play failed")
+                    return
+                }
             }
         }
         nativeWidget.attributes["playing"] = true
@@ -606,11 +641,28 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         val clamped = seconds.coerceAtLeast(0.0)
         currentSecFallback = clamped
         cachedTimeSec = clamped
+        lastProgressResetTimeSec = clamped
         val targetMs = (clamped * 1000.0).toLong()
         val player = vlcMediaPlayer ?: if (currentSourceUrl.isNotBlank()) ensureVlcPlayer() else null
         if (player != null && LibVlcBindings.isAvailable) {
-            if (!playingFallback) {
-                val state = LibVlcBindings.libvlc_media_player_get_state(player)
+            val state = LibVlcBindings.libvlc_media_player_get_state(player)
+            val isTranscodeStream = currentSourceUrl.contains("mode=transcode", ignoreCase = true) ||
+                currentSourceUrl.contains("?start=") ||
+                currentSourceUrl.contains("&start=")
+            if (!isTranscodeStream && state in 5..7 && currentSourceUrl.isNotBlank()) {
+                endedFiredForCurrentMedia = false
+                loadMediaIntoPlayer(player, currentSourceUrl, clamped)
+                if (playingFallback) {
+                    LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                    LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+                    LibVlcBindings.libvlc_media_player_play(player)
+                } else {
+                    isPrerollingFirstFrame = true
+                    prerollTargetSwapCount = frameSwapCounter + 1L
+                    LibVlcBindings.libvlc_audio_set_mute(player, 1)
+                    LibVlcBindings.libvlc_media_player_play(player)
+                }
+            } else if (!playingFallback) {
                 if (state in 0..1 || state in 5..7) {
                     isPrerollingFirstFrame = true
                     prerollTargetSwapCount = frameSwapCounter + 1L
@@ -673,6 +725,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
     fun tickVBlank() {
         vblankTickCounter += 1
+        vblankFrameCounter += 1L
         val player = vlcMediaPlayer
         val vlcLive = player != null && LibVlcBindings.isAvailable
         val swapCount = frameSwapCounter
@@ -724,6 +777,12 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         lastVlcPollMark = kotlin.time.TimeSource.Monotonic.markNow()
 
         val state = LibVlcBindings.libvlc_media_player_get_state(player)
+        val isBuffering = !isPrerollingFirstFrame && playingFallback && (state == 1 || state == 2)
+        if (isBuffering != cachedBufferingState) {
+            cachedBufferingState = isBuffering
+            onBufferingChangedListener?.invoke(isBuffering)
+            onBufferingStateChangedListener?.invoke(isBuffering)
+        }
         if (!playingFallback && !isPrerollingFirstFrame && state == 3 && swapCount > 0L) {
             LibVlcBindings.libvlc_media_player_set_pause(player, 1)
             LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
@@ -745,13 +804,15 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         nativeWidget.attributes["isPlaying"] = playing
 
         if (playing || player != null) {
-            if (pendingAudioTrackSelection != null && player != null) {
+            val withinTrackDiscoveryWindow =
+                audioTracksList.isEmpty() || (vblankFrameCounter - mediaLoadVBlankFrame) <= 300L
+            if (pendingAudioTrackSelection != null && player != null && withinTrackDiscoveryWindow) {
                 applyPendingAudioTrackIfReady(player)
             }
             if (disableSpuByDefault && !spuDisabledAppliedForMedia && state == 3 && player != null) {
                 LibVlcBindings.libvlc_video_set_spu(player, -1)
                 spuDisabledAppliedForMedia = true
-            } else if (pendingSubtitleTrackSelection != null && player != null) {
+            } else if (pendingSubtitleTrackSelection != null && player != null && withinTrackDiscoveryWindow) {
                 applyPendingSubtitleTrackIfReady(player)
             }
 
@@ -780,6 +841,10 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                     currentSecFallback = vlcMs / 1000.0
                     cachedTimeSec = currentSecFallback
                 }
+                if (state == 3 && cachedTimeSec - lastProgressResetTimeSec >= 2.0) {
+                    streamReconnectAttempts = 0
+                    lastProgressResetTimeSec = cachedTimeSec
+                }
                 val curSec = cachedTimeSec
                 if (abs(curSec - lastReportedTimeSec) >= 0.5) {
                     lastReportedTimeSec = curSec
@@ -787,16 +852,52 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                     updateAndNotifyBufferedHorizon(curSec)
                 }
             }
-            if (state == 6 && !endedFiredForCurrentMedia) {
-                endedFiredForCurrentMedia = true
-                playingFallback = false
-                cachedPlayingState = false
-                cachedIsPlaying = false
-                nativeWidget.attributes["playing"] = false
-                nativeWidget.attributes["isPlaying"] = false
-                onPlayingStateChangedListener?.invoke(false)
-                onEndedListener?.invoke()
-                nativeWidget.attributes["vblankDirtied"] = true
+            if ((state == 6 || state == 7) && (playingFallback || !endedFiredForCurrentMedia)) {
+                val isHttpStream = currentSourceUrl.startsWith("http://", ignoreCase = true) ||
+                    currentSourceUrl.startsWith("https://", ignoreCase = true)
+                val effectiveDur = if (durationSecOverride != null && durationSecOverride!! > 0.0) {
+                    durationSecOverride!!
+                } else {
+                    cachedDurationSec
+                }
+                val isPrematureDrop = isHttpStream && (
+                    state == 7 || (
+                        effectiveDur > 30.0 &&
+                            cachedTimeSec > 1.0 &&
+                            cachedTimeSec < effectiveDur - 15.0 &&
+                            (cachedTimeSec / effectiveDur) < 0.90
+                        )
+                    )
+                if (isPrematureDrop && streamReconnectAttempts < 3 && (vblankFrameCounter - lastReconnectAttemptFrame) >= 120L) {
+                    streamReconnectAttempts += 1
+                    lastReconnectAttemptFrame = vblankFrameCounter
+                    endedFiredForCurrentMedia = false
+                    loadMediaIntoPlayer(player, currentSourceUrl, cachedTimeSec)
+                    LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                    LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+                    LibVlcBindings.libvlc_media_player_play(player)
+                    return
+                }
+                if (!endedFiredForCurrentMedia) {
+                    endedFiredForCurrentMedia = true
+                    playingFallback = false
+                    cachedPlayingState = false
+                    cachedIsPlaying = false
+                    if (cachedBufferingState) {
+                        cachedBufferingState = false
+                        onBufferingChangedListener?.invoke(false)
+                        onBufferingStateChangedListener?.invoke(false)
+                    }
+                    nativeWidget.attributes["playing"] = false
+                    nativeWidget.attributes["isPlaying"] = false
+                    onPlayingStateChangedListener?.invoke(false)
+                    if (state == 7) {
+                        onErrorListener?.invoke("Playback error")
+                    } else {
+                        onEndedListener?.invoke()
+                    }
+                    nativeWidget.attributes["vblankDirtied"] = true
+                }
             }
         }
     }
@@ -1002,6 +1103,22 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         onTracksChangedListener?.invoke()
         return true
     }
+
+    private var internalSubtitlesEnabledState: Boolean = true
+
+    override fun setInternalSubtitlesEnabled(enabled: Boolean) {
+        internalSubtitlesEnabledState = enabled
+        if (!enabled) {
+            disableSpuByDefault = true
+            pendingSubtitleTrackSelection = null
+            val player = vlcMediaPlayer
+            if (player != null && LibVlcBindings.isAvailable) {
+                LibVlcBindings.libvlc_video_set_spu(player, -1)
+            }
+        }
+    }
+
+    override fun isInternalSubtitlesEnabled(): Boolean = internalSubtitlesEnabledState
 
     override fun supportsPictureInPicture(): Boolean = true
     override fun enterPictureInPicture(): Boolean = true

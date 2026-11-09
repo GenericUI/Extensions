@@ -9,6 +9,7 @@ import com.nexustools.genericui.core.UiTimerScheduler
 import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.CssLength
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -203,24 +204,24 @@ class VideoOverlayHostTest {
         assertFalse(vol.isExpanded)
         assertEquals(0f, vol.expansionProgress, 0.001f)
         assertEquals(0, vol.currentSliderWidthPx)
-        assertEquals("0px", vol.sliderContainer.getStyleProperty("width"))
-        assertEquals("92px", vol.slider.getStyleProperty("width"))
-        assertEquals("0", vol.slider.getStyleProperty("flex-shrink"))
-        assertTrue(vol.sliderContainer.getStyleProperty("transition")?.contains("width") == true)
+        assertEquals(CssLength.ZERO, vol.sliderContainer.style.width)
+        assertEquals(CssLength.px(92), vol.slider.style.width)
+        assertEquals(0f, vol.slider.style.flexShrink)
+        assertTrue(vol.sliderContainer.style.transitions?.any { it.property == "width" } == true)
 
         // Immediate non-animated expand/collapse check
         vol.setExpanded(true, animate = false)
         assertTrue(vol.isExpanded)
         assertEquals(1f, vol.expansionProgress, 0.001f)
         assertEquals(92, vol.currentSliderWidthPx)
-        assertEquals("92px", vol.sliderContainer.getStyleProperty("width"))
+        assertEquals(CssLength.px(92), vol.sliderContainer.style.width)
         assertEquals("92", vol.getAttribute("data-animated-slider-width-px"))
 
         vol.setExpanded(false, animate = false)
         assertFalse(vol.isExpanded)
         assertEquals(0f, vol.expansionProgress, 0.001f)
         assertEquals(0, vol.currentSliderWidthPx)
-        assertEquals("0px", vol.sliderContainer.getStyleProperty("width"))
+        assertEquals(CssLength.ZERO, vol.sliderContainer.style.width)
 
         // Animated expand starts immediately with non-zero progress step
         vol.isExpanded = true

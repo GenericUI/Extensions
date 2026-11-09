@@ -108,4 +108,41 @@ class PlayerInterfaceTest {
         volBinding.dispose()
         audioPlayer.dispose()
     }
+
+    @Test
+    fun testVideoPlayerSelectAudioTrackByIndexAndWebVttOptionalHoursAndTagStripping() {
+        val videoPlayer = VideoPlayer()
+        assertTrue(videoPlayer.internalSubtitlesEnabled)
+        videoPlayer.internalSubtitlesEnabled = false
+        assertFalse(videoPlayer.internalSubtitlesEnabled)
+
+        assertTrue(videoPlayer.selectAudioTrackByIndex(0))
+        assertEquals("index:0", videoPlayer.getSelectedAudioTrackId())
+        assertTrue(videoPlayer.selectAudioTrackByIndex(2))
+        assertEquals("index:2", videoPlayer.getSelectedAudioTrackId())
+
+        val vttContent = """
+            WEBVTT
+
+            00:05.000 --> 00:09.500 align:middle line:90%
+            <i>Hello &amp; welcome</i> to <b>Episode Caster</b>!
+
+            2
+            01:02:03.250 --> 01:02:06.750
+            <c.yellow>Line one</c>
+            Line &lt;two&gt; &quot;quoted&quot; &#39;ok&#39;
+        """.trimIndent()
+
+        val cues = videoPlayer.loadSubtitleContent(vttContent)
+        assertEquals(2, cues.size)
+        assertEquals(5.0, cues[0].startTimeSeconds, 0.001)
+        assertEquals(9.5, cues[0].endTimeSeconds, 0.001)
+        assertEquals("Hello & welcome to Episode Caster!", cues[0].text)
+
+        assertEquals(3723.25, cues[1].startTimeSeconds, 0.001)
+        assertEquals(3726.75, cues[1].endTimeSeconds, 0.001)
+        assertEquals("Line one\nLine <two> \"quoted\" 'ok'", cues[1].text)
+
+        videoPlayer.dispose()
+    }
 }

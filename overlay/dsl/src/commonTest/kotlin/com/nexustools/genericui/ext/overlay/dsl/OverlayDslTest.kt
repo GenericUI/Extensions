@@ -6,6 +6,7 @@ import com.nexustools.genericui.component.layout.LayerSizingMode
 import com.nexustools.genericui.ext.overlay.Overlay
 import com.nexustools.genericui.ext.overlay.OverlayHostBox
 import com.nexustools.genericui.ext.overlay.OverlayState
+import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -36,7 +37,7 @@ class OverlayDslTest {
 
         assertEquals("Overlay Title", standaloneOverlay.state.title)
         assertEquals("#38bdf8", standaloneOverlay.themeColorHex)
-        assertEquals("transparent", standaloneOverlay.getStyleProperty("background"))
+        assertEquals(RgbaColor.TRANSPARENT, standaloneOverlay.style.backgroundColor)
         assertEquals(2, standaloneOverlay.elements.size)
         assertEquals(LayerSizingMode.FILL, standaloneOverlay.getLayerConstraint(fillChild)?.sizingMode)
         assertEquals(LayerSizingMode.FLOAT, standaloneOverlay.getLayerConstraint(floatChild)?.sizingMode)
@@ -61,7 +62,7 @@ class OverlayDslTest {
         assertSame(standaloneOverlay, boundHost.overlay)
         assertEquals("#38bdf8", boundHost.themeColorHex)
         assertTrue(inlineOverlay.elements.isEmpty())
-        assertEquals("transparent", inlineOverlay.getStyleProperty("background"))
+        assertEquals(RgbaColor.TRANSPARENT, inlineOverlay.style.backgroundColor)
 
         boundHost.dispose()
         emptyHost.dispose()

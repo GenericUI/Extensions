@@ -45,7 +45,7 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
     },
     "vlcj-video-player"
 ), VideoPlayerNativeImpl<JComponent> {
-    override val nativeWidget: JPanel = super.nativeWidget as JPanel
+    override val nativeWidget: JPanel get() = super.nativeWidget as JPanel
 
     private var antialiasingEnabled: Boolean = true
     private var mediaReadyFlag: Boolean = false

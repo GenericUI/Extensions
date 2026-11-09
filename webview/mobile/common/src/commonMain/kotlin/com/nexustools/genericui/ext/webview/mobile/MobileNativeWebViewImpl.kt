@@ -29,6 +29,9 @@ class MobileNativeWebViewImpl(
     private var historyIndex: Int = -1
     private var messageListener: ((String) -> Unit)? = null
     private var pageFinishedListener: ((String) -> Unit)? = null
+    private var consoleMessageListener: ((com.nexustools.genericui.ext.webview.WebViewConsoleMessage) -> Unit)? = null
+    private var jsErrorListener: ((String) -> Unit)? = null
+    private val communicationHandlers = LinkedHashMap<String, (String) -> String>()
 
     private var classNameState: String = ""
     private var typeState: BootstrapType? = null
@@ -116,6 +119,31 @@ class MobileNativeWebViewImpl(
 
     override fun setOnPageFinished(listener: ((String) -> Unit)?) {
         pageFinishedListener = listener
+    }
+
+    override fun registerCommunicationFunction(name: String, handler: (String) -> String) {
+        communicationHandlers[name] = handler
+    }
+
+    override fun unregisterCommunicationFunction(name: String) {
+        communicationHandlers.remove(name)
+    }
+
+    override fun callCommunicationFunction(name: String, payloadJson: String, callback: ((String?) -> Unit)?) {
+        if (!config.enableJavaScript) {
+            callback?.invoke(null)
+            return
+        }
+        val res = communicationHandlers[name]?.invoke(payloadJson)
+        callback?.invoke(res)
+    }
+
+    override fun setOnConsoleMessage(listener: ((com.nexustools.genericui.ext.webview.WebViewConsoleMessage) -> Unit)?) {
+        consoleMessageListener = listener
+    }
+
+    override fun setOnJavaScriptError(listener: ((String) -> Unit)?) {
+        jsErrorListener = listener
     }
 
     override fun setClass(className: String) { classNameState = className }

@@ -101,4 +101,7 @@ interface VideoPlayerNativeImpl<out W> : NativeImpl<W> {
 
     fun getPresentedFrameCount(): Long = 0L
     fun setOnBeforeFramePresent(listener: ((frameIndex: Long, timestampMs: Double) -> Unit)?) {}
+
+    fun setInternalSubtitlesEnabled(enabled: Boolean) {}
+    fun isInternalSubtitlesEnabled(): Boolean = true
 }

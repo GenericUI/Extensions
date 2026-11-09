@@ -178,8 +178,6 @@ open class DesktopSeekBarNativeImpl<W : DesktopNativeWidget>(
         nativeWidget.attributes["trackHeightPx"] = trackHeightPx.toString()
         nativeWidget.attributes["thumbRadiusPx"] = thumbRadiusPx.toString()
         nativeWidget.attributes["thumbInsetPx"] = thumbInsetPx.toString()
-        nativeWidget.styleProperties["padding-left"] = "${thumbInsetPx}px"
-        nativeWidget.styleProperties["padding-right"] = "${thumbInsetPx}px"
         nativeWidget.notifyTreeInvalidated(visualOnly = true)
     }
 }

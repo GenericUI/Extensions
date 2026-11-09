@@ -509,10 +509,15 @@ open class VideoPlayer(
 
     fun selectAudioTrack(trackId: String): Boolean {
         selectedAudioTrackIdState = trackId
+        val requestedIndex = if (trackId.startsWith("index:")) {
+            trackId.removePrefix("index:").toIntOrNull()
+        } else {
+            null
+        }
         var matchedFallback = false
         for (i in fallbackAudioTracks.indices) {
             val item = fallbackAudioTracks[i]
-            val match = item.id == trackId
+            val match = item.id == trackId || (requestedIndex != null && i == requestedIndex)
             if (match) matchedFallback = true
             fallbackAudioTracks[i] = item.copy(isSelected = match)
         }
@@ -521,15 +526,15 @@ open class VideoPlayer(
             impl.selectAudioTrack(trackId)
         } else {
             onTracksChanged?.invoke()
-            matchedFallback || fallbackAudioTracks.isEmpty()
+            matchedFallback || fallbackAudioTracks.isEmpty() || requestedIndex != null
         }
         notifyStateChangeObservers()
         return result
     }
 
     /**
-     * Selects an audio track by its 0-based index among [getAudioTracks] (or passes `"index:$index"`
-     * to the underlying native player when tracks are still being demuxed by LibVLC/ExoPlayer).
+     * Selects an audio track by its 0-based index among [getAudioTracks] by passing `"index:$index"`
+     * directly to the underlying native player so selection succeeds both before and after demuxing.
      */
     fun selectAudioTrackByIndex(index: Int): Boolean {
         if (index < 0) return false
@@ -537,6 +542,19 @@ open class VideoPlayer(
         val targetId = tracks.getOrNull(index)?.id ?: "index:$index"
         return selectAudioTrack(targetId)
     }
+
+    private var internalSubtitlesEnabledState: Boolean = true
+
+    var internalSubtitlesEnabled: Boolean
+        get() = typedNative<VideoPlayerNativeImpl<*>>()?.isInternalSubtitlesEnabled() ?: internalSubtitlesEnabledState
+        set(value) {
+            internalSubtitlesEnabledState = value
+            if (!value) {
+                subtitlesExplicitlyDisabled = true
+            }
+            typedNative<VideoPlayerNativeImpl<*>>()?.setInternalSubtitlesEnabled(value)
+            notifyStateChangeObservers()
+        }
 
     fun getSubtitleTracks(): List<SubtitleTrackInfo> {
         val nativeTracks = typedNative<VideoPlayerNativeImpl<*>>()?.getSubtitleTracks().orEmpty()
@@ -681,6 +699,7 @@ open class VideoPlayer(
         impl.setPreloadMode(preloadMode)
         impl.setAdaptivePreloadBufferingEnabled(adaptivePreloadBufferingEnabled)
         impl.setAntialiasing(antialiasing)
+        impl.setInternalSubtitlesEnabled(internalSubtitlesEnabledState)
         impl.setVolume(volume)
         impl.setMuted(isMuted)
         impl.setPlaybackSpeed(playbackSpeed)
