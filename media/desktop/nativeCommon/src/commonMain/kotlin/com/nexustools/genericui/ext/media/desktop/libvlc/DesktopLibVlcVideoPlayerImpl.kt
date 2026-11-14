@@ -16,6 +16,7 @@ import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
+import com.nexustools.genericui.threading.GenericUiThreading
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.COpaquePointer
 import kotlinx.cinterop.COpaquePointerVar
@@ -48,10 +49,11 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         "--no-sub-autodetect-file",
         "--no-osd",
         "--no-stats",
+        "--no-spdif",
         "--avcodec-hw=any",
         "--avcodec-fast",
         "--http-reconnect",
-        "--network-caching=3000",
+        "--network-caching=1500",
         "--file-caching=60",
         "--quiet"
     )
@@ -114,6 +116,15 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     private var streamReconnectAttempts: Int = 0
     private var lastReconnectAttemptFrame: Long = -1000L
     private var lastProgressResetTimeSec: Double = 0.0
+    private var pendingInitialSeekMs: Long = -1L
+    private var awaitingPostInitialSeekTargetMs: Long = -1L
+    private var postInitialSeekIssuedFrame: Long = 0L
+    private var audioOutputSyncedForCurrentPlay: Boolean = false
+    private var unpauseRecoveryIssuedForCurrentPlay: Boolean = false
+    private var playIssuedForLoadSeq: Long = -1L
+    private var prerollPauseIssuedForLoadSeq: Long = -1L
+    private var pausedAfterStartPreroll: Boolean = false
+    private var playRequestedVBlankFrame: Long = -1000L
 
     private var pendingAudioTrackSelection: String? = null
     private var pendingSubtitleTrackSelection: String? = null
@@ -313,19 +324,39 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             }
         }
         if (updatedFrame) {
-            if (isPrerollingFirstFrame && newSwapCount >= prerollTargetSwapCount) {
-                isPrerollingFirstFrame = false
-                val player = vlcMediaPlayer
-                if (!playingFallback && player != null) {
-                    LibVlcBindings.libvlc_media_player_set_pause(player, 1)
-                    LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
-                    LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
-                }
-            }
+            val needsPrerollCompletion = isPrerollingFirstFrame && pendingInitialSeekMs < 0L && newSwapCount >= prerollTargetSwapCount
+            val needsMediaReady = !mediaReadyFlag && pendingInitialSeekMs < 0L
             nativeWidget.attributes["vblankDirtied"] = true
-            if (!mediaReadyFlag) {
-                mediaReadyFlag = true
-                onMediaReadyListener?.invoke()
+            if (needsPrerollCompletion || needsMediaReady) {
+                val capturedLoadSeq = mediaLoadSequence
+                GenericUiThreading.runOnLogic {
+                    if (mediaLoadSequence != capturedLoadSeq) return@runOnLogic
+                    if (isPrerollingFirstFrame && pendingInitialSeekMs < 0L && frameSwapCounter >= prerollTargetSwapCount) {
+                        val player = vlcMediaPlayer
+                        val curState = if (player != null && LibVlcBindings.isAvailable) {
+                            LibVlcBindings.libvlc_media_player_get_state(player)
+                        } else {
+                            3
+                        }
+                        // Wait until LibVLC reaches `Playing` (`state == 3`, post-buffering) before pausing preroll:
+                        // pausing during `Opening`/`Buffering` (`state == 1..2`) causes VLC's HTTP `prefetch` filter
+                        // to return 0 bytes (`reading while paused`) and interrupts E-AC3 5.1 `input format change` init.
+                        if (curState == 3) {
+                            isPrerollingFirstFrame = false
+                            if (!playingFallback && player != null) {
+                                LibVlcBindings.libvlc_media_player_set_pause(player, 1)
+                                prerollPauseIssuedForLoadSeq = mediaLoadSequence
+                                pausedAfterStartPreroll = currentSecFallback < 0.5
+                                LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                                LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+                            }
+                        }
+                    }
+                    if (!mediaReadyFlag && pendingInitialSeekMs < 0L) {
+                        mediaReadyFlag = true
+                        onMediaReadyListener?.invoke()
+                    }
+                }
             }
         }
     }
@@ -456,9 +487,18 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
     override fun supportsSubtitleTrackSelection(): Boolean = true
 
+    private var mediaLoadSequence: Long = 0L
+
     override fun setSource(url: String, seekOffsetSeconds: Double, durationOverrideSeconds: Double?) {
-        if (url.isNotBlank() && url == currentSourceUrl && currentVlcMedia != null && vlcMediaPlayer != null &&
-            abs(seekOffsetSeconds - currentSecFallback) < 1.0
+        val existingPlayer = vlcMediaPlayer
+        val existingState = if (existingPlayer != null && LibVlcBindings.isAvailable) {
+            LibVlcBindings.libvlc_media_player_get_state(existingPlayer)
+        } else {
+            -1
+        }
+        val existingMediaActive = existingState in 1..4
+        if (url.isNotBlank() && url == currentSourceUrl && currentVlcMedia != null && existingPlayer != null &&
+            existingMediaActive && abs(seekOffsetSeconds - currentSecFallback) < 1.0
         ) {
             durationSecOverride = durationOverrideSeconds
             if (durationOverrideSeconds != null && durationOverrideSeconds > 0.0) {
@@ -473,6 +513,8 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         isPrerollingFirstFrame = false
         prerollTargetSwapCount = 0L
         lastVBlankDispatchedSwapCount = 0L
+        audioOutputSyncedForCurrentPlay = false
+        unpauseRecoveryIssuedForCurrentPlay = false
         withBufferPoolLock {
             latestDisplayedSlot = -1
             hasNewFrameFlag = 0
@@ -491,6 +533,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         lastReportedDurationSec = -1.0
         lastNotifiedBufferedEndSec = -1.0
         lastVlcPollMark = null
+        pendingInitialSeekMs = -1L
         nativeWidget.attributes["videoSource"] = url
         nativeWidget.attributes["src"] = url
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
@@ -504,11 +547,27 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             val player = ensureVlcPlayer()
             loadMediaIntoPlayer(player, url, seekOffsetSeconds)
             if (LibVlcBindings.isAvailable && player != null) {
-                if (!playingFallback && preloadModeState != MediaPreloadMode.NONE) {
+                if (playingFallback) {
+                    isPrerollingFirstFrame = false
+                    if (pendingInitialSeekMs >= 0L) {
+                        LibVlcBindings.libvlc_audio_set_mute(player, 1)
+                    } else {
+                        LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                        LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+                    }
+                    LibVlcBindings.libvlc_media_player_play(player)
+                    playIssuedForLoadSeq = mediaLoadSequence
+                    playRequestedVBlankFrame = vblankFrameCounter
+                    cachedPlayingState = true
+                    cachedIsPlaying = true
+                    nativeWidget.attributes["playing"] = true
+                    nativeWidget.attributes["isPlaying"] = true
+                } else if (preloadModeState != MediaPreloadMode.NONE) {
                     isPrerollingFirstFrame = true
                     prerollTargetSwapCount = 1L
                     LibVlcBindings.libvlc_audio_set_mute(player, 1)
                     LibVlcBindings.libvlc_media_player_play(player)
+                    playIssuedForLoadSeq = mediaLoadSequence
                     cachedPlayingState = false
                     cachedIsPlaying = false
                     nativeWidget.attributes["playing"] = false
@@ -526,8 +585,26 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         updateAndNotifyBufferedHorizon(currentSecFallback)
     }
 
+    private fun isServerTranscodeUrl(url: String): Boolean =
+        url.contains("mode=transcode", ignoreCase = true) ||
+            url.contains("/transcode/", ignoreCase = true) ||
+            url.contains("?start=", ignoreCase = true) ||
+            url.contains("&start=", ignoreCase = true) ||
+            url.contains("start_seconds=", ignoreCase = true)
+
     private fun loadMediaIntoPlayer(player: COpaquePointer?, resolvedUri: String, startSec: Double) {
+        mediaLoadSequence += 1L
         mediaLoadVBlankFrame = vblankFrameCounter
+        pendingInitialSeekMs = -1L
+        awaitingPostInitialSeekTargetMs = -1L
+        postInitialSeekIssuedFrame = 0L
+        audioOutputSyncedForCurrentPlay = false
+        unpauseRecoveryIssuedForCurrentPlay = false
+        playIssuedForLoadSeq = -1L
+        prerollPauseIssuedForLoadSeq = -1L
+        pausedAfterStartPreroll = false
+        cachedPlayingState = false
+        cachedIsPlaying = false
         LibVlcBindings.libvlc_media_release(currentVlcMedia)
         val isRemoteOrUri = resolvedUri.contains("://")
         val media = if (isRemoteOrUri) {
@@ -554,10 +631,20 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         }
         if (resolvedUri.startsWith("http://", ignoreCase = true) || resolvedUri.startsWith("https://", ignoreCase = true)) {
             LibVlcBindings.libvlc_media_add_option(media, ":http-reconnect")
-            LibVlcBindings.libvlc_media_add_option(media, ":network-caching=3000")
+            LibVlcBindings.libvlc_media_add_option(media, ":network-caching=1500")
         }
-        if (startSec > 0.0) {
-            LibVlcBindings.libvlc_media_add_option(media, ":start-time=$startSec")
+        if (startSec > 0.0 && !isServerTranscodeUrl(resolvedUri)) {
+            if (isRemoteOrUri) {
+                // Avoid `:start-time` on remote HTTP/MKV/WebM streams: LibVLC 3.x `mkv` demux `SET_TIME`
+                // during initial ES preroll deadlocks audio decoder buffer setup (`buffer deadlock prevented`),
+                // preventing `auhal` / audio output from opening. Perform the seek as soon as `state == 3` (`Playing`).
+                pendingInitialSeekMs = (startSec * 1000.0).toLong()
+                if (player != null && LibVlcBindings.isAvailable) {
+                    LibVlcBindings.libvlc_audio_set_mute(player, 1)
+                }
+            } else {
+                LibVlcBindings.libvlc_media_add_option(media, ":start-time=$startSec")
+            }
         }
         if (disableSpuByDefault) {
             LibVlcBindings.libvlc_media_add_option(media, ":no-spu")
@@ -571,33 +658,86 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         endedFiredForCurrentMedia = false
         lastReportedTimeSec = -1.0
         lastReportedDurationSec = -1.0
-        val wasPrerolling = isPrerollingFirstFrame
+        val wasPrerollPausedAtStart = pausedAfterStartPreroll
+        val hadPrerollPause = prerollPauseIssuedForLoadSeq == mediaLoadSequence
+        pausedAfterStartPreroll = false
         isPrerollingFirstFrame = false
+        audioOutputSyncedForCurrentPlay = false
+        unpauseRecoveryIssuedForCurrentPlay = false
+        playRequestedVBlankFrame = vblankFrameCounter
         playingFallback = true
         cachedPlayingState = true
         cachedIsPlaying = true
         val player = vlcMediaPlayer ?: if (currentSourceUrl.isNotBlank()) ensureVlcPlayer() else null
         if (player != null) {
-            if (wasPrerolling || LibVlcBindings.isAvailable) {
-                LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
-                LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+            if (currentVlcMedia == null && currentSourceUrl.isNotBlank()) {
+                loadMediaIntoPlayer(player, currentSourceUrl, currentSecFallback)
+                cachedPlayingState = true
+                cachedIsPlaying = true
             }
-            val state = if (LibVlcBindings.isAvailable) LibVlcBindings.libvlc_media_player_get_state(player) else -1
-            if (state == 4 || (wasPrerolling && state == 3)) {
-                LibVlcBindings.libvlc_media_player_set_pause(player, 0)
-            } else if (!wasPrerolling || state !in 0..3) {
-                val res = LibVlcBindings.libvlc_media_player_play(player)
-                if (res < 0 && LibVlcBindings.isAvailable) {
-                    playingFallback = false
-                    cachedPlayingState = false
-                    cachedIsPlaying = false
-                    nativeWidget.attributes["playing"] = false
-                    nativeWidget.attributes["isPlaying"] = false
-                    nativeWidget.notifyTreeInvalidated(visualOnly = true)
-                    onPlayingStateChangedListener?.invoke(false)
-                    onErrorListener?.invoke(LibVlcBindings.libvlc_errmsg() ?: "libvlc_media_player_play failed")
-                    return
+            if (LibVlcBindings.isAvailable) {
+                val state = LibVlcBindings.libvlc_media_player_get_state(player)
+                if (pendingInitialSeekMs >= 0L) {
+                    LibVlcBindings.libvlc_audio_set_mute(player, 1)
+                } else {
+                    // Always unmute/sync volume immediately — even if `setSource` just started preroll (`state == 0..2`)!
+                    LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                    LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
                 }
+                when {
+                    state in 5..7 && currentSourceUrl.isNotBlank() -> {
+                        if (!isServerTranscodeUrl(currentSourceUrl)) {
+                            loadMediaIntoPlayer(player, currentSourceUrl, currentSecFallback)
+                        } else {
+                            LibVlcBindings.libvlc_media_player_stop(player)
+                        }
+                        cachedPlayingState = true
+                        cachedIsPlaying = true
+                        if (pendingInitialSeekMs >= 0L) {
+                            LibVlcBindings.libvlc_audio_set_mute(player, 1)
+                        } else {
+                            LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                            LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+                        }
+                        val res = LibVlcBindings.libvlc_media_player_play(player)
+                        if (res < 0) {
+                            handlePlayStartFailure()
+                            return
+                        }
+                        playIssuedForLoadSeq = mediaLoadSequence
+                    }
+                    playIssuedForLoadSeq == mediaLoadSequence && state in 0..4 -> {
+                        if (state == 4 || state == 3 || (state == 2 && hadPrerollPause)) {
+                            LibVlcBindings.libvlc_media_player_set_pause(player, 0)
+                            if (!isServerTranscodeUrl(currentSourceUrl)) {
+                                if ((wasPrerollPausedAtStart || state == 4) && currentSecFallback < 0.5) {
+                                    // Cleanly resync `prefetch`, `mkv`, VideoToolbox, and E-AC3 5.1 master clock from 0:00
+                                    LibVlcBindings.libvlc_media_player_set_time(player, 0L)
+                                } else if (currentSecFallback >= 0.5) {
+                                    val targetMs = (currentSecFallback * 1000.0).toLong()
+                                    val actualMs = LibVlcBindings.libvlc_media_player_get_time(player)
+                                    if (actualMs >= 0L && abs(actualMs - targetMs) > 3_000L) {
+                                        LibVlcBindings.libvlc_media_player_set_time(player, targetMs)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    state == 4 || state == 3 -> {
+                        LibVlcBindings.libvlc_media_player_set_pause(player, 0)
+                    }
+                    state !in 1..3 -> {
+                        val res = LibVlcBindings.libvlc_media_player_play(player)
+                        if (res < 0) {
+                            handlePlayStartFailure()
+                            return
+                        }
+                        playIssuedForLoadSeq = mediaLoadSequence
+                    }
+                }
+            } else {
+                LibVlcBindings.libvlc_media_player_play(player)
+                playIssuedForLoadSeq = mediaLoadSequence
             }
         }
         nativeWidget.attributes["playing"] = true
@@ -606,12 +746,33 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         onPlayingStateChangedListener?.invoke(true)
     }
 
+    private fun handlePlayStartFailure() {
+        playingFallback = false
+        cachedPlayingState = false
+        cachedIsPlaying = false
+        nativeWidget.attributes["playing"] = false
+        nativeWidget.attributes["isPlaying"] = false
+        nativeWidget.notifyTreeInvalidated(visualOnly = true)
+        onPlayingStateChangedListener?.invoke(false)
+        onErrorListener?.invoke(LibVlcBindings.libvlc_errmsg() ?: "libvlc_media_player_play failed")
+    }
+
     override fun pause() {
         playingFallback = false
         cachedPlayingState = false
         cachedIsPlaying = false
-        if (!isPrerollingFirstFrame) {
-            LibVlcBindings.libvlc_media_player_set_pause(vlcMediaPlayer, 1)
+        val player = vlcMediaPlayer
+        if (player != null && LibVlcBindings.isAvailable) {
+            val state = LibVlcBindings.libvlc_media_player_get_state(player)
+            if (state in 0..2 && frameSwapCounter == 0L && preloadModeState != MediaPreloadMode.NONE) {
+                isPrerollingFirstFrame = true
+                prerollTargetSwapCount = 1L
+                LibVlcBindings.libvlc_audio_set_mute(player, 1)
+            } else if (!isPrerollingFirstFrame) {
+                LibVlcBindings.libvlc_media_player_set_pause(player, 1)
+            }
+        } else if (!isPrerollingFirstFrame) {
+            LibVlcBindings.libvlc_media_player_set_pause(player, 1)
         }
         nativeWidget.attributes["playing"] = false
         nativeWidget.attributes["isPlaying"] = false
@@ -621,6 +782,8 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
     override fun stop() {
         isPrerollingFirstFrame = false
+        pendingInitialSeekMs = -1L
+        awaitingPostInitialSeekTargetMs = -1L
         playingFallback = false
         cachedPlayingState = false
         cachedIsPlaying = false
@@ -639,6 +802,10 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
     override fun seekTo(seconds: Double) {
         val clamped = seconds.coerceAtLeast(0.0)
+        pendingInitialSeekMs = -1L
+        awaitingPostInitialSeekTargetMs = -1L
+        pausedAfterStartPreroll = false
+        audioOutputSyncedForCurrentPlay = false
         currentSecFallback = clamped
         cachedTimeSec = clamped
         lastProgressResetTimeSec = clamped
@@ -646,29 +813,36 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         val player = vlcMediaPlayer ?: if (currentSourceUrl.isNotBlank()) ensureVlcPlayer() else null
         if (player != null && LibVlcBindings.isAvailable) {
             val state = LibVlcBindings.libvlc_media_player_get_state(player)
-            val isTranscodeStream = currentSourceUrl.contains("mode=transcode", ignoreCase = true) ||
-                currentSourceUrl.contains("?start=") ||
-                currentSourceUrl.contains("&start=")
+            val isTranscodeStream = isServerTranscodeUrl(currentSourceUrl)
             if (!isTranscodeStream && state in 5..7 && currentSourceUrl.isNotBlank()) {
                 endedFiredForCurrentMedia = false
                 loadMediaIntoPlayer(player, currentSourceUrl, clamped)
                 if (playingFallback) {
-                    LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                    LibVlcBindings.libvlc_audio_set_mute(player, if (pendingInitialSeekMs >= 0L || mutedState) 1 else 0)
                     LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
                     LibVlcBindings.libvlc_media_player_play(player)
+                    playIssuedForLoadSeq = mediaLoadSequence
                 } else {
                     isPrerollingFirstFrame = true
                     prerollTargetSwapCount = frameSwapCounter + 1L
                     LibVlcBindings.libvlc_audio_set_mute(player, 1)
                     LibVlcBindings.libvlc_media_player_play(player)
+                    playIssuedForLoadSeq = mediaLoadSequence
                 }
             } else if (!playingFallback) {
                 if (state in 0..1 || state in 5..7) {
                     isPrerollingFirstFrame = true
                     prerollTargetSwapCount = frameSwapCounter + 1L
                     LibVlcBindings.libvlc_audio_set_mute(player, 1)
-                    LibVlcBindings.libvlc_media_player_play(player)
-                    LibVlcBindings.libvlc_media_player_set_time(player, targetMs)
+                    if (!isTranscodeStream && currentSourceUrl.contains("://")) {
+                        pendingInitialSeekMs = targetMs
+                        LibVlcBindings.libvlc_media_player_play(player)
+                        playIssuedForLoadSeq = mediaLoadSequence
+                    } else {
+                        LibVlcBindings.libvlc_media_player_play(player)
+                        playIssuedForLoadSeq = mediaLoadSequence
+                        LibVlcBindings.libvlc_media_player_set_time(player, targetMs)
+                    }
                 } else {
                     if (isPrerollingFirstFrame) {
                         prerollTargetSwapCount = frameSwapCounter + 1L
@@ -676,7 +850,14 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                     LibVlcBindings.libvlc_media_player_set_time(player, targetMs)
                 }
             } else {
-                LibVlcBindings.libvlc_media_player_set_time(player, targetMs)
+                if (state in 0..2 && !isTranscodeStream && currentSourceUrl.contains("://")) {
+                    pendingInitialSeekMs = targetMs
+                    LibVlcBindings.libvlc_audio_set_mute(player, 1)
+                } else {
+                    LibVlcBindings.libvlc_media_player_set_time(player, targetMs)
+                    LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                    LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+                }
             }
         } else {
             LibVlcBindings.libvlc_media_player_set_time(vlcMediaPlayer, targetMs)
@@ -686,6 +867,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     }
 
     override fun getCurrentTimeSeconds(): Double {
+        if (pendingInitialSeekMs >= 0L || awaitingPostInitialSeekTargetMs >= 0L) {
+            return currentSecFallback
+        }
         val player = vlcMediaPlayer
         if (player != null && LibVlcBindings.isAvailable) {
             if (lastVlcPollMark == null) {
@@ -733,12 +917,21 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         if (swapCount != lastVBlankDispatchedSwapCount || hasNewFrameFlag != 0) {
             lastVBlankDispatchedSwapCount = swapCount
             hasNewFrameFlag = 0
-            if (isPrerollingFirstFrame && swapCount >= prerollTargetSwapCount) {
-                isPrerollingFirstFrame = false
-                if (!playingFallback && player != null) {
-                    LibVlcBindings.libvlc_media_player_set_pause(player, 1)
-                    LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
-                    LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+            if (isPrerollingFirstFrame &&
+                pendingInitialSeekMs < 0L &&
+                awaitingPostInitialSeekTargetMs < 0L &&
+                swapCount >= prerollTargetSwapCount
+            ) {
+                val curState = if (vlcLive) LibVlcBindings.libvlc_media_player_get_state(player) else 3
+                if (curState == 3) {
+                    isPrerollingFirstFrame = false
+                    if (!playingFallback && player != null) {
+                        LibVlcBindings.libvlc_media_player_set_pause(player, 1)
+                        prerollPauseIssuedForLoadSeq = mediaLoadSequence
+                        pausedAfterStartPreroll = currentSecFallback < 0.5
+                        LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                        LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+                    }
                 }
             }
             nativeWidget.attributes["vblankDirtied"] = true
@@ -768,22 +961,131 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             return
         }
 
-        // Throttle native LibVLC time/duration/state/track queries to avoid UI-thread lock contention
-        val pollIntervalMs = if (mediaReadyFlag && cachedDurationSec > 0.0) 350L else 150L
+        // Poll faster during initial media startup / E-AC3 `input format change` audio sync, then throttle in steady state.
+        val inStartupAudioSyncWindow = !mediaReadyFlag ||
+            isPrerollingFirstFrame ||
+            (playingFallback && (vblankFrameCounter - playRequestedVBlankFrame) <= 90L)
+        val pollIntervalMs = when {
+            inStartupAudioSyncWindow -> 60L
+            cachedDurationSec > 0.0 -> 300L
+            else -> 120L
+        }
         val prevPoll = lastVlcPollMark
-        if (prevPoll != null && prevPoll.elapsedNow().inWholeMilliseconds < pollIntervalMs) {
+        if (pendingInitialSeekMs < 0L &&
+            awaitingPostInitialSeekTargetMs < 0L &&
+            prevPoll != null &&
+            prevPoll.elapsedNow().inWholeMilliseconds < pollIntervalMs
+        ) {
             return
         }
         lastVlcPollMark = kotlin.time.TimeSource.Monotonic.markNow()
 
         val state = LibVlcBindings.libvlc_media_player_get_state(player)
+        if (awaitingPostInitialSeekTargetMs >= 0L) {
+            if (state in 5..7) {
+                awaitingPostInitialSeekTargetMs = -1L
+            } else {
+                val curMs = LibVlcBindings.libvlc_media_player_get_time(player)
+                val targetFloorMs = (awaitingPostInitialSeekTargetMs - 2_500L).coerceAtLeast(0L)
+                val timedOut = (vblankFrameCounter - postInitialSeekIssuedFrame) >= 120L
+                if (((state == 3 || state == 4) && curMs >= targetFloorMs) || timedOut) {
+                    awaitingPostInitialSeekTargetMs = -1L
+                    if (playingFallback && !isPrerollingFirstFrame) {
+                        audioOutputSyncedForCurrentPlay = false
+                        LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                        LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+                    }
+                }
+            }
+        }
+        if (isPrerollingFirstFrame &&
+            pendingInitialSeekMs < 0L &&
+            awaitingPostInitialSeekTargetMs < 0L &&
+            swapCount >= prerollTargetSwapCount &&
+            state == 3
+        ) {
+            isPrerollingFirstFrame = false
+            if (!playingFallback) {
+                LibVlcBindings.libvlc_media_player_set_pause(player, 1)
+                prerollPauseIssuedForLoadSeq = mediaLoadSequence
+                pausedAfterStartPreroll = currentSecFallback < 0.5
+                LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+            }
+        }
+        if (pendingInitialSeekMs >= 0L) {
+            if (state == 3) {
+                val targetSeekMs = pendingInitialSeekMs
+                pendingInitialSeekMs = -1L
+                awaitingPostInitialSeekTargetMs = targetSeekMs
+                postInitialSeekIssuedFrame = vblankFrameCounter
+                LibVlcBindings.libvlc_media_player_set_time(player, targetSeekMs)
+                if (isPrerollingFirstFrame) {
+                    prerollTargetSwapCount = frameSwapCounter + 2L
+                } else {
+                    audioOutputSyncedForCurrentPlay = false
+                }
+            } else if (state in 5..7) {
+                pendingInitialSeekMs = -1L
+            }
+        } else if (awaitingPostInitialSeekTargetMs < 0L && playingFallback && !isPrerollingFirstFrame && state == 3) {
+            val expectedVol = (volumeLevel * 100f).toInt()
+            val forceEarlyAudioSync = !audioOutputSyncedForCurrentPlay ||
+                (vblankFrameCounter - playRequestedVBlankFrame) <= 150L ||
+                cachedTimeSec < 2.0
+            if (forceEarlyAudioSync) {
+                LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                LibVlcBindings.libvlc_audio_set_volume(player, expectedVol)
+                if (cachedTimeSec >= 0.5 && LibVlcBindings.libvlc_audio_get_volume(player) >= 0) {
+                    audioOutputSyncedForCurrentPlay = true
+                }
+            } else {
+                val actualMuted = LibVlcBindings.libvlc_audio_get_mute(player)
+                if (actualMuted != mutedState) {
+                    LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                }
+                val actualVol = LibVlcBindings.libvlc_audio_get_volume(player)
+                if (actualVol >= 0 && abs(actualVol - expectedVol) > 1) {
+                    LibVlcBindings.libvlc_audio_set_volume(player, expectedVol)
+                }
+            }
+            if (!unpauseRecoveryIssuedForCurrentPlay &&
+                (vblankFrameCounter - playRequestedVBlankFrame) >= 75L &&
+                currentSecFallback < 0.5
+            ) {
+                val curMs = LibVlcBindings.libvlc_media_player_get_time(player)
+                if (curMs in 0L..5L) {
+                    unpauseRecoveryIssuedForCurrentPlay = true
+                    LibVlcBindings.libvlc_media_player_set_pause(player, 0)
+                    if (!isServerTranscodeUrl(currentSourceUrl)) {
+                        LibVlcBindings.libvlc_media_player_set_time(player, 0L)
+                    }
+                    LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                    LibVlcBindings.libvlc_audio_set_volume(player, expectedVol)
+                }
+            }
+        } else if (playingFallback && !isPrerollingFirstFrame && state == 4 && !unpauseRecoveryIssuedForCurrentPlay) {
+            unpauseRecoveryIssuedForCurrentPlay = true
+            LibVlcBindings.libvlc_media_player_set_pause(player, 0)
+            if (currentSecFallback < 0.5 && !isServerTranscodeUrl(currentSourceUrl)) {
+                LibVlcBindings.libvlc_media_player_set_time(player, 0L)
+            }
+            LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+            LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+        }
         val isBuffering = !isPrerollingFirstFrame && playingFallback && (state == 1 || state == 2)
         if (isBuffering != cachedBufferingState) {
             cachedBufferingState = isBuffering
             onBufferingChangedListener?.invoke(isBuffering)
             onBufferingStateChangedListener?.invoke(isBuffering)
         }
-        if (!playingFallback && !isPrerollingFirstFrame && state == 3 && swapCount > 0L) {
+        if (!playingFallback &&
+            !isPrerollingFirstFrame &&
+            pendingInitialSeekMs < 0L &&
+            awaitingPostInitialSeekTargetMs < 0L &&
+            state == 3 &&
+            swapCount > 0L
+        ) {
             LibVlcBindings.libvlc_media_player_set_pause(player, 1)
             LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
             LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
@@ -793,6 +1095,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         } else {
             when {
                 state == 3 -> true
+                state == 4 && unpauseRecoveryIssuedForCurrentPlay -> true
                 state in 4..7 -> false
                 playingFallback && state in 0..2 -> true
                 else -> LibVlcBindings.libvlc_media_player_is_playing(player)
@@ -835,7 +1138,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                 mediaReadyFlag = true
                 onMediaReadyListener?.invoke()
             }
-            if (playing) {
+            if (playing && pendingInitialSeekMs < 0L && awaitingPostInitialSeekTargetMs < 0L) {
                 val vlcMs = LibVlcBindings.libvlc_media_player_get_time(player)
                 if (vlcMs >= 0L) {
                     currentSecFallback = vlcMs / 1000.0
@@ -873,7 +1176,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                     lastReconnectAttemptFrame = vblankFrameCounter
                     endedFiredForCurrentMedia = false
                     loadMediaIntoPlayer(player, currentSourceUrl, cachedTimeSec)
-                    LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
+                    LibVlcBindings.libvlc_audio_set_mute(player, if (pendingInitialSeekMs >= 0L || mutedState) 1 else 0)
                     LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
                     LibVlcBindings.libvlc_media_player_play(player)
                     return
@@ -918,6 +1221,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
     override fun setVolume(volume: Float) {
         volumeLevel = volume.coerceIn(0f, 2f)
+        audioOutputSyncedForCurrentPlay = false
         LibVlcBindings.libvlc_audio_set_volume(vlcMediaPlayer, (volumeLevel * 100f).toInt())
     }
 
@@ -925,17 +1229,13 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
     override fun setMuted(muted: Boolean) {
         mutedState = muted
-        LibVlcBindings.libvlc_audio_set_mute(vlcMediaPlayer, if (muted) 1 else 0)
-    }
-
-    override fun isMuted(): Boolean {
-        val player = vlcMediaPlayer
-        return if (player != null && LibVlcBindings.isAvailable) {
-            LibVlcBindings.libvlc_audio_get_mute(player)
-        } else {
-            mutedState
+        audioOutputSyncedForCurrentPlay = false
+        if (!isPrerollingFirstFrame && pendingInitialSeekMs < 0L && awaitingPostInitialSeekTargetMs < 0L) {
+            LibVlcBindings.libvlc_audio_set_mute(vlcMediaPlayer, if (muted) 1 else 0)
         }
     }
+
+    override fun isMuted(): Boolean = mutedState
 
     override fun setResizeMode(mode: VideoResizeMode) {
         resizeModeState = mode
@@ -981,6 +1281,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
     private fun applyPendingAudioTrackIfReady(player: COpaquePointer) {
         val target = pendingAudioTrackSelection ?: return
+        if (pendingInitialSeekMs >= 0L || awaitingPostInitialSeekTargetMs >= 0L) return
+        val pState = LibVlcBindings.libvlc_media_player_get_state(player)
+        if (pState !in 3..4) return
         val descriptions = LibVlcBindings.readAudioTrackDescriptions(player).filter { it.first != -1 }
         if (descriptions.isEmpty()) return
         val resolvedId: Int? = if (target.startsWith("index:")) {
@@ -989,11 +1292,20 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         } else {
             val exact = descriptions.firstOrNull { it.first.toString() == target }?.first
             exact ?: target.toIntOrNull()?.let { num ->
-                descriptions.getOrNull(num)?.first ?: num
+                descriptions.getOrNull(num)?.first
             }
         }
         if (resolvedId != null) {
-            LibVlcBindings.libvlc_audio_set_track(player, resolvedId)
+            val activeId = LibVlcBindings.libvlc_audio_get_track(player)
+            // During E-AC3 5.1 `input format change` on single- or multi-track streams, `activeId` is transiently
+            // `-1` while LibVLC restarts `a52` + `avcodec` -> `auhal`; wait for that restart before switching tracks.
+            if (activeId == -1 && (vblankFrameCounter - mediaLoadVBlankFrame) < 45L) {
+                return
+            }
+            if (activeId != resolvedId) {
+                LibVlcBindings.libvlc_audio_set_track(player, resolvedId)
+                audioOutputSyncedForCurrentPlay = false
+            }
             pendingAudioTrackSelection = null
             getAudioTracks()
             onTracksChangedListener?.invoke()
@@ -1067,7 +1379,10 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             }
         }
         if (resolvedId != null) {
-            LibVlcBindings.libvlc_video_set_spu(player, resolvedId)
+            val activeSpu = LibVlcBindings.libvlc_video_get_spu(player)
+            if (activeSpu != resolvedId) {
+                LibVlcBindings.libvlc_video_set_spu(player, resolvedId)
+            }
             pendingSubtitleTrackSelection = null
             getSubtitleTracks()
             onTracksChangedListener?.invoke()

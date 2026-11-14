@@ -19,13 +19,15 @@ class NavbarAlienImpl(
 ), NavbarNativeImpl<Any?> {
 
     private var brandTitleValue: String = ""
+    private var brandIconValue: String? = null
+    private var showBrandOverride: Boolean? = null
 
     init {
         node.customMeasure = { availW, _, _ ->
             Size(width = if (availW > 0) availW else 640, height = 56)
         }
         node.customPaint = { ctx, bounds, style ->
-            if (brandTitleValue.isNotEmpty()) {
+            if (isBrandVisible() && brandTitleValue.isNotEmpty()) {
                 val brandRect = Rect(bounds.x + 16, bounds.y, (bounds.width - 32).coerceAtLeast(0), bounds.height)
                 AlienBootstrapPainter.paintText(
                     ctx = ctx,
@@ -47,4 +49,24 @@ class NavbarAlienImpl(
     }
 
     override fun getBrandTitle(): String = brandTitleValue
+
+    override fun setBrandIcon(icon: String?) {
+        if (brandIconValue != icon) {
+            brandIconValue = icon
+            node.invalidateBounds()
+        }
+    }
+
+    override fun getBrandIcon(): String? = brandIconValue
+
+    override fun setShowBrand(show: Boolean?) {
+        if (showBrandOverride != show) {
+            showBrandOverride = show
+            node.invalidateBounds()
+        }
+    }
+
+    override fun getShowBrand(): Boolean? = showBrandOverride
+
+    override fun isBrandVisible(): Boolean = showBrandOverride ?: true
 }

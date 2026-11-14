@@ -51,6 +51,21 @@ object LibVlcBindings {
         return fn.invoke()?.toKString()
     }
 
+    private fun invokeLibVlcNew(
+        fn: CPointer<CFunction<(Int, CPointer<CPointerVar<ByteVar>>?) -> COpaquePointer?>>,
+        args: List<String>
+    ): COpaquePointer? = memScoped {
+        if (args.isEmpty()) {
+            fn.invoke(0, null)
+        } else {
+            val argv = allocArray<CPointerVar<ByteVar>>(args.size)
+            for (i in args.indices) {
+                argv[i] = args[i].cstr.ptr
+            }
+            fn.invoke(args.size, argv)
+        }
+    }
+
     fun libvlc_new(
         args: List<String> = listOf(
             "--no-video-title-show",
@@ -62,17 +77,16 @@ object LibVlcBindings {
         val fn = symbol("libvlc_new")
             ?.reinterpret<CFunction<(Int, CPointer<CPointerVar<ByteVar>>?) -> COpaquePointer?>>()
             ?: return null
-        return memScoped {
-            if (args.isEmpty()) {
-                fn.invoke(0, null)
-            } else {
-                val argv = allocArray<CPointerVar<ByteVar>>(args.size)
-                for (i in args.indices) {
-                    argv[i] = args[i].cstr.ptr
-                }
-                fn.invoke(args.size, argv)
-            }
+        invokeLibVlcNew(fn, args)?.let { return it }
+        if (args.any { it.startsWith("--avcodec-") }) {
+            val safeFallbackArgs = args.filterNot { it.startsWith("--avcodec-") }
+            invokeLibVlcNew(fn, safeFallbackArgs)?.let { return it }
         }
+        if (args.isNotEmpty()) {
+            invokeLibVlcNew(fn, listOf("--quiet"))?.let { return it }
+            return invokeLibVlcNew(fn, emptyList())
+        }
+        return null
     }
 
     fun libvlc_release(instance: COpaquePointer?) {
@@ -254,7 +268,7 @@ object LibVlcBindings {
         val fn = symbol("libvlc_audio_get_mute")
             ?.reinterpret<CFunction<(COpaquePointer) -> Int>>()
             ?: return false
-        return fn.invoke(player) != 0
+        return fn.invoke(player) > 0
     }
 
     fun libvlc_audio_get_track(player: COpaquePointer?): Int {

@@ -8,7 +8,7 @@ import com.nexustools.genericui.component.media.AudioFftSize
 import com.nexustools.genericui.component.media.AudioPlayer
 import com.nexustools.genericui.component.media.Player
 import com.nexustools.genericui.component.media.VideoPlayer
-import com.nexustools.genericui.core.Component
+import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.desktop.core.DesktopNativeWidget
 import com.nexustools.genericui.ext.media.desktop.DesktopVlcMediaExtensionProvider
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
@@ -172,6 +172,69 @@ class DesktopLibVlcTestMp4PlaybackTest {
     }
 
     @Test
+    fun testDesktopLibVlcVideoPlayerPlaysFromZeroAfterPrerollAndAcrossSetSourceReloadsWithoutSeeking() {
+        DesktopVlcMediaExtensionProvider.install("Desktop")
+        val path = resolveMediaExtensionTestMp4Path()
+        val widget = DesktopNativeWidget("Desktop", "libvlc-video")
+        val playerImpl = DesktopLibVlcVideoPlayerImpl(nativeWidget = widget, platformName = "Desktop")
+        try {
+            playerImpl.setMuted(false)
+            playerImpl.setVolume(0.0f)
+            playerImpl.setSource(path, 0.0, 10.0)
+            // Internal preroll mute must never leak through isMuted()
+            assertFalse(playerImpl.isMuted(), "Expected logical isMuted() to remain false during silent preroll")
+
+            var prerollTicks = 0
+            while (prerollTicks < 120 && playerImpl.frameSwapCounter <= 0L) {
+                usleep(25_000u)
+                playerImpl.tickVBlank()
+                assertFalse(playerImpl.isMuted(), "Expected isMuted() to stay false during preroll")
+                prerollTicks++
+            }
+            val swapAfterPreroll = playerImpl.frameSwapCounter
+
+            // Start playback at 0:00 without calling seekTo()
+            playerImpl.play()
+            assertTrue(playerImpl.isPlaying(), "Expected isPlaying() to be true immediately after play() at 0:00")
+
+            var playTicks = 0
+            while (playTicks < 120 && playerImpl.frameSwapCounter <= swapAfterPreroll + 3L) {
+                usleep(25_000u)
+                playerImpl.tickVBlank()
+                playTicks++
+            }
+            if (LibVlcBindings.isAvailable) {
+                assertTrue(
+                    playerImpl.frameSwapCounter > swapAfterPreroll + 2L,
+                    "Expected frames to advance from 0:00 without seeking (before=$swapAfterPreroll, after=${playerImpl.frameSwapCounter})"
+                )
+            }
+            assertTrue(playerImpl.isPlaying(), "Expected player to remain playing from 0:00")
+            assertFalse(playerImpl.isMuted(), "Expected player to remain unmuted while playing")
+
+            // Reloading a new/next item at 0:00 while already playing must auto-start without requiring seekTo()
+            playerImpl.stop()
+            playerImpl.play()
+            playerImpl.setSource(path, 0.0, 10.0)
+            var reloadTicks = 0
+            while (reloadTicks < 120 && playerImpl.frameSwapCounter < 3L) {
+                usleep(25_000u)
+                playerImpl.tickVBlank()
+                reloadTicks++
+            }
+            if (LibVlcBindings.isAvailable) {
+                assertTrue(
+                    playerImpl.frameSwapCounter >= 3L,
+                    "Expected setSource(0.0) while playing to decode frames without seeking (swapCount=${playerImpl.frameSwapCounter})"
+                )
+            }
+            assertTrue(playerImpl.isPlaying(), "Expected player to remain playing after setSource(0.0) reload")
+        } finally {
+            playerImpl.dispose()
+        }
+    }
+
+    @Test
     fun testDesktopLibVlcAudioPlayerWorksWithoutDesktopNativeWidgetAndPlaysTestMp4AsPlayer() {
         DesktopVlcMediaExtensionProvider.install("Desktop")
         val path = resolveMediaExtensionTestMp4Path()
@@ -180,7 +243,7 @@ class DesktopLibVlcTestMp4PlaybackTest {
 
         val audioPlayer = AudioPlayer()
         assertIs<Player>(audioPlayer)
-        assertFalse((audioPlayer as Any) is Component)
+        assertFalse((audioPlayer as Any) is AbstractComponent)
 
         try {
             audioPlayer.volume = 0.0f

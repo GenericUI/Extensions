@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package com.nexustools.genericui.ext.mediacontrols.macos
 
 import com.nexustools.genericui.ext.mediacontrols.DefaultNoOpMediaControlsNativeImpl
@@ -8,6 +10,24 @@ import com.nexustools.genericui.ext.mediacontrols.MediaControlEventSource
 import com.nexustools.genericui.ext.mediacontrols.MediaControlMetadata
 import com.nexustools.genericui.ext.mediacontrols.MediaControlsCapabilities
 import com.nexustools.genericui.ext.mediacontrols.MediaPlaybackStatus
+import com.nexustools.genericui.threading.GenericUiThreading
+import platform.AppKit.NSEvent
+import platform.AppKit.NSEventMaskSystemDefined
+import platform.MediaPlayer.MPChangePlaybackPositionCommandEvent
+import platform.MediaPlayer.MPMediaItemPropertyAlbumTitle
+import platform.MediaPlayer.MPMediaItemPropertyArtist
+import platform.MediaPlayer.MPMediaItemPropertyPlaybackDuration
+import platform.MediaPlayer.MPMediaItemPropertyTitle
+import platform.MediaPlayer.MPNowPlayingInfoCenter
+import platform.MediaPlayer.MPNowPlayingInfoPropertyElapsedPlaybackTime
+import platform.MediaPlayer.MPNowPlayingInfoPropertyPlaybackRate
+import platform.MediaPlayer.MPNowPlayingPlaybackStatePaused
+import platform.MediaPlayer.MPNowPlayingPlaybackStatePlaying
+import platform.MediaPlayer.MPNowPlayingPlaybackStateStopped
+import platform.MediaPlayer.MPRemoteCommandCenter
+import platform.MediaPlayer.MPRemoteCommandHandlerStatusCommandFailed
+import platform.MediaPlayer.MPRemoteCommandHandlerStatusSuccess
+import kotlin.math.roundToLong
 
 /**
  * macOS implementation of [com.nexustools.genericui.ext.mediacontrols.MediaControlsNativeImpl].
@@ -37,9 +57,20 @@ class MacosMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
     }
 
     val nowPlayingInfoDictionary: MutableMap<String, Any?> = mutableMapOf()
+    private var remoteCommandsInstalled: Boolean = false
+    private var mediaKeyEventMonitor: Any? = null
 
     override fun setActive(active: Boolean) {
         super.setActive(active)
+        if (active) {
+            ensureRemoteCommandsInstalled()
+            ensureMediaKeyMonitorInstalled()
+        } else {
+            runCatching {
+                MPNowPlayingInfoCenter.defaultCenter().nowPlayingInfo = null
+                MPNowPlayingInfoCenter.defaultCenter().playbackState = MPNowPlayingPlaybackStateStopped
+            }
+        }
         syncNowPlayingInfo()
     }
 
@@ -60,7 +91,20 @@ class MacosMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
 
     override fun updateButtonConfig(config: MediaControlButtonConfig) {
         super.updateButtonConfig(config)
+        syncRemoteCommandButtons(config)
         syncNowPlayingInfo()
+    }
+
+    override fun dispose() {
+        mediaKeyEventMonitor?.let { monitor ->
+            runCatching { NSEvent.removeMonitor(monitor) }
+            mediaKeyEventMonitor = null
+        }
+        runCatching {
+            MPNowPlayingInfoCenter.defaultCenter().nowPlayingInfo = null
+            MPNowPlayingInfoCenter.defaultCenter().playbackState = MPNowPlayingPlaybackStateStopped
+        }
+        super.dispose()
     }
 
     /**
@@ -110,18 +154,119 @@ class MacosMediaControlsImpl : DefaultNoOpMediaControlsNativeImpl(
         return true
     }
 
+    private fun ensureRemoteCommandsInstalled() {
+        if (remoteCommandsInstalled) return
+        remoteCommandsInstalled = true
+        runCatching {
+            val center = MPRemoteCommandCenter.sharedCommandCenter()
+            center.playCommand.addTargetWithHandler { _ ->
+                if (!isActive()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
+                GenericUiThreading.runOnLogic { handleRemoteCommand(MediaControlAction.PLAY) }
+                MPRemoteCommandHandlerStatusSuccess
+            }
+            center.pauseCommand.addTargetWithHandler { _ ->
+                if (!isActive()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
+                GenericUiThreading.runOnLogic { handleRemoteCommand(MediaControlAction.PAUSE) }
+                MPRemoteCommandHandlerStatusSuccess
+            }
+            center.togglePlayPauseCommand.addTargetWithHandler { _ ->
+                if (!isActive()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
+                GenericUiThreading.runOnLogic { handleRemoteCommand(MediaControlAction.PLAY_PAUSE) }
+                MPRemoteCommandHandlerStatusSuccess
+            }
+            center.stopCommand.addTargetWithHandler { _ ->
+                if (!isActive()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
+                GenericUiThreading.runOnLogic { handleRemoteCommand(MediaControlAction.STOP) }
+                MPRemoteCommandHandlerStatusSuccess
+            }
+            center.nextTrackCommand.addTargetWithHandler { _ ->
+                if (!isActive()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
+                GenericUiThreading.runOnLogic { handleRemoteCommand(MediaControlAction.NEXT) }
+                MPRemoteCommandHandlerStatusSuccess
+            }
+            center.previousTrackCommand.addTargetWithHandler { _ ->
+                if (!isActive()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
+                GenericUiThreading.runOnLogic { handleRemoteCommand(MediaControlAction.PREVIOUS) }
+                MPRemoteCommandHandlerStatusSuccess
+            }
+            center.changePlaybackPositionCommand.addTargetWithHandler { event ->
+                if (!isActive()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
+                val posEvent = event as? MPChangePlaybackPositionCommandEvent
+                    ?: return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
+                val targetMs = (posEvent.positionTime * 1000.0).roundToLong().coerceAtLeast(0L)
+                GenericUiThreading.runOnLogic {
+                    handleRemoteCommand(MediaControlAction.SEEK_TO, seekPositionMs = targetMs)
+                }
+                MPRemoteCommandHandlerStatusSuccess
+            }
+            syncRemoteCommandButtons(currentButtonConfig)
+        }
+    }
+
+    private fun syncRemoteCommandButtons(config: MediaControlButtonConfig) {
+        runCatching {
+            val center = MPRemoteCommandCenter.sharedCommandCenter()
+            center.playCommand.enabled = config.playPauseEnabled
+            center.pauseCommand.enabled = config.playPauseEnabled
+            center.togglePlayPauseCommand.enabled = config.playPauseEnabled
+            center.stopCommand.enabled = config.stopEnabled
+            center.nextTrackCommand.enabled = config.nextEnabled
+            center.previousTrackCommand.enabled = config.previousEnabled
+            center.changePlaybackPositionCommand.enabled = config.seekEnabled
+        }
+    }
+
+    private fun ensureMediaKeyMonitorInstalled() {
+        if (mediaKeyEventMonitor != null) return
+        runCatching {
+            mediaKeyEventMonitor = NSEvent.addLocalMonitorForEventsMatchingMask(NSEventMaskSystemDefined) { event ->
+                if (event != null) {
+                    var consumed = false
+                    GenericUiThreading.runOnLogic {
+                        consumed = handleSystemDefinedEvent(event.subtype.toInt(), event.data1.toInt())
+                    }
+                    if (consumed) null else event
+                } else {
+                    null
+                }
+            }
+        }
+    }
+
     private fun syncNowPlayingInfo() {
         if (!isActive()) {
             nowPlayingInfoDictionary.clear()
             return
         }
+        val durationSec = currentDurationMs / 1000.0
+        val elapsedSec = currentPositionMs / 1000.0
+        val rate = if (currentPlaybackStatus == MediaPlaybackStatus.PLAYING) currentPlaybackRate.toDouble() else 0.0
+
         nowPlayingInfoDictionary["MPMediaItemPropertyTitle"] = currentMetadata.title
         nowPlayingInfoDictionary["MPMediaItemPropertyArtist"] = currentMetadata.artist
         nowPlayingInfoDictionary["MPMediaItemPropertyAlbumTitle"] = currentMetadata.album
-        nowPlayingInfoDictionary["MPMediaItemPropertyPlaybackDuration"] = currentDurationMs / 1000.0
-        nowPlayingInfoDictionary["MPNowPlayingInfoPropertyElapsedPlaybackTime"] = currentPositionMs / 1000.0
-        nowPlayingInfoDictionary["MPNowPlayingInfoPropertyPlaybackRate"] =
-            if (currentPlaybackStatus == MediaPlaybackStatus.PLAYING) currentPlaybackRate.toDouble() else 0.0
+        nowPlayingInfoDictionary["MPMediaItemPropertyPlaybackDuration"] = durationSec
+        nowPlayingInfoDictionary["MPNowPlayingInfoPropertyElapsedPlaybackTime"] = elapsedSec
+        nowPlayingInfoDictionary["MPNowPlayingInfoPropertyPlaybackRate"] = rate
         nowPlayingInfoDictionary["MPNowPlayingPlaybackState"] = currentPlaybackStatus.name
+
+        runCatching {
+            val center = MPNowPlayingInfoCenter.defaultCenter()
+            val appleMap = LinkedHashMap<Any?, Any?>(8)
+            appleMap[MPMediaItemPropertyTitle] = currentMetadata.title
+            appleMap[MPMediaItemPropertyArtist] = currentMetadata.artist
+            appleMap[MPMediaItemPropertyAlbumTitle] = currentMetadata.album
+            if (currentDurationMs > 0L) {
+                appleMap[MPMediaItemPropertyPlaybackDuration] = durationSec
+            }
+            appleMap[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedSec
+            appleMap[MPNowPlayingInfoPropertyPlaybackRate] = rate
+            center.nowPlayingInfo = appleMap
+            center.playbackState = when (currentPlaybackStatus) {
+                MediaPlaybackStatus.PLAYING -> MPNowPlayingPlaybackStatePlaying
+                MediaPlaybackStatus.PAUSED -> MPNowPlayingPlaybackStatePaused
+                else -> MPNowPlayingPlaybackStateStopped
+            }
+        }
     }
 }

@@ -13,16 +13,8 @@ import com.nexustools.genericui.component.media.VKDeviceType
 import com.nexustools.genericui.ext.gpu.GpuAcceleration
 import com.nexustools.genericui.ext.gpu.GpuBackendSupport
 import com.nexustools.genericui.ext.gpu.GpuBackendType
-import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.COpaquePointer
-import kotlinx.cinterop.UIntVar
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.allocArray
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
-import kotlinx.cinterop.toKString
-import kotlinx.cinterop.value
-import platform.darwin._NSGetExecutablePath
+import platform.Foundation.NSBundle
 import platform.posix.RTLD_LAZY
 import platform.posix.dlopen
 import platform.posix.dlsym
@@ -37,14 +29,10 @@ actual object DesktopGpuDynamicLoader {
     private var angleHardwareAvailable = false
     private var angleSoftwareAvailable = false
 
-    private fun queryExecutableDir(): String? = memScoped {
-        val sizeVar = alloc<UIntVar>()
-        sizeVar.value = 1024u
-        val buf = allocArray<ByteVar>(1024)
-        if (_NSGetExecutablePath(buf, sizeVar.ptr) != 0) return null
-        val full = buf.toKString()
+    private fun queryExecutableDir(): String? {
+        val full = NSBundle.mainBundle.executablePath ?: return null
         val lastSep = full.lastIndexOf('/')
-        if (lastSep > 0) full.substring(0, lastSep) else null
+        return if (lastSep > 0) full.substring(0, lastSep) else null
     }
 
     private fun openBundledOrSystemDylib(fileName: String): COpaquePointer? {
