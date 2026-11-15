@@ -9,6 +9,7 @@ import com.nexustools.genericui.enums.media.CodecSupportLevel
 import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import uk.co.caprica.vlcj.factory.MediaPlayerFactory
 import uk.co.caprica.vlcj.media.MediaSlaveType
@@ -48,6 +49,10 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
     override val nativeWidget: JPanel get() = super.nativeWidget as JPanel
 
     private var antialiasingEnabled: Boolean = true
+    private var keepScreenOnState: Boolean = true
+    private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+    @Volatile
+    private var nativePlayerDisposed: Boolean = false
     private var mediaReadyFlag: Boolean = false
     private var onMediaReadyListener: (() -> Unit)? = null
 
@@ -80,11 +85,13 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
 
     init {
         nativeWidget.putClientProperty("antialiasing", true)
+        nativeWidget.putClientProperty("keepScreenOn", true)
         if (vlcjComponent != null) {
             nativeWidget.add(vlcjComponent, BorderLayout.CENTER)
             vlcjComponent.mediaPlayer().events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
                 override fun playing(mediaPlayer: MediaPlayer) {
                     playingFallback = true
+                    syncWakeLockState()
                     if (!mediaReadyFlag) {
                         mediaReadyFlag = true
                         onMediaReadyListener?.invoke()
@@ -94,11 +101,13 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
 
                 override fun paused(mediaPlayer: MediaPlayer) {
                     playingFallback = false
+                    syncWakeLockState()
                     playingStateChangedListener?.invoke(false)
                 }
 
                 override fun stopped(mediaPlayer: MediaPlayer) {
                     playingFallback = false
+                    syncWakeLockState()
                     playingStateChangedListener?.invoke(false)
                 }
 
@@ -121,6 +130,7 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
 
                 override fun finished(mediaPlayer: MediaPlayer) {
                     playingFallback = false
+                    syncWakeLockState()
                     playingStateChangedListener?.invoke(false)
                     endedListener?.invoke()
                 }
@@ -139,11 +149,17 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
 
                 override fun error(mediaPlayer: MediaPlayer) {
                     playingFallback = false
+                    syncWakeLockState()
                     playingStateChangedListener?.invoke(false)
                     errorListener?.invoke("vlcj playback error")
                 }
             })
         }
+    }
+
+    private fun syncWakeLockState() {
+        val active = !nativePlayerDisposed && keepScreenOnState && isPlaying()
+        MediaScreenWakeController.setTokenActive(screenWakeToken, active)
     }
 
     override fun getMediaCapabilities(): MediaCapabilitiesReport = MediaCapabilitiesReport(
@@ -194,12 +210,14 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
     override fun play() {
         playingFallback = true
         vlcjPlayer?.controls()?.play()
+        syncWakeLockState()
         playingStateChangedListener?.invoke(true)
     }
 
     override fun pause() {
         playingFallback = false
         vlcjPlayer?.controls()?.setPause(true)
+        syncWakeLockState()
         playingStateChangedListener?.invoke(false)
     }
 
@@ -207,6 +225,7 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
         playingFallback = false
         currentSecFallback = 0.0
         vlcjPlayer?.controls()?.stop()
+        syncWakeLockState()
         playingStateChangedListener?.invoke(false)
         timeUpdateListener?.invoke(0.0)
     }
@@ -231,7 +250,7 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
     }
 
     override fun isPlaying(): Boolean =
-        vlcjPlayer?.status()?.isPlaying ?: playingFallback
+        !nativePlayerDisposed && (playingFallback || vlcjPlayer?.status()?.isPlaying == true)
 
     override fun setPlaybackSpeed(speed: Float) {
         speedVal = speed.coerceIn(0.1f, 8.0f)
@@ -376,6 +395,23 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
 
     override fun isAntialiasing(): Boolean = antialiasingEnabled
 
+    override fun setKeepScreenOn(keepScreenOn: Boolean) {
+        keepScreenOnState = keepScreenOn
+        nativeWidget.putClientProperty("keepScreenOn", keepScreenOn)
+        syncWakeLockState()
+    }
+
+    override fun isKeepScreenOn(): Boolean = keepScreenOnState
+
+    override fun bindScreenWakeToken(token: Long) {
+        if (token > 0L && token != screenWakeToken) {
+            val previous = screenWakeToken
+            screenWakeToken = token
+            MediaScreenWakeController.releaseToken(previous)
+            syncWakeLockState()
+        }
+    }
+
     override fun setOnMediaReady(listener: (() -> Unit)?) {
         onMediaReadyListener = listener
     }
@@ -392,6 +428,9 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
     }
 
     override fun dispose() {
+        nativePlayerDisposed = true
+        playingFallback = false
+        MediaScreenWakeController.releaseToken(screenWakeToken)
         vlcjComponent?.release()
         super.dispose()
     }

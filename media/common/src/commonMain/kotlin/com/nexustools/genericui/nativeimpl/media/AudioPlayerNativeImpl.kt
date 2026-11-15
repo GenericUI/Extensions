@@ -24,11 +24,15 @@ interface AudioPlayerNativeImpl : Disposable {
     fun setOnBufferedRangesChanged(listener: ((List<Pair<Double, Double>>) -> Unit)?) {}
     fun setOnEnded(listener: (() -> Unit)?)
     fun setOnError(listener: ((String) -> Unit)?)
+    fun setOnPlayingStateChanged(listener: ((Boolean) -> Unit)?) {}
 
     fun setPreloadMode(mode: MediaPreloadMode) {}
     fun getPreloadMode(): MediaPreloadMode = MediaPreloadMode.AUTO
     fun setAdaptivePreloadBufferingEnabled(enabled: Boolean) {}
     fun isAdaptivePreloadBufferingEnabled(): Boolean = true
+    fun setKeepScreenOn(keepScreenOn: Boolean) {}
+    fun isKeepScreenOn(): Boolean = true
+    fun bindScreenWakeToken(token: Long) {}
     fun getBufferedRanges(): List<Pair<Double, Double>> = emptyList()
     fun getEstimatedNetworkSpeedRatio(): Double = 1.0
     fun getRequiredSafeBufferSeconds(): Double = 0.0

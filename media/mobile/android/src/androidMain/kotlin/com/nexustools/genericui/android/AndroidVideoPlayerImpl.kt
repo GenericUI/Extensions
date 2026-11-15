@@ -11,6 +11,7 @@ import com.nexustools.genericui.enums.media.CodecSupportLevel
 import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 
 /**
@@ -26,6 +27,10 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
     private var playbackSpeed: Float = 1f
     private var resizeMode: VideoResizeMode = VideoResizeMode.FIT
     private var antialiasingEnabled: Boolean = true
+    private var keepScreenOnState: Boolean = true
+    private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+    @Volatile
+    private var nativePlayerDisposed: Boolean = false
     private var mediaReadyFlag: Boolean = false
     private var bufferedRangesState: List<Pair<Double, Double>> = emptyList()
     private val audioTracks = mutableListOf<MediaTrackInfo>()
@@ -44,6 +49,17 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
 
     init {
         nativeWidget.attributes["antialiasing"] = "true"
+        nativeWidget.attributes["keepScreenOn"] = "true"
+    }
+
+    private fun syncWakeLockState() {
+        val active = !nativePlayerDisposed && keepScreenOnState && playing
+        MediaScreenWakeController.setTokenActive(screenWakeToken, active)
+        AndroidViewHandle.runOnMainThread {
+            runCatching {
+                nativeWidget.androidView?.keepScreenOn = active
+            }
+        }
     }
 
     private fun queryAndroidDecoderSupportLevel(mimeTypes: Set<String>): CodecSupportLevel {
@@ -137,18 +153,21 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
 
     override fun play() {
         playing = true
+        syncWakeLockState()
         onPlayingStateChanged?.invoke(true)
         updateBufferedHorizon(currentPositionSeconds)
     }
 
     override fun pause() {
         playing = false
+        syncWakeLockState()
         onPlayingStateChanged?.invoke(false)
     }
 
     override fun stop() {
         playing = false
         currentPositionSeconds = 0.0
+        syncWakeLockState()
         onPlayingStateChanged?.invoke(false)
         onTimeUpdate?.invoke(0.0)
     }
@@ -226,6 +245,31 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
     }
 
     override fun isAntialiasing(): Boolean = antialiasingEnabled
+
+    override fun setKeepScreenOn(keepScreenOn: Boolean) {
+        keepScreenOnState = keepScreenOn
+        nativeWidget.attributes["keepScreenOn"] = keepScreenOn.toString()
+        syncWakeLockState()
+    }
+
+    override fun isKeepScreenOn(): Boolean = keepScreenOnState
+
+    override fun bindScreenWakeToken(token: Long) {
+        if (token > 0L && token != screenWakeToken) {
+            val previous = screenWakeToken
+            screenWakeToken = token
+            MediaScreenWakeController.releaseToken(previous)
+            syncWakeLockState()
+        }
+    }
+
+    override fun dispose() {
+        nativePlayerDisposed = true
+        playing = false
+        syncWakeLockState()
+        MediaScreenWakeController.releaseToken(screenWakeToken)
+        super.dispose()
+    }
 
     override fun setOnMediaReady(listener: (() -> Unit)?) {
         onMediaReadyListener = listener

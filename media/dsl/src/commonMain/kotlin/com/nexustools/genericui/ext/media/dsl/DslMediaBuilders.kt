@@ -20,6 +20,7 @@ fun AbstractContainer.videoPlayer(
     muted: Boolean = false,
     playbackSpeed: Float = 1.0f,
     resizeMode: VideoResizeMode = VideoResizeMode.FIT,
+    keepScreenOn: Boolean = true,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker VideoPlayer.() -> Unit)? = null
@@ -29,6 +30,7 @@ fun AbstractContainer.videoPlayer(
     player.isMuted = muted
     player.playbackSpeed = playbackSpeed
     player.resizeMode = resizeMode
+    player.keepScreenOn = keepScreenOn
     if (!classes.isNullOrBlank()) {
         player.addClass(classes)
     }
@@ -48,10 +50,12 @@ fun AbstractContainer.videoPlayer(
 fun AbstractContainer.audioPlayer(
     sourceUrl: String? = null,
     volume: Float = 1.0f,
+    keepScreenOn: Boolean = true,
     block: (@GenericUiDslMarker AudioPlayer.() -> Unit)? = null
 ): AudioPlayer {
     val player = AudioPlayer(sourceUrl = sourceUrl)
     player.volume = volume
+    player.keepScreenOn = keepScreenOn
     if (block != null) {
         player.block()
     }
@@ -64,10 +68,12 @@ fun AbstractContainer.audioPlayer(
 fun audioPlayer(
     sourceUrl: String? = null,
     volume: Float = 1.0f,
+    keepScreenOn: Boolean = true,
     block: (@GenericUiDslMarker AudioPlayer.() -> Unit)? = null
 ): AudioPlayer {
     val player = AudioPlayer(sourceUrl = sourceUrl)
     player.volume = volume
+    player.keepScreenOn = keepScreenOn
     if (block != null) {
         player.block()
     }
@@ -164,6 +170,7 @@ fun AbstractContainer.videoOverlayHost(
     muted: Boolean = false,
     playbackSpeed: Float = 1.0f,
     resizeMode: VideoResizeMode = VideoResizeMode.FIT,
+    keepScreenOn: Boolean = true,
     themeColorHex: String? = null,
     id: String? = null,
     classes: String? = null,
@@ -174,6 +181,7 @@ fun AbstractContainer.videoOverlayHost(
     player.isMuted = muted
     player.playbackSpeed = playbackSpeed
     player.resizeMode = resizeMode
+    player.keepScreenOn = keepScreenOn
     val host = VideoOverlayHost(videoPlayer = player, initialOverlay = overlay)
     if (!themeColorHex.isNullOrBlank()) {
         host.themeColorHex = themeColorHex
@@ -229,6 +237,7 @@ fun videoOverlayHost(
     muted: Boolean = false,
     playbackSpeed: Float = 1.0f,
     resizeMode: VideoResizeMode = VideoResizeMode.FIT,
+    keepScreenOn: Boolean = true,
     themeColorHex: String? = null,
     id: String? = null,
     classes: String? = null,
@@ -239,6 +248,7 @@ fun videoOverlayHost(
     player.isMuted = muted
     player.playbackSpeed = playbackSpeed
     player.resizeMode = resizeMode
+    player.keepScreenOn = keepScreenOn
     val host = VideoOverlayHost(videoPlayer = player, initialOverlay = overlay)
     if (!themeColorHex.isNullOrBlank()) {
         host.themeColorHex = themeColorHex

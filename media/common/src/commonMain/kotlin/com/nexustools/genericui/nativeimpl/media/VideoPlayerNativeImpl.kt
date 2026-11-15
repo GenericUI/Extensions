@@ -104,4 +104,8 @@ interface VideoPlayerNativeImpl<out W> : NativeImpl<W> {
 
     fun setInternalSubtitlesEnabled(enabled: Boolean) {}
     fun isInternalSubtitlesEnabled(): Boolean = true
+
+    fun setKeepScreenOn(keepScreenOn: Boolean) {}
+    fun isKeepScreenOn(): Boolean = true
+    fun bindScreenWakeToken(token: Long) {}
 }

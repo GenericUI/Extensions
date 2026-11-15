@@ -4,6 +4,7 @@ import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.web.WebAudioAnalyzerImpl
 import com.nexustools.genericui.web.WebAudioPlayerImpl
 import com.nexustools.genericui.web.WebMediaSessionManagerImpl
+import com.nexustools.genericui.web.WebScreenWakeLockImpl
 import com.nexustools.genericui.web.WebSeekBarImpl
 import com.nexustools.genericui.web.WebVideoPlayerImpl
 
@@ -20,7 +21,8 @@ object WebMediaExtensionProvider {
                 WebAudioAnalyzerImpl().also { it.fftSize = fftSize }
             },
             mediaSessionManager = { WebMediaSessionManagerImpl() },
-            seekBar = { WebSeekBarImpl() }
+            seekBar = { WebSeekBarImpl() },
+            screenWakeLock = { WebScreenWakeLockImpl() }
         )
     }
 }

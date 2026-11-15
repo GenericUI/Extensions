@@ -17,6 +17,7 @@ interface Player : Disposable {
     var playbackSpeed: Float
     var preloadMode: MediaPreloadMode
     var adaptivePreloadBufferingEnabled: Boolean
+    var keepScreenOn: Boolean
     val isMediaReady: Boolean
     val isBuffering: Boolean
     val bufferedRanges: List<Pair<Double, Double>>

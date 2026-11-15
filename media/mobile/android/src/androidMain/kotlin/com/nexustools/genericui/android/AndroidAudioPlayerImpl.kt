@@ -3,8 +3,10 @@ package com.nexustools.genericui.android
 import android.media.MediaCodecList
 import android.media.MediaPlayer
 import android.media.audiofx.Visualizer
+import android.os.PowerManager
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.enums.media.AudioCodec
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 
 /**
@@ -16,6 +18,10 @@ class AndroidAudioPlayerImpl : AudioPlayerNativeImpl {
     private var durationSeconds: Double = 120.0
     private var playing: Boolean = false
     private var volume: Float = 1f
+    private var keepScreenOnState: Boolean = true
+    private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+    @Volatile
+    private var nativePlayerDisposed: Boolean = false
     private var analyzer: AudioAnalyzer? = null
     private var mediaPlayer: MediaPlayer? = null
     private var visualizer: Visualizer? = null
@@ -24,8 +30,14 @@ class AndroidAudioPlayerImpl : AudioPlayerNativeImpl {
     private var onBufferedRangesChanged: ((List<Pair<Double, Double>>) -> Unit)? = null
     private var onEnded: (() -> Unit)? = null
     private var onError: ((String) -> Unit)? = null
+    private var onPlayingStateChanged: ((Boolean) -> Unit)? = null
     private var onMediaReady: (() -> Unit)? = null
     private var mediaReady: Boolean = false
+
+    private fun syncWakeLockState() {
+        val active = !nativePlayerDisposed && keepScreenOnState && playing
+        MediaScreenWakeController.setTokenActive(screenWakeToken, active)
+    }
 
     override fun isAudioCodecSupported(codec: AudioCodec): Boolean = runCatching {
         val codecInfos = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos ?: return@runCatching false
@@ -103,6 +115,11 @@ class AndroidAudioPlayerImpl : AudioPlayerNativeImpl {
             mediaPlayer = null
             if (url.isNotBlank() && !url.startsWith("synth://")) {
                 val mp = MediaPlayer()
+                if (keepScreenOnState) {
+                    AndroidViewHandle.activeContext?.let { ctx ->
+                        runCatching { mp.setWakeMode(ctx, PowerManager.PARTIAL_WAKE_LOCK) }
+                    }
+                }
                 mp.setDataSource(url)
                 mp.setVolume(volume, volume)
                 mp.setOnPreparedListener { prepared ->
@@ -118,15 +135,20 @@ class AndroidAudioPlayerImpl : AudioPlayerNativeImpl {
                     onMediaReady?.invoke()
                     if (playing) {
                         prepared.start()
+                        syncWakeLockState()
                         attachVisualizerIfPossible()
                     }
                 }
                 mp.setOnCompletionListener {
                     playing = false
+                    syncWakeLockState()
+                    onPlayingStateChanged?.invoke(false)
                     onEnded?.invoke()
                 }
                 mp.setOnErrorListener { _, what, extra ->
                     playing = false
+                    syncWakeLockState()
+                    onPlayingStateChanged?.invoke(false)
                     onError?.invoke("Android MediaPlayer error ($what, $extra)")
                     true
                 }
@@ -141,28 +163,34 @@ class AndroidAudioPlayerImpl : AudioPlayerNativeImpl {
 
     override fun play() {
         playing = true
+        syncWakeLockState()
         runCatching {
             mediaPlayer?.start()
             attachVisualizerIfPossible()
         }
+        onPlayingStateChanged?.invoke(true)
     }
 
     override fun pause() {
         playing = false
+        syncWakeLockState()
         runCatching {
             if (mediaPlayer?.isPlaying == true) {
                 mediaPlayer?.pause()
             }
         }
+        onPlayingStateChanged?.invoke(false)
     }
 
     override fun stop() {
         playing = false
         currentPositionSeconds = 0.0
+        syncWakeLockState()
         releaseVisualizer()
         runCatching {
             mediaPlayer?.stop()
         }
+        onPlayingStateChanged?.invoke(false)
     }
 
     override fun seekTo(seconds: Double) {
@@ -218,6 +246,20 @@ class AndroidAudioPlayerImpl : AudioPlayerNativeImpl {
     }
     override fun setOnEnded(listener: (() -> Unit)?) { onEnded = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { onError = listener }
+    override fun setOnPlayingStateChanged(listener: ((Boolean) -> Unit)?) { onPlayingStateChanged = listener }
+    override fun setKeepScreenOn(keepScreenOn: Boolean) {
+        keepScreenOnState = keepScreenOn
+        syncWakeLockState()
+    }
+    override fun isKeepScreenOn(): Boolean = keepScreenOnState
+    override fun bindScreenWakeToken(token: Long) {
+        if (token > 0L && token != screenWakeToken) {
+            val previous = screenWakeToken
+            screenWakeToken = token
+            MediaScreenWakeController.releaseToken(previous)
+            syncWakeLockState()
+        }
+    }
     override fun setOnMediaReady(listener: (() -> Unit)?) {
         onMediaReady = listener
         if (mediaReady) listener?.invoke()
@@ -225,6 +267,9 @@ class AndroidAudioPlayerImpl : AudioPlayerNativeImpl {
     override fun isMediaReady(): Boolean = mediaReady
 
     override fun dispose() {
+        nativePlayerDisposed = true
+        playing = false
+        MediaScreenWakeController.releaseToken(screenWakeToken)
         releaseVisualizer()
         runCatching {
             mediaPlayer?.release()

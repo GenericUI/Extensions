@@ -8,6 +8,7 @@ import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.ext.media.MediaExtension
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.ext.media.overlay.VideoOverlayHost
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
@@ -124,6 +125,23 @@ open class VideoPlayer(
             notifyStateChangeObservers()
         }
 
+    private val screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+    private var playerDisposed: Boolean = false
+
+    /**
+     * Prevents the display from dimming/turning off, inhibits the system screensaver,
+     * and prevents OS idle sleep while this player is actively playing media.
+     * Enabled (`true`) by default across all supported backends.
+     */
+    override var keepScreenOn: Boolean = true
+        set(value) {
+            field = value
+            setAttribute("data-keep-screen-on", value.toString())
+            typedNative<VideoPlayerNativeImpl<*>>()?.setKeepScreenOn(value)
+            syncScreenWakeLockState()
+            notifyStateChangeObservers()
+        }
+
     /**
      * Enables smooth bilinear/bicubic antialiasing and high-quality video frame scaling.
      * Enabled (`true`) by default across all backends.
@@ -146,6 +164,12 @@ open class VideoPlayer(
 
     init {
         setAttribute("data-antialiasing", antialiasing.toString())
+        setAttribute("data-keep-screen-on", keepScreenOn.toString())
+    }
+
+    private fun syncScreenWakeLockState() {
+        val active = !playerDisposed && keepScreenOn && isPlaying
+        MediaScreenWakeController.setTokenActive(screenWakeToken, active)
     }
 
     internal fun notifyMediaReady() {
@@ -354,6 +378,7 @@ open class VideoPlayer(
                 notifyMediaReady()
             }
         }
+        syncScreenWakeLockState()
         notifyStateChangeObservers()
     }
 
@@ -365,6 +390,7 @@ open class VideoPlayer(
         } else {
             onPlayingStateChanged?.invoke(true)
         }
+        syncScreenWakeLockState()
         notifyStateChangeObservers()
     }
 
@@ -376,6 +402,7 @@ open class VideoPlayer(
         } else {
             onPlayingStateChanged?.invoke(false)
         }
+        syncScreenWakeLockState()
         notifyStateChangeObservers()
     }
 
@@ -397,6 +424,7 @@ open class VideoPlayer(
             onPlayingStateChanged?.invoke(false)
             onTimeUpdate?.invoke(0.0)
         }
+        syncScreenWakeLockState()
         notifyStateChangeObservers()
     }
 
@@ -441,8 +469,15 @@ open class VideoPlayer(
     override fun requestFullscreen(cutoutMode: com.nexustools.genericui.enums.window.DisplayCutoutMode) {
         val host = attachedOverlayHost
         if (host != null && host !== this) {
+            val wasFullscreen = isFullscreen()
             host.requestFullscreen(cutoutMode)
-            updateFullscreenElementState(true, cutoutMode)
+            val nowFullscreen = isFullscreen()
+            if (nowFullscreen) {
+                setAttribute("data-genericui-fullscreen-element", "true")
+            }
+            if (!wasFullscreen && nowFullscreen) {
+                onFullscreenChanged?.invoke(true)
+            }
         } else {
             super.requestFullscreen(cutoutMode)
         }
@@ -452,8 +487,15 @@ open class VideoPlayer(
     override fun exitFullscreen() {
         val host = attachedOverlayHost
         if (host != null && host !== this) {
+            val wasFullscreen = isFullscreen()
             host.exitFullscreen()
-            updateFullscreenElementState(false)
+            val nowFullscreen = isFullscreen()
+            if (!nowFullscreen) {
+                removeAttribute("data-genericui-fullscreen-element")
+            }
+            if (wasFullscreen && !nowFullscreen) {
+                onFullscreenChanged?.invoke(false)
+            }
         } else {
             super.exitFullscreen()
         }
@@ -696,8 +738,11 @@ open class VideoPlayer(
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<VideoPlayerNativeImpl<*>>() ?: return
+        val shouldPlayAfterMount = playingFallbackState
+        impl.bindScreenWakeToken(screenWakeToken)
         impl.setPreloadMode(preloadMode)
         impl.setAdaptivePreloadBufferingEnabled(adaptivePreloadBufferingEnabled)
+        impl.setKeepScreenOn(keepScreenOn)
         impl.setAntialiasing(antialiasing)
         impl.setInternalSubtitlesEnabled(internalSubtitlesEnabledState)
         impl.setVolume(volume)
@@ -731,6 +776,7 @@ open class VideoPlayer(
         }
         impl.setOnEnded {
             playingFallbackState = false
+            syncScreenWakeLockState()
             onPlayingStateChanged?.invoke(false)
             onEnded?.invoke()
             notifyStateChangeObservers()
@@ -749,6 +795,7 @@ open class VideoPlayer(
         }
         impl.setOnPlayingStateChanged { playing ->
             playingFallbackState = playing
+            syncScreenWakeLockState()
             onPlayingStateChanged?.invoke(playing)
             notifyStateChangeObservers()
         }
@@ -763,10 +810,22 @@ open class VideoPlayer(
         }
         impl.setOnError { err ->
             playingFallbackState = false
+            syncScreenWakeLockState()
             onError?.invoke(err)
             notifyStateChangeObservers()
         }
         attachedAnalyzer?.let { impl.attachAudioAnalyzer(it) }
         sourceUrl?.let { impl.setSource(it, seekOffsetSeconds, durationOverrideSeconds) }
+        if (shouldPlayAfterMount && !impl.isPlaying()) {
+            impl.play()
+        }
+        syncScreenWakeLockState()
+    }
+
+    override fun dispose() {
+        playerDisposed = true
+        playingFallbackState = false
+        MediaScreenWakeController.releaseToken(screenWakeToken)
+        super.dispose()
     }
 }

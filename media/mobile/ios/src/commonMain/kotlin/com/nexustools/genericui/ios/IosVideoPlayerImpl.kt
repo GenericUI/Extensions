@@ -9,6 +9,7 @@ import com.nexustools.genericui.enums.media.CodecSupportLevel
 import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import platform.AVFoundation.AVURLAsset
 
@@ -24,6 +25,10 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
     private var mutedFlag: Boolean = false
     private var resizeMode: VideoResizeMode = VideoResizeMode.FIT
     private var antialiasingEnabled: Boolean = true
+    private var keepScreenOnState: Boolean = true
+    private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+    @kotlin.concurrent.Volatile
+    private var nativePlayerDisposed: Boolean = false
     private var mediaReadyFlag: Boolean = false
     private var pipActive: Boolean = false
     private var bufferedRangesState: List<Pair<Double, Double>> = emptyList()
@@ -45,6 +50,12 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
 
     init {
         nativeWidget.metadata["antialiasing"] = "true"
+        nativeWidget.metadata["keepScreenOn"] = "true"
+    }
+
+    private fun syncWakeLockState() {
+        val active = !nativePlayerDisposed && keepScreenOnState && playing
+        MediaScreenWakeController.setTokenActive(screenWakeToken, active)
     }
 
     private fun isExtendedMimePlayable(probes: List<String>): Boolean =
@@ -132,18 +143,21 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
 
     override fun play() {
         playing = true
+        syncWakeLockState()
         onPlayingStateChangedListener?.invoke(true)
         updateBufferedHorizon(currentTimeSec)
     }
 
     override fun pause() {
         playing = false
+        syncWakeLockState()
         onPlayingStateChangedListener?.invoke(false)
     }
 
     override fun stop() {
         playing = false
         currentTimeSec = 0.0
+        syncWakeLockState()
         onPlayingStateChangedListener?.invoke(false)
         onTimeUpdateListener?.invoke(0.0)
     }
@@ -235,6 +249,30 @@ class IosVideoPlayerImpl : IosBaseNativeImpl("AVPlayerView", "video-player"), Vi
     }
 
     override fun isAntialiasing(): Boolean = antialiasingEnabled
+
+    override fun setKeepScreenOn(keepScreenOn: Boolean) {
+        keepScreenOnState = keepScreenOn
+        nativeWidget.metadata["keepScreenOn"] = keepScreenOn.toString()
+        syncWakeLockState()
+    }
+
+    override fun isKeepScreenOn(): Boolean = keepScreenOnState
+
+    override fun bindScreenWakeToken(token: Long) {
+        if (token > 0L && token != screenWakeToken) {
+            val previous = screenWakeToken
+            screenWakeToken = token
+            MediaScreenWakeController.releaseToken(previous)
+            syncWakeLockState()
+        }
+    }
+
+    override fun dispose() {
+        nativePlayerDisposed = true
+        playing = false
+        MediaScreenWakeController.releaseToken(screenWakeToken)
+        super.dispose()
+    }
 
     override fun setOnMediaReady(listener: (() -> Unit)?) {
         onMediaReadyListener = listener

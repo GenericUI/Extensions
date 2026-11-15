@@ -3,6 +3,7 @@ package com.nexustools.genericui.ext.media.desktop
 import com.nexustools.genericui.desktop.core.DesktopNativeWidget
 import com.nexustools.genericui.desktop.core.DesktopStageSubtreeClassifier
 import com.nexustools.genericui.desktop.system.DesktopMediaSessionManagerNativeImpl
+import com.nexustools.genericui.desktop.system.DesktopScreenWakeLockNativeImpl
 import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.ext.media.desktop.libvlc.DesktopLibVlcAudioAnalyzerImpl
 import com.nexustools.genericui.ext.media.desktop.libvlc.DesktopLibVlcAudioPlayerImpl
@@ -88,6 +89,9 @@ object DesktopVlcMediaExtensionProvider {
                 DesktopSeekBarNativeImpl(
                     nativeWidget = DesktopNativeWidget(platformName, "SeekBar")
                 )
+            },
+            screenWakeLock = {
+                DesktopScreenWakeLockNativeImpl()
             }
         )
     }

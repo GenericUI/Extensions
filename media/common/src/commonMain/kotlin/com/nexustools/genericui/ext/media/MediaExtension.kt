@@ -8,6 +8,7 @@ import com.nexustools.genericui.nativeimpl.media.SeekBarNativeImpl
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import com.nexustools.genericui.nativeimpl.system.MediaNotificationNativeImpl
 import com.nexustools.genericui.nativeimpl.system.MediaSessionManagerNativeImpl
+import com.nexustools.genericui.nativeimpl.system.ScreenWakeLockNativeImpl
 
 /**
  * Extension coordinator for `:extensions:media`.
@@ -24,6 +25,7 @@ object MediaExtension {
     private var seekBarProvider: (() -> SeekBarNativeImpl<*>)? = null
     private var audioAnalyzerProvider: ((Int) -> AudioAnalyzerNativeImpl)? = null
     private var mediaSessionManagerProvider: (() -> MediaSessionManagerNativeImpl)? = null
+    private var screenWakeLockProvider: (() -> ScreenWakeLockNativeImpl)? = null
     var mediaNotificationFactory: (() -> MediaNotificationNativeImpl)? = null
 
     fun registerProviders(
@@ -32,7 +34,8 @@ object MediaExtension {
         audioAnalyzer: ((Int) -> AudioAnalyzerNativeImpl)? = null,
         mediaSessionManager: (() -> MediaSessionManagerNativeImpl)? = null,
         seekBar: (() -> SeekBarNativeImpl<*>)? = null,
-        mediaNotification: (() -> MediaNotificationNativeImpl)? = null
+        mediaNotification: (() -> MediaNotificationNativeImpl)? = null,
+        screenWakeLock: (() -> ScreenWakeLockNativeImpl)? = null
     ) {
         if (videoPlayer != null) videoPlayerProvider = videoPlayer
         if (audioPlayer != null) audioPlayerProvider = audioPlayer
@@ -40,6 +43,10 @@ object MediaExtension {
         if (mediaSessionManager != null) mediaSessionManagerProvider = mediaSessionManager
         if (seekBar != null) seekBarProvider = seekBar
         if (mediaNotification != null) mediaNotificationFactory = mediaNotification
+        if (screenWakeLock != null) {
+            screenWakeLockProvider = screenWakeLock
+            MediaScreenWakeController.onWakeLockProviderUpdated()
+        }
     }
 
     fun createVideoPlayerNative(): VideoPlayerNativeImpl<*>? = videoPlayerProvider?.invoke()
@@ -69,6 +76,20 @@ object MediaExtension {
 
     fun createMediaNotificationNative(): MediaNotificationNativeImpl? =
         mediaNotificationFactory?.invoke()
+
+    fun createScreenWakeLockNative(): ScreenWakeLockNativeImpl? =
+        screenWakeLockProvider?.invoke()
+
+    internal fun resetProvidersForTest() {
+        videoPlayerProvider = null
+        audioPlayerProvider = null
+        seekBarProvider = null
+        audioAnalyzerProvider = null
+        mediaSessionManagerProvider = null
+        screenWakeLockProvider = null
+        mediaNotificationFactory = null
+        MediaScreenWakeController.onWakeLockProviderUpdated()
+    }
 
     /**
      * Checks whether the given [VideoCodec] is supported on the active media backend.

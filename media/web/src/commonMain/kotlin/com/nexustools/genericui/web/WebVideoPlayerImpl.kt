@@ -10,6 +10,7 @@ import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import kotlin.math.min
 
@@ -35,6 +36,9 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
     private var preloadMode: MediaPreloadMode = MediaPreloadMode.AUTO
     private var adaptivePreloadBufferingEnabled: Boolean = true
     private var antialiasingEnabled: Boolean = true
+    private var keepScreenOnState: Boolean = true
+    private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+    private var nativePlayerDisposed: Boolean = false
     private var mediaReadyFlag: Boolean = false
     private var lastProgressWallTimeMs: Long = 0L
     private var lastProgressBufferedEndSec: Double = 0.0
@@ -83,6 +87,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
         nativeWidget.setAttribute("webkit-playsinline", "")
         nativeWidget.setAttribute("preload", "auto")
         nativeWidget.setAttribute("data-adaptive-preload-buffering", "true")
+        nativeWidget.setAttribute("data-keep-screen-on", "true")
         nativeWidget.style["width"] = "100%"
         nativeWidget.style["height"] = "100%"
         nativeWidget.style["display"] = "block"
@@ -94,6 +99,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
         nativeWidget.addEventListener("play") {
             playing = true
             nativeWidget.setAttribute("data-playing", "true")
+            syncWakeLockState()
             onPlayingStateChangedListener?.invoke(true)
         }
         nativeWidget.addEventListener("pause") {
@@ -102,6 +108,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             }
             playing = false
             nativeWidget.setAttribute("data-playing", "false")
+            syncWakeLockState()
             onPlayingStateChangedListener?.invoke(false)
         }
         nativeWidget.addEventListener("ended") {
@@ -109,6 +116,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             wantsPlayback = false
             playing = false
             nativeWidget.setAttribute("data-playing", "false")
+            syncWakeLockState()
             onPlayingStateChangedListener?.invoke(false)
             onEndedListener?.invoke()
         }
@@ -128,6 +136,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             isChangingSource = false
             playing = true
             nativeWidget.setAttribute("data-playing", "true")
+            syncWakeLockState()
             if (buffering) {
                 buffering = false
                 onBufferingChangedListener?.invoke(false)
@@ -145,6 +154,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             if (wantsPlayback && !playing) {
                 playing = true
                 nativeWidget.setAttribute("data-playing", "true")
+                syncWakeLockState()
                 onPlayingStateChangedListener?.invoke(true)
                 WebBrowserDomBridge.mediaPlay(nativeWidget)
             }
@@ -199,6 +209,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             if (wantsPlayback && !playing) {
                 playing = true
                 nativeWidget.setAttribute("data-playing", "true")
+                syncWakeLockState()
                 onPlayingStateChangedListener?.invoke(true)
                 WebBrowserDomBridge.mediaPlay(nativeWidget)
             }
@@ -259,9 +270,20 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             onBufferedRangesChangedListener?.invoke(bufferedRangesList)
         }
         nativeWidget.addEventListener("error") { payload ->
+            wantsPlayback = false
+            isChangingSource = false
+            playing = false
+            nativeWidget.setAttribute("data-playing", "false")
+            syncWakeLockState()
+            onPlayingStateChangedListener?.invoke(false)
             val detail = (payload as? String)?.takeIf { it.isNotBlank() } ?: "Video playback error for $sourceUrl"
             onErrorListener?.invoke(detail)
         }
+    }
+
+    private fun syncWakeLockState() {
+        val active = !nativePlayerDisposed && keepScreenOnState && playing
+        MediaScreenWakeController.setTokenActive(screenWakeToken, active)
     }
 
     private fun canPlayAnyMime(mimes: List<String>): Boolean =
@@ -413,6 +435,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
         wantsPlayback = true
         playing = true
         nativeWidget.setAttribute("data-playing", "true")
+        syncWakeLockState()
         onPlayingStateChangedListener?.invoke(true)
         WebBrowserDomBridge.mediaPlay(nativeWidget) { errMsg ->
             if (!playing || errMsg.contains("AbortError", ignoreCase = true) || errMsg.contains("interrupted", ignoreCase = true)) {
@@ -422,6 +445,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             isChangingSource = false
             playing = false
             nativeWidget.setAttribute("data-playing", "false")
+            syncWakeLockState()
             onPlayingStateChangedListener?.invoke(false)
             onErrorListener?.invoke(errMsg)
         }
@@ -432,6 +456,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
         isChangingSource = false
         playing = false
         nativeWidget.setAttribute("data-playing", "false")
+        syncWakeLockState()
         onPlayingStateChangedListener?.invoke(false)
         WebBrowserDomBridge.mediaPause(nativeWidget)
     }
@@ -444,6 +469,7 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
         transcodeBaseOffsetSec = 0.0
         pendingDirectSeekSec = null
         nativeWidget.setAttribute("data-playing", "false")
+        syncWakeLockState()
         WebBrowserDomBridge.mediaPause(nativeWidget)
         WebBrowserDomBridge.mediaSeekTo(nativeWidget, 0.0)
         onPlayingStateChangedListener?.invoke(false)
@@ -593,6 +619,31 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
     }
 
     override fun isAntialiasing(): Boolean = antialiasingEnabled
+
+    override fun setKeepScreenOn(keepScreenOn: Boolean) {
+        keepScreenOnState = keepScreenOn
+        nativeWidget.setAttribute("data-keep-screen-on", keepScreenOn.toString())
+        syncWakeLockState()
+    }
+
+    override fun isKeepScreenOn(): Boolean = keepScreenOnState
+
+    override fun bindScreenWakeToken(token: Long) {
+        if (token > 0L && token != screenWakeToken) {
+            val previous = screenWakeToken
+            screenWakeToken = token
+            MediaScreenWakeController.releaseToken(previous)
+            syncWakeLockState()
+        }
+    }
+
+    override fun dispose() {
+        nativePlayerDisposed = true
+        wantsPlayback = false
+        playing = false
+        MediaScreenWakeController.releaseToken(screenWakeToken)
+        super.dispose()
+    }
 
     override fun setOnMediaReady(listener: (() -> Unit)?) {
         onMediaReadyListener = listener

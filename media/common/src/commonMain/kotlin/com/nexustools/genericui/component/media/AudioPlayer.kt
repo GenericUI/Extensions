@@ -3,6 +3,7 @@ package com.nexustools.genericui.component.media
 import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.ext.media.MediaExtension
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -65,6 +66,26 @@ class AudioPlayer(
             ensureImpl()?.setAdaptivePreloadBufferingEnabled(value)
             notifyStateChangeObservers()
         }
+
+    private val screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+
+    /**
+     * Prevents the display from dimming/turning off, inhibits the system screensaver,
+     * and prevents OS idle sleep while this player is actively playing media.
+     * Enabled (`true`) by default across all supported backends.
+     */
+    override var keepScreenOn: Boolean = true
+        set(value) {
+            field = value
+            nativeImpl?.setKeepScreenOn(value)
+            syncScreenWakeLockState()
+            notifyStateChangeObservers()
+        }
+
+    private fun syncScreenWakeLockState() {
+        val active = !isDisposed && keepScreenOn && isPlaying
+        MediaScreenWakeController.setTokenActive(screenWakeToken, active)
+    }
 
     private var mediaReadyFallbackState: Boolean = false
     private val mediaReadyWaiters = mutableListOf<() -> Unit>()
@@ -168,8 +189,10 @@ class AudioPlayer(
         if (existing != null) return existing
         val created = MediaExtension.createAudioPlayerNative() ?: return null
         nativeImpl = created
+        created.bindScreenWakeToken(screenWakeToken)
         created.setPreloadMode(preloadMode)
         created.setAdaptivePreloadBufferingEnabled(adaptivePreloadBufferingEnabled)
+        created.setKeepScreenOn(keepScreenOn)
         created.setVolume(if (isMuted) 0f else volume)
         created.setOnMediaReady {
             notifyMediaReady()
@@ -192,14 +215,22 @@ class AudioPlayer(
             onBufferedRangesChanged?.invoke(bufferedRanges)
             notifyStateChangeObservers()
         }
+        created.setOnPlayingStateChanged { playing ->
+            playingFallbackState = playing
+            syncScreenWakeLockState()
+            onPlayingStateChanged?.invoke(playing)
+            notifyStateChangeObservers()
+        }
         created.setOnEnded {
             playingFallbackState = false
+            syncScreenWakeLockState()
             onPlayingStateChanged?.invoke(false)
             onEnded?.invoke()
             notifyStateChangeObservers()
         }
         created.setOnError { err ->
             playingFallbackState = false
+            syncScreenWakeLockState()
             onError?.invoke(err)
             notifyStateChangeObservers()
         }
@@ -212,6 +243,7 @@ class AudioPlayer(
                 notifyMediaReady()
             }
         }
+        syncScreenWakeLockState()
         return created
     }
 
@@ -262,6 +294,7 @@ class AudioPlayer(
                 notifyMediaReady()
             }
         }
+        syncScreenWakeLockState()
         notifyStateChangeObservers()
     }
 
@@ -271,6 +304,7 @@ class AudioPlayer(
         if (impl != null) {
             impl.play()
         }
+        syncScreenWakeLockState()
         onPlayingStateChanged?.invoke(true)
         notifyStateChangeObservers()
     }
@@ -281,6 +315,7 @@ class AudioPlayer(
         if (impl != null) {
             impl.pause()
         }
+        syncScreenWakeLockState()
         onPlayingStateChanged?.invoke(false)
         notifyStateChangeObservers()
     }
@@ -302,6 +337,7 @@ class AudioPlayer(
         } else {
             onTimeUpdate?.invoke(0.0)
         }
+        syncScreenWakeLockState()
         onPlayingStateChanged?.invoke(false)
         notifyStateChangeObservers()
     }
@@ -346,6 +382,7 @@ class AudioPlayer(
     override fun dispose() {
         isDisposed = true
         stop()
+        MediaScreenWakeController.releaseToken(screenWakeToken)
         nativeImpl?.dispose()
         nativeImpl = null
         nativeSourceSynced = false

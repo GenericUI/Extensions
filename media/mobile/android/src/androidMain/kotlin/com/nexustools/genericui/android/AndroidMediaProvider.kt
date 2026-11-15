@@ -16,7 +16,8 @@ object AndroidMediaProvider {
             audioPlayerFactory = { AndroidAudioPlayerImpl() },
             audioAnalyzerFactory = { AndroidAudioAnalyzerImpl() },
             mediaSessionManagerFactory = { AndroidMediaSessionManagerImpl() },
-            seekBarFactory = { AndroidSeekBarImpl() }
+            seekBarFactory = { AndroidSeekBarImpl() },
+            screenWakeLockFactory = { AndroidScreenWakeLockImpl() }
         )
     }
 }

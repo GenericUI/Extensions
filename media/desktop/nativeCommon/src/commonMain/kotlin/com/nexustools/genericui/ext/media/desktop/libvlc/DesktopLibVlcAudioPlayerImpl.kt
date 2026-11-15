@@ -4,6 +4,7 @@ package com.nexustools.genericui.ext.media.desktop.libvlc
 
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.enums.media.AudioCodec
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import kotlinx.cinterop.COpaquePointer
 import kotlinx.cinterop.StableRef
@@ -12,6 +13,14 @@ import kotlinx.cinterop.asStableRef
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.usePinned
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import platform.posix.memcpy
 
 /**
@@ -39,8 +48,15 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
 
     private var currentSourceUrl: String = ""
     private var currentSecFallback: Double = 0.0
+    @kotlin.concurrent.Volatile
     private var playingFallback: Boolean = false
     private var volumeLevel: Float = 1.0f
+    private var keepScreenOnState: Boolean = true
+    private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+    @kotlin.concurrent.Volatile
+    private var nativePlayerDisposed: Boolean = false
+    private val pollScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var playbackMonitorJob: Job? = null
     private var attachedAnalyzer: AudioAnalyzer? = null
 
     private var onTimeUpdateListener: ((Double) -> Unit)? = null
@@ -48,8 +64,45 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     private var onBufferedRangesChangedListener: ((List<Pair<Double, Double>>) -> Unit)? = null
     private var onEndedListener: (() -> Unit)? = null
     private var onErrorListener: ((String) -> Unit)? = null
+    private var onPlayingStateChangedListener: ((Boolean) -> Unit)? = null
     private var onMediaReadyListener: (() -> Unit)? = null
     private var mediaReady: Boolean = false
+
+    private fun syncWakeLockState() {
+        val active = !nativePlayerDisposed && keepScreenOnState && isPlaying()
+        MediaScreenWakeController.setTokenActive(screenWakeToken, active)
+    }
+
+    private fun stopPlaybackMonitor() {
+        playbackMonitorJob?.cancel()
+        playbackMonitorJob = null
+    }
+
+    private fun startPlaybackMonitorIfNeeded() {
+        stopPlaybackMonitor()
+        if (nativePlayerDisposed || !playingFallback || currentSourceUrl.isBlank() || !LibVlcBindings.isAvailable) return
+        playbackMonitorJob = pollScope.launch {
+            while (isActive && !nativePlayerDisposed && playingFallback) {
+                delay(250L)
+                if (nativePlayerDisposed || !playingFallback) break
+                val player = vlcMediaPlayer ?: continue
+                val state = LibVlcBindings.libvlc_media_player_get_state(player)
+                if (state == 6) {
+                    playingFallback = false
+                    syncWakeLockState()
+                    onPlayingStateChangedListener?.invoke(false)
+                    onEndedListener?.invoke()
+                    break
+                } else if (state == 7) {
+                    playingFallback = false
+                    syncWakeLockState()
+                    onPlayingStateChangedListener?.invoke(false)
+                    onErrorListener?.invoke(LibVlcBindings.libvlc_errmsg() ?: "libvlc audio playback error")
+                    break
+                }
+            }
+        }
+    }
 
     private fun ensureVlcPlayer(): COpaquePointer? {
         if (!vlcInitAttempted) {
@@ -127,6 +180,7 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     override fun isAudioCodecSupported(codec: AudioCodec): Boolean = true
 
     override fun setSource(url: String, seekOffsetSeconds: Double) {
+        stopPlaybackMonitor()
         currentSourceUrl = url
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
         playingFallback = false
@@ -151,15 +205,20 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
             mediaReady = true
             onMediaReadyListener?.invoke()
         }
+        syncWakeLockState()
     }
 
     override fun play() {
         playingFallback = true
-        val player = vlcMediaPlayer ?: ensureVlcPlayer()
+        val player = if (currentSourceUrl.isNotBlank()) (vlcMediaPlayer ?: ensureVlcPlayer()) else null
         if (player != null) {
             val res = LibVlcBindings.libvlc_media_player_play(player)
             if (res < 0 && LibVlcBindings.isAvailable) {
+                playingFallback = false
+                syncWakeLockState()
+                onPlayingStateChangedListener?.invoke(false)
                 onErrorListener?.invoke(LibVlcBindings.libvlc_errmsg() ?: "libvlc_media_player_play failed")
+                return
             }
         }
         if (attachedAnalyzer != null && currentSourceUrl.isNotBlank()) {
@@ -170,23 +229,32 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
                 LibVlcBindings.libvlc_media_player_play(tapPlayer)
             }
         }
+        syncWakeLockState()
+        startPlaybackMonitorIfNeeded()
+        onPlayingStateChangedListener?.invoke(true)
     }
 
     override fun pause() {
         playingFallback = false
+        stopPlaybackMonitor()
         LibVlcBindings.libvlc_media_player_set_pause(vlcMediaPlayer, 1)
         analyzerVlcMediaPlayer?.let { tapPlayer ->
             LibVlcBindings.libvlc_media_player_set_pause(tapPlayer, 1)
         }
+        syncWakeLockState()
+        onPlayingStateChangedListener?.invoke(false)
     }
 
     override fun stop() {
         playingFallback = false
+        stopPlaybackMonitor()
         currentSecFallback = 0.0
         LibVlcBindings.libvlc_media_player_stop(vlcMediaPlayer)
         analyzerVlcMediaPlayer?.let { tapPlayer ->
             LibVlcBindings.libvlc_media_player_stop(tapPlayer)
         }
+        syncWakeLockState()
+        onPlayingStateChangedListener?.invoke(false)
     }
 
     override fun seekTo(seconds: Double) {
@@ -213,7 +281,7 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     override fun isPlaying(): Boolean {
         if (!playingFallback) return false
         val player = vlcMediaPlayer
-        return if (player != null && LibVlcBindings.isAvailable) {
+        return if (player != null && currentSourceUrl.isNotBlank() && LibVlcBindings.isAvailable) {
             val state = LibVlcBindings.libvlc_media_player_get_state(player)
             when {
                 state == 3 -> true
@@ -262,6 +330,20 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     }
     override fun setOnEnded(listener: (() -> Unit)?) { onEndedListener = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { onErrorListener = listener }
+    override fun setOnPlayingStateChanged(listener: ((Boolean) -> Unit)?) { onPlayingStateChangedListener = listener }
+    override fun setKeepScreenOn(keepScreenOn: Boolean) {
+        keepScreenOnState = keepScreenOn
+        syncWakeLockState()
+    }
+    override fun isKeepScreenOn(): Boolean = keepScreenOnState
+    override fun bindScreenWakeToken(token: Long) {
+        if (token > 0L && token != screenWakeToken) {
+            val previous = screenWakeToken
+            screenWakeToken = token
+            MediaScreenWakeController.releaseToken(previous)
+            syncWakeLockState()
+        }
+    }
     override fun setOnMediaReady(listener: (() -> Unit)?) {
         onMediaReadyListener = listener
         if (mediaReady) listener?.invoke()
@@ -269,6 +351,11 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     override fun isMediaReady(): Boolean = mediaReady
 
     override fun dispose() {
+        nativePlayerDisposed = true
+        playingFallback = false
+        stopPlaybackMonitor()
+        pollScope.cancel()
+        MediaScreenWakeController.releaseToken(screenWakeToken)
         analyzerVlcMediaPlayer?.let { tapPlayer ->
             LibVlcBindings.libvlc_media_player_stop(tapPlayer)
             LibVlcBindings.libvlc_audio_set_callbacks(tapPlayer, null)

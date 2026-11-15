@@ -15,6 +15,7 @@ import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import com.nexustools.genericui.threading.GenericUiThreading
 import kotlinx.cinterop.ByteVar
@@ -72,6 +73,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     private val videoFrameBuffer = ByteArray(videoFrameBytes)
 
     private var antialiasingEnabled: Boolean = true
+    private var keepScreenOnState: Boolean = true
+    private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+    private var nativePlayerDisposed: Boolean = false
     private var mediaReadyFlag: Boolean = false
     private var onMediaReadyListener: (() -> Unit)? = null
     private var onBeforeFramePresentListener: ((Long, Double) -> Unit)? = null
@@ -163,6 +167,12 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         ).attachTo(nativeWidget)
         nativeWidget.attributes["vblankDispatch"] = { _: Double? -> tickVBlank() }
         nativeWidget.attributes["antialiasing"] = true
+        nativeWidget.attributes["keepScreenOn"] = true
+    }
+
+    private fun syncWakeLockState() {
+        val active = !nativePlayerDisposed && keepScreenOnState && !isPrerollingFirstFrame && isPlaying()
+        MediaScreenWakeController.setTokenActive(screenWakeToken, active)
     }
 
     private inline fun <T> withBufferPoolLock(block: () -> T): T {
@@ -582,6 +592,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         if (durationOverrideSeconds != null) {
             onDurationChangedListener?.invoke(durationOverrideSeconds)
         }
+        syncWakeLockState()
         updateAndNotifyBufferedHorizon(currentSecFallback)
     }
 
@@ -742,6 +753,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         }
         nativeWidget.attributes["playing"] = true
         nativeWidget.attributes["isPlaying"] = true
+        syncWakeLockState()
         nativeWidget.notifyTreeInvalidated(visualOnly = true)
         onPlayingStateChangedListener?.invoke(true)
     }
@@ -752,6 +764,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         cachedIsPlaying = false
         nativeWidget.attributes["playing"] = false
         nativeWidget.attributes["isPlaying"] = false
+        syncWakeLockState()
         nativeWidget.notifyTreeInvalidated(visualOnly = true)
         onPlayingStateChangedListener?.invoke(false)
         onErrorListener?.invoke(LibVlcBindings.libvlc_errmsg() ?: "libvlc_media_player_play failed")
@@ -776,6 +789,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         }
         nativeWidget.attributes["playing"] = false
         nativeWidget.attributes["isPlaying"] = false
+        syncWakeLockState()
         nativeWidget.notifyTreeInvalidated(visualOnly = true)
         onPlayingStateChangedListener?.invoke(false)
     }
@@ -795,6 +809,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         }
         nativeWidget.attributes["playing"] = false
         nativeWidget.attributes["isPlaying"] = false
+        syncWakeLockState()
         nativeWidget.notifyTreeInvalidated(visualOnly = true)
         onPlayingStateChangedListener?.invoke(false)
         onTimeUpdateListener?.invoke(0.0)
@@ -1105,6 +1120,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         cachedIsPlaying = playing
         nativeWidget.attributes["playing"] = playing
         nativeWidget.attributes["isPlaying"] = playing
+        syncWakeLockState()
 
         if (playing || player != null) {
             val withinTrackDiscoveryWindow =
@@ -1193,6 +1209,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                     }
                     nativeWidget.attributes["playing"] = false
                     nativeWidget.attributes["isPlaying"] = false
+                    syncWakeLockState()
                     onPlayingStateChangedListener?.invoke(false)
                     if (state == 7) {
                         onErrorListener?.invoke("Playback error")
@@ -1474,6 +1491,23 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
     override fun isAntialiasing(): Boolean = antialiasingEnabled
 
+    override fun setKeepScreenOn(keepScreenOn: Boolean) {
+        keepScreenOnState = keepScreenOn
+        nativeWidget.attributes["keepScreenOn"] = keepScreenOn
+        syncWakeLockState()
+    }
+
+    override fun isKeepScreenOn(): Boolean = keepScreenOnState
+
+    override fun bindScreenWakeToken(token: Long) {
+        if (token > 0L && token != screenWakeToken) {
+            val previous = screenWakeToken
+            screenWakeToken = token
+            MediaScreenWakeController.releaseToken(previous)
+            syncWakeLockState()
+        }
+    }
+
     override fun setPreloadMode(mode: MediaPreloadMode) {
         preloadModeState = mode
     }
@@ -1514,6 +1548,11 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     }
 
     override fun dispose() {
+        nativePlayerDisposed = true
+        playingFallback = false
+        cachedPlayingState = false
+        cachedIsPlaying = false
+        MediaScreenWakeController.releaseToken(screenWakeToken)
         LibVlcBindings.libvlc_media_player_stop(vlcMediaPlayer)
         LibVlcBindings.libvlc_media_release(currentVlcMedia)
         currentVlcMedia = null

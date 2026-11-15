@@ -2,6 +2,7 @@ package com.nexustools.genericui.swing
 
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.enums.media.AudioCodec
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import com.sun.jna.Pointer
 import uk.co.caprica.vlcj.player.base.MediaPlayer
@@ -26,17 +27,45 @@ class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
     private var currentSecFallback: Double = 0.0
     private var playingFallback: Boolean = false
     private var volumeVal: Float = 1.0f
+    private var keepScreenOnState: Boolean = true
+    private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+    @Volatile
+    private var nativePlayerDisposed: Boolean = false
     private var attachedAnalyzer: AudioAnalyzer? = null
     private var timeUpdateListener: ((Double) -> Unit)? = null
     private var durationChangedListener: ((Double) -> Unit)? = null
     private var bufferedRangesChangedListener: ((List<Pair<Double, Double>>) -> Unit)? = null
     private var endedListener: (() -> Unit)? = null
     private var errorListener: ((String) -> Unit)? = null
+    private var playingStateChangedListener: ((Boolean) -> Unit)? = null
     private var mediaReadyListener: (() -> Unit)? = null
     private var mediaReady: Boolean = false
 
+    private fun syncWakeLockState() {
+        val active = !nativePlayerDisposed && keepScreenOnState && isPlaying()
+        MediaScreenWakeController.setTokenActive(screenWakeToken, active)
+    }
+
     init {
         vlcjAudioComponent?.mediaPlayer()?.events()?.addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
+            override fun playing(mediaPlayer: MediaPlayer) {
+                playingFallback = true
+                syncWakeLockState()
+                playingStateChangedListener?.invoke(true)
+            }
+
+            override fun paused(mediaPlayer: MediaPlayer) {
+                playingFallback = false
+                syncWakeLockState()
+                playingStateChangedListener?.invoke(false)
+            }
+
+            override fun stopped(mediaPlayer: MediaPlayer) {
+                playingFallback = false
+                syncWakeLockState()
+                playingStateChangedListener?.invoke(false)
+            }
+
             override fun mediaPlayerReady(mediaPlayer: MediaPlayer) {
                 if (!mediaReady) {
                     mediaReady = true
@@ -58,11 +87,15 @@ class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
 
             override fun finished(mediaPlayer: MediaPlayer) {
                 playingFallback = false
+                syncWakeLockState()
+                playingStateChangedListener?.invoke(false)
                 endedListener?.invoke()
             }
 
             override fun error(mediaPlayer: MediaPlayer) {
                 playingFallback = false
+                syncWakeLockState()
+                playingStateChangedListener?.invoke(false)
                 errorListener?.invoke("vlcj audio playback error")
             }
         })
@@ -135,12 +168,16 @@ class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
         if (attachedAnalyzer != null && currentSourceUrl.isNotBlank()) {
             ensureAnalyzerTapPlayer()?.controls()?.play()
         }
+        syncWakeLockState()
+        playingStateChangedListener?.invoke(true)
     }
 
     override fun pause() {
         playingFallback = false
         vlcjPlayer?.controls()?.setPause(true)
         analyzerTapComponent?.mediaPlayer()?.controls()?.setPause(true)
+        syncWakeLockState()
+        playingStateChangedListener?.invoke(false)
     }
 
     override fun stop() {
@@ -148,6 +185,8 @@ class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
         currentSecFallback = 0.0
         vlcjPlayer?.controls()?.stop()
         analyzerTapComponent?.mediaPlayer()?.controls()?.stop()
+        syncWakeLockState()
+        playingStateChangedListener?.invoke(false)
     }
 
     override fun seekTo(seconds: Double) {
@@ -170,7 +209,7 @@ class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
     }
 
     override fun isPlaying(): Boolean =
-        vlcjPlayer?.status()?.isPlaying ?: playingFallback
+        !nativePlayerDisposed && (playingFallback || vlcjPlayer?.status()?.isPlaying == true)
 
     override fun setVolume(volume: Float) {
         volumeVal = volume.coerceIn(0f, 2f)
@@ -199,6 +238,20 @@ class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
     }
     override fun setOnEnded(listener: ((() -> Unit))?) { endedListener = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { errorListener = listener }
+    override fun setOnPlayingStateChanged(listener: ((Boolean) -> Unit)?) { playingStateChangedListener = listener }
+    override fun setKeepScreenOn(keepScreenOn: Boolean) {
+        keepScreenOnState = keepScreenOn
+        syncWakeLockState()
+    }
+    override fun isKeepScreenOn(): Boolean = keepScreenOnState
+    override fun bindScreenWakeToken(token: Long) {
+        if (token > 0L && token != screenWakeToken) {
+            val previous = screenWakeToken
+            screenWakeToken = token
+            MediaScreenWakeController.releaseToken(previous)
+            syncWakeLockState()
+        }
+    }
     override fun setOnMediaReady(listener: (() -> Unit)?) {
         mediaReadyListener = listener
         if (mediaReady) listener?.invoke()
@@ -206,6 +259,9 @@ class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
     override fun isMediaReady(): Boolean = mediaReady
 
     override fun dispose() {
+        nativePlayerDisposed = true
+        playingFallback = false
+        MediaScreenWakeController.releaseToken(screenWakeToken)
         runCatching { analyzerTapComponent?.release() }
         analyzerTapComponent = null
         vlcjAudioComponent?.release()

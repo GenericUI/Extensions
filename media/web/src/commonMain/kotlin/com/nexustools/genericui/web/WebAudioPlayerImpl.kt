@@ -3,6 +3,7 @@ package com.nexustools.genericui.web
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.enums.media.MediaPreloadMode
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import kotlin.math.min
 
@@ -18,6 +19,9 @@ class WebAudioPlayerImpl : AudioPlayerNativeImpl {
     private var volumeLevel: Float = 1.0f
     private var preloadMode: MediaPreloadMode = MediaPreloadMode.AUTO
     private var adaptivePreloadBufferingEnabled: Boolean = true
+    private var keepScreenOnState: Boolean = true
+    private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+    private var nativePlayerDisposed: Boolean = false
     private var mediaReadyFlag: Boolean = false
     private var smoothedNetworkRateAudioSecPerSec: Double = 2.0
     private var bufferedRangesList: List<Pair<Double, Double>> = emptyList()
@@ -27,7 +31,13 @@ class WebAudioPlayerImpl : AudioPlayerNativeImpl {
     private var onBufferedRangesChangedListener: ((List<Pair<Double, Double>>) -> Unit)? = null
     private var onEndedListener: (() -> Unit)? = null
     private var onErrorListener: ((String) -> Unit)? = null
+    private var onPlayingStateChangedListener: ((Boolean) -> Unit)? = null
     private var onMediaReadyListener: (() -> Unit)? = null
+
+    private fun syncWakeLockState() {
+        val active = !nativePlayerDisposed && keepScreenOnState && playing
+        MediaScreenWakeController.setTokenActive(screenWakeToken, active)
+    }
 
     private fun markMediaReady() {
         if (!mediaReadyFlag) {
@@ -43,33 +53,42 @@ class WebAudioPlayerImpl : AudioPlayerNativeImpl {
         audioElement.setAttribute("style", "display:none")
         audioElement.style["display"] = "none"
         audioElement.setAttribute("data-adaptive-preload-buffering", "true")
+        audioElement.setAttribute("data-keep-screen-on", "true")
         WebAudioContextBridge.ensureCrossOriginAnonymous(audioElement)
         WebBrowserDomBridge.attachMediaElementListeners(audioElement)
         audioElement.addEventListener("play") {
             playing = true
             audioElement.setAttribute("data-playing", "true")
+            syncWakeLockState()
             val analyzer = attachedAnalyzer
             if (analyzer != null) {
                 WebAudioContextBridge.connectMediaElement(audioElement, analyzer.fftSize)
             }
             WebAudioContextBridge.resumeAudioContext()
+            onPlayingStateChangedListener?.invoke(true)
         }
         audioElement.addEventListener("playing") {
             playing = true
             audioElement.setAttribute("data-playing", "true")
+            syncWakeLockState()
             val analyzer = attachedAnalyzer
             if (analyzer != null) {
                 WebAudioContextBridge.connectMediaElement(audioElement, analyzer.fftSize)
             }
             WebAudioContextBridge.resumeAudioContext()
+            onPlayingStateChangedListener?.invoke(true)
         }
         audioElement.addEventListener("pause") {
             playing = false
             audioElement.setAttribute("data-playing", "false")
+            syncWakeLockState()
+            onPlayingStateChangedListener?.invoke(false)
         }
         audioElement.addEventListener("ended") {
             playing = false
             audioElement.setAttribute("data-playing", "false")
+            syncWakeLockState()
+            onPlayingStateChangedListener?.invoke(false)
             onEndedListener?.invoke()
         }
         audioElement.addEventListener("timeupdate") { payload ->
@@ -122,6 +141,10 @@ class WebAudioPlayerImpl : AudioPlayerNativeImpl {
             onBufferedRangesChangedListener?.invoke(bufferedRangesList)
         }
         audioElement.addEventListener("error") {
+            playing = false
+            audioElement.setAttribute("data-playing", "false")
+            syncWakeLockState()
+            onPlayingStateChangedListener?.invoke(false)
             onErrorListener?.invoke("Audio playback error")
         }
     }
@@ -152,14 +175,18 @@ class WebAudioPlayerImpl : AudioPlayerNativeImpl {
     override fun play() {
         playing = true
         audioElement.setAttribute("data-playing", "true")
+        syncWakeLockState()
         val analyzer = attachedAnalyzer
         if (analyzer != null) {
             WebAudioContextBridge.connectMediaElement(audioElement, analyzer.fftSize)
         }
         WebAudioContextBridge.resumeAudioContext()
+        onPlayingStateChangedListener?.invoke(true)
         WebBrowserDomBridge.mediaPlay(audioElement) { errMsg ->
             playing = false
             audioElement.setAttribute("data-playing", "false")
+            syncWakeLockState()
+            onPlayingStateChangedListener?.invoke(false)
             onErrorListener?.invoke(errMsg)
         }
     }
@@ -167,6 +194,8 @@ class WebAudioPlayerImpl : AudioPlayerNativeImpl {
     override fun pause() {
         playing = false
         audioElement.setAttribute("data-playing", "false")
+        syncWakeLockState()
+        onPlayingStateChangedListener?.invoke(false)
         WebBrowserDomBridge.mediaPause(audioElement)
     }
 
@@ -174,8 +203,10 @@ class WebAudioPlayerImpl : AudioPlayerNativeImpl {
         playing = false
         currentTimeSec = 0.0
         audioElement.setAttribute("data-playing", "false")
+        syncWakeLockState()
         WebBrowserDomBridge.mediaPause(audioElement)
         WebBrowserDomBridge.mediaSeekTo(audioElement, 0.0)
+        onPlayingStateChangedListener?.invoke(false)
     }
 
     override fun seekTo(seconds: Double) {
@@ -213,6 +244,21 @@ class WebAudioPlayerImpl : AudioPlayerNativeImpl {
     }
     override fun setOnEnded(listener: (() -> Unit)?) { onEndedListener = listener }
     override fun setOnError(listener: ((String) -> Unit)?) { onErrorListener = listener }
+    override fun setOnPlayingStateChanged(listener: ((Boolean) -> Unit)?) { onPlayingStateChangedListener = listener }
+    override fun setKeepScreenOn(keepScreenOn: Boolean) {
+        keepScreenOnState = keepScreenOn
+        audioElement.setAttribute("data-keep-screen-on", keepScreenOn.toString())
+        syncWakeLockState()
+    }
+    override fun isKeepScreenOn(): Boolean = keepScreenOnState
+    override fun bindScreenWakeToken(token: Long) {
+        if (token > 0L && token != screenWakeToken) {
+            val previous = screenWakeToken
+            screenWakeToken = token
+            MediaScreenWakeController.releaseToken(previous)
+            syncWakeLockState()
+        }
+    }
 
     override fun setPreloadMode(mode: MediaPreloadMode) {
         preloadMode = mode
@@ -245,8 +291,10 @@ class WebAudioPlayerImpl : AudioPlayerNativeImpl {
     }
 
     override fun dispose() {
+        nativePlayerDisposed = true
         playing = false
         currentTimeSec = 0.0
+        MediaScreenWakeController.releaseToken(screenWakeToken)
         WebBrowserDomBridge.mediaPause(audioElement)
         audioElement.removeAttribute("src")
         audioElement.parent?.let { parent ->

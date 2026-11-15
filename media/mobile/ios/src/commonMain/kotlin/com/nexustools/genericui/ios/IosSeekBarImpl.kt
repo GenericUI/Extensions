@@ -3,8 +3,8 @@ package com.nexustools.genericui.ios
 import com.nexustools.genericui.nativeimpl.media.SeekBarNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor
 
-class IosSeekBarImpl : IosBaseNativeImpl<IosNativeView>(
-    nativeWidget = IosNativeView("SeekBar"),
+class IosSeekBarImpl : IosBaseNativeImpl(
+    uiViewClassName = "SeekBar",
     componentClassPrefix = "seek-bar"
 ), SeekBarNativeImpl<IosNativeView> {
 
@@ -78,15 +78,6 @@ class IosSeekBarImpl : IosBaseNativeImpl<IosNativeView>(
 
     override fun setOnValueChanged(listener: ((Double) -> Unit)?) {
         this.onValueChangedListener = listener
-        nativeWidget.eventCallbacks["valueChanged"] = { payload ->
-            val v = (payload as? Number)?.toDouble()
-                ?: payload?.toString()?.toDoubleOrNull()
-            if (v != null) {
-                currentValue = v.coerceIn(minVal, maxVal)
-                syncAttributes()
-                listener?.invoke(currentValue)
-            }
-        }
     }
 
     override fun setOnSeekStart(listener: ((Double) -> Unit)?) {
@@ -95,6 +86,12 @@ class IosSeekBarImpl : IosBaseNativeImpl<IosNativeView>(
 
     override fun setOnSeekCommit(listener: ((Double) -> Unit)?) {
         this.onSeekCommitListener = listener
+    }
+
+    fun dispatchValueChanged(value: Double) {
+        currentValue = value.coerceIn(minVal, maxVal)
+        syncAttributes()
+        onValueChangedListener?.invoke(currentValue)
     }
 
     private fun syncAttributes() {
@@ -108,21 +105,21 @@ class IosSeekBarImpl : IosBaseNativeImpl<IosNativeView>(
         }
         val serializedRanges = bufferedRanges.joinToString(",") { "${it.first}-${it.second}" }
 
-        nativeWidget.attributes["min"] = minVal.toString()
-        nativeWidget.attributes["max"] = maxVal.toString()
-        nativeWidget.attributes["step"] = stepVal.toString()
-        nativeWidget.attributes["value"] = currentValue.toString()
-        nativeWidget.attributes["bufferedRanges"] = serializedRanges
-        nativeWidget.attributes["bufferedEnd"] = bufferedEnd.toString()
-        nativeWidget.attributes["playedFraction"] = playedFraction.toString()
-        nativeWidget.attributes["bufferedFraction"] = bufferedFraction.toString()
-        nativeWidget.attributes["accentColor"] = accentColor.toCssRgbaString()
-        nativeWidget.attributes["bufferedColor"] = bufferedColor.toCssRgbaString()
-        nativeWidget.attributes["trackColor"] = trackColor.toCssRgbaString()
-        nativeWidget.attributes["thumbColor"] = thumbColor.toCssRgbaString()
+        nativeWidget.metadata["min"] = minVal.toString()
+        nativeWidget.metadata["max"] = maxVal.toString()
+        nativeWidget.metadata["step"] = stepVal.toString()
+        nativeWidget.metadata["value"] = currentValue.toString()
+        nativeWidget.metadata["bufferedRanges"] = serializedRanges
+        nativeWidget.metadata["bufferedEnd"] = bufferedEnd.toString()
+        nativeWidget.metadata["playedFraction"] = playedFraction.toString()
+        nativeWidget.metadata["bufferedFraction"] = bufferedFraction.toString()
+        nativeWidget.metadata["accentColor"] = accentColor.toCssRgbaString()
+        nativeWidget.metadata["bufferedColor"] = bufferedColor.toCssRgbaString()
+        nativeWidget.metadata["trackColor"] = trackColor.toCssRgbaString()
+        nativeWidget.metadata["thumbColor"] = thumbColor.toCssRgbaString()
         val thumbInsetPx = kotlin.math.ceil(thumbRadiusPx + 2f).toInt().coerceAtLeast(6)
-        nativeWidget.attributes["trackHeightPx"] = trackHeightPx.toString()
-        nativeWidget.attributes["thumbRadiusPx"] = thumbRadiusPx.toString()
-        nativeWidget.attributes["thumbInsetPx"] = thumbInsetPx.toString()
+        nativeWidget.metadata["trackHeightPx"] = trackHeightPx.toString()
+        nativeWidget.metadata["thumbRadiusPx"] = thumbRadiusPx.toString()
+        nativeWidget.metadata["thumbInsetPx"] = thumbInsetPx.toString()
     }
 }

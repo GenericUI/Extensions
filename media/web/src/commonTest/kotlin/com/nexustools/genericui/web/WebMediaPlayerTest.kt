@@ -8,6 +8,7 @@ import com.nexustools.genericui.component.media.Player
 import com.nexustools.genericui.component.media.VideoPlayer
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.ext.media.web.WebMediaExtensionProvider
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import kotlin.test.Test
@@ -112,6 +113,28 @@ class WebMediaPlayerTest {
 
             assertEquals("https://example.com/song.ogg", audio.sourceUrl)
             assertEquals("https://example.com/clip.mp4", video.sourceUrl)
+            assertTrue(audio.keepScreenOn)
+            assertTrue(video.keepScreenOn)
+            assertFalse(MediaScreenWakeController.isNativeWakeLockHeld)
+
+            audio.play()
+            assertTrue(MediaScreenWakeController.isNativeWakeLockHeld)
+            assertTrue(WebWakeLockBridge.isWakeLockHeld)
+
+            video.play()
+            audio.pause()
+            assertTrue(MediaScreenWakeController.isNativeWakeLockHeld)
+
+            video.keepScreenOn = false
+            assertFalse(MediaScreenWakeController.isNativeWakeLockHeld)
+            assertFalse(WebWakeLockBridge.isWakeLockHeld)
+
+            video.keepScreenOn = true
+            assertTrue(MediaScreenWakeController.isNativeWakeLockHeld)
+
+            video.stop()
+            assertFalse(MediaScreenWakeController.isNativeWakeLockHeld)
+            assertFalse(WebWakeLockBridge.isWakeLockHeld)
 
             val rafHandle = WebBrowserDomBridge.requestAnimationFrame {}
             WebBrowserDomBridge.cancelAnimationFrame(rafHandle)
@@ -119,6 +142,7 @@ class WebMediaPlayerTest {
             audio.dispose()
             video.dispose()
         } finally {
+            MediaScreenWakeController.releaseAll()
             if (prevFactory != null) {
                 GenericUI.initialize(prevFactory)
             }

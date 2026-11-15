@@ -13,6 +13,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class MediaDslTest {
 
@@ -57,5 +58,15 @@ class MediaDslTest {
         assertEquals(45.0, bar.bufferedValue)
         assertSame(host, host.videoPlayer.attachedOverlayHost)
         assertSame(customOverlay, host.activeOverlay)
+        assertTrue(vid.keepScreenOn)
+        assertTrue(scopedAudio.keepScreenOn)
+        assertTrue(standaloneAudio.keepScreenOn)
+        assertTrue(host.videoPlayer.keepScreenOn)
+
+        val optOutAudio = audioPlayer(sourceUrl = "https://example.com/bg.mp3", keepScreenOn = false)
+        assertFalse(optOutAudio.keepScreenOn)
+        optOutAudio.dispose()
+        standaloneAudio.dispose()
+        scopedAudio.dispose()
     }
 }

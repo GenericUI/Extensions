@@ -6,6 +6,7 @@ import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import com.nexustools.genericui.nativeimpl.media.SeekBarNativeImpl
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import com.nexustools.genericui.nativeimpl.system.MediaSessionManagerNativeImpl
+import com.nexustools.genericui.nativeimpl.system.ScreenWakeLockNativeImpl
 
 /**
  * Wires native mobile (`:android` MediaPlayer/ExoPlayer/AudioRecord & `:ios` AVPlayer) media playback
@@ -17,14 +18,16 @@ object MobileMediaExtensionProvider {
         audioPlayer: (() -> AudioPlayerNativeImpl)? = null,
         audioAnalyzer: ((Int) -> AudioAnalyzerNativeImpl)? = null,
         mediaSessionManager: (() -> MediaSessionManagerNativeImpl)? = null,
-        seekBar: (() -> SeekBarNativeImpl<*>)? = null
+        seekBar: (() -> SeekBarNativeImpl<*>)? = null,
+        screenWakeLock: (() -> ScreenWakeLockNativeImpl)? = null
     ) {
         MediaExtension.registerProviders(
             videoPlayer = videoPlayer,
             audioPlayer = audioPlayer,
             audioAnalyzer = audioAnalyzer,
             mediaSessionManager = mediaSessionManager,
-            seekBar = seekBar
+            seekBar = seekBar,
+            screenWakeLock = screenWakeLock
         )
     }
 
@@ -33,7 +36,8 @@ object MobileMediaExtensionProvider {
         audioPlayerFactory: () -> AudioPlayerNativeImpl,
         audioAnalyzerFactory: () -> AudioAnalyzerNativeImpl,
         mediaSessionManagerFactory: () -> MediaSessionManagerNativeImpl,
-        seekBarFactory: (() -> SeekBarNativeImpl<*>)? = null
+        seekBarFactory: (() -> SeekBarNativeImpl<*>)? = null,
+        screenWakeLockFactory: (() -> ScreenWakeLockNativeImpl)? = null
     ) {
         MediaExtension.registerProviders(
             videoPlayer = videoPlayerFactory,
@@ -42,7 +46,8 @@ object MobileMediaExtensionProvider {
                 audioAnalyzerFactory().also { it.fftSize = fftSize }
             },
             mediaSessionManager = mediaSessionManagerFactory,
-            seekBar = seekBarFactory
+            seekBar = seekBarFactory,
+            screenWakeLock = screenWakeLockFactory
         )
     }
 }
