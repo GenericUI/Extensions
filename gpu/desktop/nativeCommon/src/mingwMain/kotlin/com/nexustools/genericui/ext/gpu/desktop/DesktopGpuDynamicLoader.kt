@@ -65,6 +65,8 @@ actual object DesktopGpuDynamicLoader {
             dirs.add(exeDir)
             dirs.add("$exeDir\\angle")
             dirs.add("$exeDir\\bin")
+            dirs.add("$exeDir\\..\\debugExecutable")
+            dirs.add("$exeDir\\..\\releaseExecutable")
         }
         val envAngleDir = queryEnv("GENERICUI_ANGLE_DIR")
         if (!envAngleDir.isNullOrBlank()) {

@@ -29,6 +29,7 @@ import com.nexustools.genericui.component.media.VKTextureFormat
 import com.nexustools.genericui.ext.gpu.GpuAcceleration
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
@@ -257,8 +258,16 @@ open class DesktopVKContextImpl(
 
     override fun writeBuffer(buffer: VKBuffer, data: FloatArray, offsetBytes: Long) {
         val rec = buffers[buffer.id] ?: return
-        val byteLen = data.size * 4
         val off = offsetBytes.toInt().coerceAtLeast(0)
+        if (off == 0) {
+            if (rec.floats.size != data.size) {
+                rec.floats = data.copyOf()
+            } else {
+                data.copyInto(rec.floats, 0, 0, data.size)
+            }
+            return
+        }
+        val byteLen = data.size * 4
         if (off + byteLen > rec.bytes.size) {
             rec.bytes = rec.bytes.copyOf(off + byteLen)
         }
@@ -270,21 +279,17 @@ open class DesktopVKContextImpl(
             rec.bytes[o + 2] = ((bits ushr 16) and 0xFF).toByte()
             rec.bytes[o + 3] = ((bits ushr 24) and 0xFF).toByte()
         }
-        if (off == 0) {
-            rec.floats = data.copyOf()
-        } else {
-            val floatCount = rec.bytes.size / 4
-            val floats = FloatArray(floatCount)
-            for (i in 0 until floatCount) {
-                val o = i * 4
-                val bits = (rec.bytes[o].toInt() and 0xFF) or
-                    ((rec.bytes[o + 1].toInt() and 0xFF) shl 8) or
-                    ((rec.bytes[o + 2].toInt() and 0xFF) shl 16) or
-                    ((rec.bytes[o + 3].toInt() and 0xFF) shl 24)
-                floats[i] = Float.fromBits(bits)
-            }
-            rec.floats = floats
+        val floatCount = rec.bytes.size / 4
+        val floats = FloatArray(floatCount)
+        for (i in 0 until floatCount) {
+            val o = i * 4
+            val bits = (rec.bytes[o].toInt() and 0xFF) or
+                ((rec.bytes[o + 1].toInt() and 0xFF) shl 8) or
+                ((rec.bytes[o + 2].toInt() and 0xFF) shl 16) or
+                ((rec.bytes[o + 3].toInt() and 0xFF) shl 24)
+            floats[i] = Float.fromBits(bits)
         }
+        rec.floats = floats
     }
 
     override fun destroyBuffer(buffer: VKBuffer) {
@@ -453,21 +458,29 @@ open class DesktopVKContextImpl(
         return FloatArray(0)
     }
 
-    private fun resolveBoundTextureAndSampler(): Pair<TextureRecord?, VKSamplerDescriptor> {
-        var foundTex: TextureRecord? = null
+    private val compLut = ByteArray(256)
+
+    private fun resolveBoundTexturesAndSampler(): Triple<TextureRecord?, TextureRecord?, VKSamplerDescriptor> {
+        var foundTex0: TextureRecord? = null
+        var foundTex1: TextureRecord? = null
         var foundSampler = VKSamplerDescriptor()
         for (bgId in activeBindGroups.values) {
             val bg = bindGroups[bgId] ?: continue
             for (entry in bg.entries) {
-                if (foundTex == null && entry.texture != null) {
-                    foundTex = textures[entry.texture.id]
+                if (entry.texture != null) {
+                    val rec = textures[entry.texture.id]
+                    if (foundTex0 == null) {
+                        foundTex0 = rec
+                    } else if (foundTex1 == null && rec !== foundTex0) {
+                        foundTex1 = rec
+                    }
                 }
                 if (entry.sampler != null) {
                     samplers[entry.sampler.id]?.let { foundSampler = it }
                 }
             }
         }
-        return foundTex to foundSampler
+        return Triple(foundTex0, foundTex1, foundSampler)
     }
 
     private fun shadeVertex(
@@ -612,6 +625,17 @@ open class DesktopVKContextImpl(
         return out
     }
 
+    private fun resolveWarpDecay(uniforms: FloatArray): Float = when {
+        uniforms.size == 4 && uniforms[0] in 0.5f..1.0f -> uniforms[0].coerceIn(0f, 1f)
+        uniforms.size >= 12 && uniforms[11] in 0.5f..0.9999f && uniforms[1] >= 1.0f -> uniforms[11].coerceIn(0f, 1f)
+        uniforms.size >= 2 -> uniforms[1].coerceIn(0f, 1f)
+        uniforms.size == 1 -> uniforms[0].coerceIn(0f, 1f)
+        else -> 0.98f
+    }
+
+    private fun isMilkdrop12FloatCompUniforms(uniforms: FloatArray): Boolean =
+        uniforms.size == 12 && uniforms[11] == 0f && uniforms[1] >= 0.5f
+
     private fun evaluateFragment(
         u: Float,
         v: Float,
@@ -627,12 +651,7 @@ open class DesktopVKContextImpl(
         val sampled = sampleVKTexture(tex, sampler, u, v)
         if (sampled != null) {
             if ((fragFlags and 1) != 0) {
-                val decay = when {
-                    uniforms.size >= 12 && uniforms[11] in 0.5f..0.9999f && uniforms[1] >= 1.0f -> uniforms[11].coerceIn(0f, 1f)
-                    uniforms.size >= 2 -> uniforms[1].coerceIn(0f, 1f)
-                    uniforms.size == 1 -> uniforms[0].coerceIn(0f, 1f)
-                    else -> 0.98f
-                }
+                val decay = resolveWarpDecay(uniforms)
                 return floatArrayOf(
                     (sampled[0] * decay).coerceIn(0f, 1f),
                     (sampled[1] * decay).coerceIn(0f, 1f),
@@ -642,14 +661,15 @@ open class DesktopVKContextImpl(
             }
 
             if ((fragFlags and 2) != 0) {
-                val gamma = uniforms.getOrElse(0) { 1f }.coerceAtLeast(0.1f)
-                val echoAlpha = uniforms.getOrElse(1) { 0f }.coerceIn(0f, 1f)
-                val echoZoom = uniforms.getOrElse(2) { 1f }.coerceAtLeast(0.01f)
-                val echoOrient = uniforms.getOrElse(6) { 0f }.roundToInt()
-                val brighten = uniforms.getOrElse(7) { 0f } > 0.5f
-                val darken = uniforms.getOrElse(8) { 0f } > 0.5f
-                val solarize = uniforms.getOrElse(9) { 0f } > 0.5f
-                val invert = uniforms.getOrElse(10) { 0f } > 0.5f
+                val isMd12 = isMilkdrop12FloatCompUniforms(uniforms)
+                val gamma = (if (isMd12) uniforms[1] else uniforms.getOrElse(0) { 1f }).coerceAtLeast(0.1f)
+                val echoZoom = (if (isMd12) uniforms[2] else uniforms.getOrElse(2) { 1f }).coerceAtLeast(0.01f)
+                val echoAlpha = (if (isMd12) uniforms[3] else uniforms.getOrElse(1) { 0f }).coerceIn(0f, 1f)
+                val echoOrient = (if (isMd12) uniforms[4] else uniforms.getOrElse(6) { 0f }).roundToInt()
+                val brighten = (if (isMd12) uniforms[5] else uniforms.getOrElse(7) { 0f }) > 0.5f
+                val darken = (if (isMd12) uniforms[6] else uniforms.getOrElse(8) { 0f }) > 0.5f
+                val solarize = (if (isMd12) uniforms[7] else uniforms.getOrElse(9) { 0f }) > 0.5f
+                val invert = (if (isMd12) uniforms[8] else uniforms.getOrElse(10) { 0f }) > 0.5f
 
                 var cr = sampled[0]
                 var cg = sampled[1]
@@ -761,15 +781,491 @@ open class DesktopVKContextImpl(
         targetPixels[idx + 3] = (outA * 255f).roundToInt().coerceIn(0, 255).toByte()
     }
 
+    private fun writeScalarColorFragment(
+        px: Int,
+        py: Int,
+        sr: Float,
+        sg: Float,
+        sb: Float,
+        sa: Float,
+        pipeline: VKRenderPipelineDescriptor?,
+        targetPixels: ByteArray,
+        targetW: Int,
+        targetH: Int
+    ) {
+        if (px < scissorX || px >= min(targetW, scissorX + scissorW) || py < scissorY || py >= min(targetH, scissorY + scissorH)) return
+        val idx = (py * targetW + px) * 4
+        val blend = pipeline?.blend
+        val rInt = (sr.coerceIn(0f, 1f) * 255f + 0.5f).toInt().coerceIn(0, 255)
+        val gInt = (sg.coerceIn(0f, 1f) * 255f + 0.5f).toInt().coerceIn(0, 255)
+        val bInt = (sb.coerceIn(0f, 1f) * 255f + 0.5f).toInt().coerceIn(0, 255)
+        val aInt = (sa.coerceIn(0f, 1f) * 255f + 0.5f).toInt().coerceIn(0, 255)
+
+        if (blend == null || !blend.enabled) {
+            targetPixels[idx] = rInt.toByte()
+            targetPixels[idx + 1] = gInt.toByte()
+            targetPixels[idx + 2] = bInt.toByte()
+            targetPixels[idx + 3] = aInt.toByte()
+            return
+        }
+
+        val dr = targetPixels[idx].toInt() and 0xFF
+        val dg = targetPixels[idx + 1].toInt() and 0xFF
+        val db = targetPixels[idx + 2].toInt() and 0xFF
+        val da = targetPixels[idx + 3].toInt() and 0xFF
+
+        val sf = when (blend.srcColorFactor) {
+            GLBlendFactor.ZERO -> 0
+            GLBlendFactor.SRC_ALPHA -> aInt + (aInt ushr 7)
+            GLBlendFactor.ONE_MINUS_SRC_ALPHA -> 256 - (aInt + (aInt ushr 7))
+            else -> 256
+        }
+        val df = when (blend.dstColorFactor) {
+            GLBlendFactor.ZERO -> 0
+            GLBlendFactor.SRC_ALPHA -> aInt + (aInt ushr 7)
+            GLBlendFactor.ONE_MINUS_SRC_ALPHA -> 256 - (aInt + (aInt ushr 7))
+            else -> 256
+        }
+
+        val outR = ((rInt * sf + dr * df) shr 8).coerceIn(0, 255)
+        val outG = ((gInt * sf + dg * df) shr 8).coerceIn(0, 255)
+        val outB = ((bInt * sf + db * df) shr 8).coerceIn(0, 255)
+        val outA = (aInt + ((da * (256 - (aInt + (aInt ushr 7)))) shr 8)).coerceIn(0, 255)
+
+        targetPixels[idx] = outR.toByte()
+        targetPixels[idx + 1] = outG.toByte()
+        targetPixels[idx + 2] = outB.toByte()
+        targetPixels[idx + 3] = outA.toByte()
+    }
+
+    private fun rasterizeCompQuadFast(
+        tex: TextureRecord,
+        prevTex: TextureRecord?,
+        uniforms: FloatArray,
+        pipeline: VKRenderPipelineDescriptor?,
+        targetPixels: ByteArray,
+        targetW: Int,
+        targetH: Int
+    ) {
+        val isMd12 = isMilkdrop12FloatCompUniforms(uniforms)
+        val blendProgress = (if (isMd12) uniforms[0] else 1f).coerceIn(0f, 1f)
+        val gamma = (if (isMd12) uniforms[1] else uniforms.getOrElse(0) { 1f }).coerceAtLeast(0.1f)
+        val echoZoom = (if (isMd12) uniforms[2] else uniforms.getOrElse(2) { 1f }).coerceAtLeast(0.01f)
+        val echoAlpha = (if (isMd12) uniforms[3] else uniforms.getOrElse(1) { 0f }).coerceIn(0f, 1f)
+        val echoOrient = (if (isMd12) uniforms[4] else uniforms.getOrElse(6) { 0f }).roundToInt()
+        val brighten = (if (isMd12) uniforms[5] else uniforms.getOrElse(7) { 0f }) > 0.5f
+        val darken = (if (isMd12) uniforms[6] else uniforms.getOrElse(8) { 0f }) > 0.5f
+        val solarize = (if (isMd12) uniforms[7] else uniforms.getOrElse(9) { 0f }) > 0.5f
+        val invert = (if (isMd12) uniforms[8] else uniforms.getOrElse(10) { 0f }) > 0.5f
+
+        val applyGamma = abs(gamma - 1f) > 0.001f
+        val invGamma = if (applyGamma) 1f / gamma else 1f
+        val lut = compLut
+        for (i in 0..255) {
+            var c = i / 255f
+            if (brighten) c = sqrt(c)
+            if (darken) c *= c
+            if (solarize) c = (if (c > 0.5f) 1f - c else c) * 2f
+            if (invert) c = 1f - c
+            if (applyGamma && c > 0f) c = c.pow(invGamma)
+            lut[i] = (c.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255).toByte()
+        }
+
+        val srcPixels = tex.pixels
+        val srcW = tex.width
+        val srcH = tex.height
+        val prevPixels = if (blendProgress < 0.999f && prevTex != null && prevTex.width == srcW && prevTex.height == srcH) prevTex.pixels else null
+        val doBlend = blendProgress < 0.999f && (prevPixels != null || (pipeline?.blend?.enabled == true))
+        val alphaFixed = (blendProgress * 256f).roundToInt().coerceIn(0, 256)
+        val invAlphaFixed = 256 - alphaFixed
+
+        if (echoAlpha <= 0.001f && srcW == targetW && srcH == targetH) {
+            val totalBytes = min(srcPixels.size, targetPixels.size) and -4
+            if (!doBlend) {
+                var p = 0
+                while (p < totalBytes) {
+                    targetPixels[p] = lut[srcPixels[p].toInt() and 0xFF]
+                    targetPixels[p + 1] = lut[srcPixels[p + 1].toInt() and 0xFF]
+                    targetPixels[p + 2] = lut[srcPixels[p + 2].toInt() and 0xFF]
+                    targetPixels[p + 3] = -1
+                    p += 4
+                }
+            } else {
+                val blendPixels = prevPixels ?: targetPixels
+                var p = 0
+                while (p < totalBytes) {
+                    val sr = lut[srcPixels[p].toInt() and 0xFF].toInt() and 0xFF
+                    val sg = lut[srcPixels[p + 1].toInt() and 0xFF].toInt() and 0xFF
+                    val sb = lut[srcPixels[p + 2].toInt() and 0xFF].toInt() and 0xFF
+                    val dr = blendPixels[p].toInt() and 0xFF
+                    val dg = blendPixels[p + 1].toInt() and 0xFF
+                    val db = blendPixels[p + 2].toInt() and 0xFF
+                    targetPixels[p] = ((sr * alphaFixed + dr * invAlphaFixed) shr 8).toByte()
+                    targetPixels[p + 1] = ((sg * alphaFixed + dg * invAlphaFixed) shr 8).toByte()
+                    targetPixels[p + 2] = ((sb * alphaFixed + db * invAlphaFixed) shr 8).toByte()
+                    targetPixels[p + 3] = -1
+                    p += 4
+                }
+            }
+            return
+        }
+
+        val echoFixed = (echoAlpha * 256f).roundToInt().coerceIn(0, 256)
+        val invEchoFixed = 256 - echoFixed
+        val invEchoZoom = 1f / echoZoom
+        val invTargetW = 1f / max(1, targetW).toFloat()
+        val invTargetH = 1f / max(1, targetH).toFloat()
+        val blendPixels = prevPixels ?: targetPixels
+
+        if (compSrcX4.size < targetW) {
+            compSrcX4 = IntArray(targetW)
+            compEchoX4 = IntArray(targetW)
+        }
+        val sx4Arr = compSrcX4
+        val ex4Arr = compEchoX4
+        for (px in 0 until targetW) {
+            val u = (px + 0.5f) * invTargetW
+            sx4Arr[px] = (u * srcW).toInt().coerceIn(0, srcW - 1) shl 2
+            var eu = (u - 0.5f) * invEchoZoom + 0.5f
+            if (echoOrient == 1 || echoOrient == 3) eu = 1f - eu
+            ex4Arr[px] = (eu * srcW).toInt().coerceIn(0, srcW - 1) shl 2
+        }
+
+        for (py in 0 until targetH) {
+            val v = (py + 0.5f) * invTargetH
+            val sy = (v * srcH).toInt().coerceIn(0, srcH - 1)
+            var ev = (v - 0.5f) * invEchoZoom + 0.5f
+            if (echoOrient == 2 || echoOrient == 3) ev = 1f - ev
+            val esy = (ev * srcH).toInt().coerceIn(0, srcH - 1)
+            val srcRowByteBase = sy * srcW * 4
+            val echoRowByteBase = esy * srcW * 4
+            var dstIdx = py * targetW * 4
+
+            if (!doBlend) {
+                if (echoFixed > 0) {
+                    for (px in 0 until targetW) {
+                        val sIdx = srcRowByteBase + sx4Arr[px]
+                        val eIdx = echoRowByteBase + ex4Arr[px]
+                        val rInt = ((srcPixels[sIdx].toInt() and 0xFF) * invEchoFixed + (srcPixels[eIdx].toInt() and 0xFF) * echoFixed) shr 8
+                        val gInt = ((srcPixels[sIdx + 1].toInt() and 0xFF) * invEchoFixed + (srcPixels[eIdx + 1].toInt() and 0xFF) * echoFixed) shr 8
+                        val bInt = ((srcPixels[sIdx + 2].toInt() and 0xFF) * invEchoFixed + (srcPixels[eIdx + 2].toInt() and 0xFF) * echoFixed) shr 8
+                        targetPixels[dstIdx] = lut[rInt]
+                        targetPixels[dstIdx + 1] = lut[gInt]
+                        targetPixels[dstIdx + 2] = lut[bInt]
+                        targetPixels[dstIdx + 3] = -1
+                        dstIdx += 4
+                    }
+                } else {
+                    for (px in 0 until targetW) {
+                        val sIdx = srcRowByteBase + sx4Arr[px]
+                        targetPixels[dstIdx] = lut[srcPixels[sIdx].toInt() and 0xFF]
+                        targetPixels[dstIdx + 1] = lut[srcPixels[sIdx + 1].toInt() and 0xFF]
+                        targetPixels[dstIdx + 2] = lut[srcPixels[sIdx + 2].toInt() and 0xFF]
+                        targetPixels[dstIdx + 3] = -1
+                        dstIdx += 4
+                    }
+                }
+            } else {
+                for (px in 0 until targetW) {
+                    val sIdx = srcRowByteBase + sx4Arr[px]
+                    var rInt = srcPixels[sIdx].toInt() and 0xFF
+                    var gInt = srcPixels[sIdx + 1].toInt() and 0xFF
+                    var bInt = srcPixels[sIdx + 2].toInt() and 0xFF
+                    if (echoFixed > 0) {
+                        val eIdx = echoRowByteBase + ex4Arr[px]
+                        rInt = (rInt * invEchoFixed + (srcPixels[eIdx].toInt() and 0xFF) * echoFixed) shr 8
+                        gInt = (gInt * invEchoFixed + (srcPixels[eIdx + 1].toInt() and 0xFF) * echoFixed) shr 8
+                        bInt = (bInt * invEchoFixed + (srcPixels[eIdx + 2].toInt() and 0xFF) * echoFixed) shr 8
+                    }
+                    val bIdx = if (prevPixels != null) sIdx else dstIdx
+                    val sr = lut[rInt].toInt() and 0xFF
+                    val sg = lut[gInt].toInt() and 0xFF
+                    val sb = lut[bInt].toInt() and 0xFF
+                    val dr = blendPixels[bIdx].toInt() and 0xFF
+                    val dg = blendPixels[bIdx + 1].toInt() and 0xFF
+                    val db = blendPixels[bIdx + 2].toInt() and 0xFF
+                    targetPixels[dstIdx] = ((sr * alphaFixed + dr * invAlphaFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 1] = ((sg * alphaFixed + dg * invAlphaFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 2] = ((sb * alphaFixed + db * invAlphaFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 3] = -1
+                    dstIdx += 4
+                }
+            }
+        }
+    }
+
+    private var compSrcX4 = IntArray(0)
+    private var compEchoX4 = IntArray(0)
+
+    private fun rasterizeWarpQuadFast(
+        inTL: ShadedVKVertex,
+        inTR: ShadedVKVertex,
+        inBL: ShadedVKVertex,
+        inBR: ShadedVKVertex,
+        tex: TextureRecord,
+        decayFixed: Int,
+        wrapRepeat: Boolean,
+        targetPixels: ByteArray,
+        targetW: Int,
+        targetH: Int
+    ) {
+        var topL = inTL
+        var topR = inTR
+        var botL = inBL
+        var botR = inBR
+        if (topL.screenY > botL.screenY) {
+            topL = inBL; topR = inBR; botL = inTL; botR = inTR
+        }
+        if (topL.screenX > topR.screenX) {
+            val tl = topL; topL = topR; topR = tl
+            val bl = botL; botL = botR; botR = bl
+        }
+        val xLeft = topL.screenX
+        val xRight = topR.screenX
+        val yTop = topL.screenY
+        val yBot = botL.screenY
+        val quadW = xRight - xLeft
+        val quadH = yBot - yTop
+        if (quadW < 1e-4f || quadH < 1e-4f) return
+
+        val xStart = ceil(xLeft - 0.5f).toInt().coerceIn(0, targetW)
+        val xEnd = ceil(xRight - 0.5f).toInt().coerceIn(0, targetW)
+        val yStart = ceil(yTop - 0.5f).toInt().coerceIn(0, targetH)
+        val yEnd = ceil(yBot - 0.5f).toInt().coerceIn(0, targetH)
+        if (xStart >= xEnd || yStart >= yEnd) return
+
+        val invQuadW = 1f / quadW
+        val invQuadH = 1f / quadH
+        val startDx = (xStart + 0.5f) - xLeft
+        val texPixels = tex.pixels
+        val texW = tex.width
+        val texH = tex.height
+
+        for (py in yStart until yEnd) {
+            val tyFrac = ((py + 0.5f) - yTop) * invQuadH
+            val uLeft = topL.u + (botL.u - topL.u) * tyFrac
+            val vLeft = topL.v + (botL.v - topL.v) * tyFrac
+            val uRight = topR.u + (botR.u - topR.u) * tyFrac
+            val vRight = topR.v + (botR.v - topR.v) * tyFrac
+            val duDx = (uRight - uLeft) * invQuadW
+            val dvDx = (vRight - vLeft) * invQuadW
+            var uFixed = ((uLeft + duDx * startDx) * 65536f).toInt()
+            var vFixed = ((vLeft + dvDx * startDx) * 65536f).toInt()
+            val duFixed = (duDx * 65536f).toInt()
+            val dvFixed = (dvDx * 65536f).toInt()
+            var dstIdx = (py * targetW + xStart) shl 2
+
+            if (wrapRepeat) {
+                for (px in xStart until xEnd) {
+                    val tx = ((uFixed and 0xFFFF) * texW) ushr 16
+                    val ty = ((vFixed and 0xFFFF) * texH) ushr 16
+                    val sIdx = (ty * texW + tx) shl 2
+                    targetPixels[dstIdx] = (((texPixels[sIdx].toInt() and 0xFF) * decayFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 1] = (((texPixels[sIdx + 1].toInt() and 0xFF) * decayFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 2] = (((texPixels[sIdx + 2].toInt() and 0xFF) * decayFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 3] = -1
+                    uFixed += duFixed
+                    vFixed += dvFixed
+                    dstIdx += 4
+                }
+            } else {
+                for (px in xStart until xEnd) {
+                    val wuFixed = if (uFixed < 0) 0 else if (uFixed > 65535) 65535 else uFixed
+                    val wvFixed = if (vFixed < 0) 0 else if (vFixed > 65535) 65535 else vFixed
+                    val tx = (wuFixed * texW) ushr 16
+                    val ty = (wvFixed * texH) ushr 16
+                    val sIdx = (ty * texW + tx) shl 2
+                    targetPixels[dstIdx] = (((texPixels[sIdx].toInt() and 0xFF) * decayFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 1] = (((texPixels[sIdx + 1].toInt() and 0xFF) * decayFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 2] = (((texPixels[sIdx + 2].toInt() and 0xFF) * decayFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 3] = -1
+                    uFixed += duFixed
+                    vFixed += dvFixed
+                    dstIdx += 4
+                }
+            }
+        }
+    }
+
+    private fun rasterizeWarpTriangleFast(
+        v0: ShadedVKVertex,
+        v1: ShadedVKVertex,
+        v2: ShadedVKVertex,
+        tex: TextureRecord,
+        decayFixed: Int,
+        wrapRepeat: Boolean,
+        targetPixels: ByteArray,
+        targetW: Int,
+        targetH: Int
+    ) {
+        val minX = floor(min(v0.screenX, min(v1.screenX, v2.screenX))).toInt().coerceIn(0, targetW - 1)
+        val maxX = floor(max(v0.screenX, max(v1.screenX, v2.screenX))).toInt().coerceIn(0, targetW - 1)
+        val minY = floor(min(v0.screenY, min(v1.screenY, v2.screenY))).toInt().coerceIn(0, targetH - 1)
+        val maxY = floor(max(v0.screenY, max(v1.screenY, v2.screenY))).toInt().coerceIn(0, targetH - 1)
+        if (minX > maxX || minY > maxY) return
+
+        val denom = (v1.screenY - v2.screenY) * (v0.screenX - v2.screenX) +
+            (v2.screenX - v1.screenX) * (v0.screenY - v2.screenY)
+        if (abs(denom) < 1e-6f) return
+        val invDenom = 1f / denom
+
+        val dw0dx = (v1.screenY - v2.screenY) * invDenom
+        val dw0dy = (v2.screenX - v1.screenX) * invDenom
+        val dw1dx = (v2.screenY - v0.screenY) * invDenom
+        val dw1dy = (v0.screenX - v2.screenX) * invDenom
+
+        val du0 = v0.u - v2.u
+        val du1 = v1.u - v2.u
+        val dv0 = v0.v - v2.v
+        val dv1 = v1.v - v2.v
+        val duDx = dw0dx * du0 + dw1dx * du1
+        val duDy = dw0dy * du0 + dw1dy * du1
+        val dvDx = dw0dx * dv0 + dw1dx * dv1
+        val dvDy = dw0dy * dv0 + dw1dy * dv1
+
+        val texPixels = tex.pixels
+        val texW = tex.width
+        val texH = tex.height
+
+        val startFx = minX + 0.5f - v2.screenX
+        val startFy = minY + 0.5f - v2.screenY
+        var rowW0 = dw0dx * startFx + dw0dy * startFy
+        var rowW1 = dw1dx * startFx + dw1dy * startFy
+        var rowUFixed = ((rowW0 * du0 + rowW1 * du1 + v2.u) * 65536f).toInt()
+        var rowVFixed = ((rowW0 * dv0 + rowW1 * dv1 + v2.v) * 65536f).toInt()
+        val duDxFixed = (duDx * 65536f).toInt()
+        val dvDxFixed = (dvDx * 65536f).toInt()
+        val duDyFixed = (duDy * 65536f).toInt()
+        val dvDyFixed = (dvDy * 65536f).toInt()
+
+        for (py in minY..maxY) {
+            var w0 = rowW0
+            var w1 = rowW1
+            var uFixed = rowUFixed
+            var vFixed = rowVFixed
+            var dstIdx = (py * targetW + minX) shl 2
+            for (px in minX..maxX) {
+                if (w0 >= -1e-4f && w1 >= -1e-4f && (w0 + w1) <= 1.0001f) {
+                    val wuFixed = if (wrapRepeat) (uFixed and 0xFFFF) else if (uFixed < 0) 0 else if (uFixed > 65535) 65535 else uFixed
+                    val wvFixed = if (wrapRepeat) (vFixed and 0xFFFF) else if (vFixed < 0) 0 else if (vFixed > 65535) 65535 else vFixed
+                    val tx = (wuFixed * texW) ushr 16
+                    val ty = (wvFixed * texH) ushr 16
+                    val sIdx = (ty * texW + tx) shl 2
+                    targetPixels[dstIdx] = (((texPixels[sIdx].toInt() and 0xFF) * decayFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 1] = (((texPixels[sIdx + 1].toInt() and 0xFF) * decayFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 2] = (((texPixels[sIdx + 2].toInt() and 0xFF) * decayFixed) shr 8).toByte()
+                    targetPixels[dstIdx + 3] = -1
+                }
+                w0 += dw0dx
+                w1 += dw1dx
+                uFixed += duDxFixed
+                vFixed += dvDxFixed
+                dstIdx += 4
+            }
+            rowW0 += dw0dy
+            rowW1 += dw1dy
+            rowUFixed += duDyFixed
+            rowVFixed += dvDyFixed
+        }
+    }
+
     private fun executeDraw(indices: IntArray) {
+        if (indices.isEmpty()) return
         val (targetPixels, targetW, targetH) = resolveTargetBuffer()
         val pipeline = boundPipelineId?.let { pipelines[it] }
         val fragFlags = pipeline?.fragment?.let { shaderModuleFlags[it.id] } ?: 0
         val uniforms = resolveUniformFloats()
-        val (tex, sampler) = resolveBoundTextureAndSampler()
+        val (tex, prevTex, sampler) = resolveBoundTexturesAndSampler()
         val hasBoundTexture = tex != null
-        val vertices = Array(indices.size) { i -> shadeVertex(indices[i], pipeline, uniforms, hasBoundTexture, targetW, targetH) }
         val topology = pipeline?.topology ?: VKPrimitiveTopology.TRIANGLE_LIST
+
+        if ((fragFlags and 2) != 0 &&
+            tex != null && tex.pixels.isNotEmpty() && tex.width > 0 && tex.height > 0 &&
+            ((topology == VKPrimitiveTopology.TRIANGLE_LIST && indices.size == 6) ||
+                (topology == VKPrimitiveTopology.TRIANGLE_STRIP && indices.size == 4))
+        ) {
+            rasterizeCompQuadFast(tex, prevTex, uniforms, pipeline, targetPixels, targetW, targetH)
+            return
+        }
+
+        val vertices = if (indices.size > 32) {
+            var maxVertexIdx = 0
+            for (idx in indices) {
+                if (idx > maxVertexIdx) maxVertexIdx = idx
+            }
+            if (maxVertexIdx in 0..8192 && maxVertexIdx < indices.size) {
+                val uniqueCache = arrayOfNulls<ShadedVKVertex>(maxVertexIdx + 1)
+                Array(indices.size) { i ->
+                    val vIdx = indices[i]
+                    if (vIdx >= 0) {
+                        uniqueCache[vIdx] ?: shadeVertex(vIdx, pipeline, uniforms, hasBoundTexture, targetW, targetH).also { uniqueCache[vIdx] = it }
+                    } else {
+                        shadeVertex(vIdx, pipeline, uniforms, hasBoundTexture, targetW, targetH)
+                    }
+                }
+            } else {
+                Array(indices.size) { i -> shadeVertex(indices[i], pipeline, uniforms, hasBoundTexture, targetW, targetH) }
+            }
+        } else {
+            Array(indices.size) { i -> shadeVertex(indices[i], pipeline, uniforms, hasBoundTexture, targetW, targetH) }
+        }
+
+        if ((fragFlags and 1) != 0 &&
+            topology == VKPrimitiveTopology.TRIANGLE_LIST &&
+            tex != null && tex.pixels.isNotEmpty() && tex.width > 0 && tex.height > 0 &&
+            (pipeline?.blend == null || !pipeline.blend.enabled)
+        ) {
+            val decay = resolveWarpDecay(uniforms)
+            val decayFixed = (decay * 256f).roundToInt().coerceIn(0, 256)
+            val wrapRepeat = (uniforms.size == 4 && uniforms[1] > 0.5f) ||
+                sampler.addressModeU == VKAddressMode.REPEAT
+            var i = 0
+            while (i + 5 < vertices.size) {
+                val v0 = vertices[i]
+                val v1 = vertices[i + 1]
+                val v2 = vertices[i + 2]
+                val v4 = vertices[i + 4]
+                val v5 = vertices[i + 5]
+                if (abs(v0.screenX - v1.screenX) < 0.05f &&
+                    abs(v0.screenY - v2.screenY) < 0.05f &&
+                    abs(v5.screenX - v2.screenX) < 0.05f &&
+                    abs(v5.screenY - v1.screenY) < 0.05f
+                ) {
+                    rasterizeWarpQuadFast(v0, v2, v1, v5, tex, decayFixed, wrapRepeat, targetPixels, targetW, targetH)
+                    i += 6
+                    continue
+                }
+                val brAlt = when {
+                    abs(v5.screenX - v1.screenX) < 0.05f && abs(v5.screenY - v2.screenY) < 0.05f -> v5
+                    abs(v4.screenX - v1.screenX) < 0.05f && abs(v4.screenY - v2.screenY) < 0.05f -> v4
+                    else -> null
+                }
+                if (brAlt != null &&
+                    abs(v0.screenY - v1.screenY) < 0.05f &&
+                    abs(v0.screenX - v2.screenX) < 0.05f
+                ) {
+                    rasterizeWarpQuadFast(v0, v1, v2, brAlt, tex, decayFixed, wrapRepeat, targetPixels, targetW, targetH)
+                    i += 6
+                    continue
+                }
+                break
+            }
+            while (i + 2 < vertices.size) {
+                rasterizeWarpTriangleFast(
+                    vertices[i],
+                    vertices[i + 1],
+                    vertices[i + 2],
+                    tex,
+                    decayFixed,
+                    wrapRepeat,
+                    targetPixels,
+                    targetW,
+                    targetH
+                )
+                i += 3
+            }
+            return
+        }
 
         when (topology) {
             VKPrimitiveTopology.POINT_LIST -> {
@@ -830,6 +1326,19 @@ open class DesktopVKContextImpl(
         val dx = v1.screenX - v0.screenX
         val dy = v1.screenY - v0.screenY
         val steps = max(abs(dx), abs(dy)).roundToInt().coerceAtLeast(1)
+        if (tex == null && fragFlags == 0) {
+            for (s in 0..steps) {
+                val t = s.toFloat() / steps.toFloat()
+                val px = (v0.screenX + dx * t).roundToInt()
+                val py = (v0.screenY + dy * t).roundToInt()
+                val r = v0.r + (v1.r - v0.r) * t
+                val g = v0.g + (v1.g - v0.g) * t
+                val b = v0.b + (v1.b - v0.b) * t
+                val a = v0.a + (v1.a - v0.a) * t
+                writeScalarColorFragment(px, py, r, g, b, a, pipeline, targetPixels, targetW, targetH)
+            }
+            return
+        }
         for (s in 0..steps) {
             val t = s.toFloat() / steps.toFloat()
             val px = (v0.screenX + dx * t).roundToInt()
@@ -862,11 +1371,115 @@ open class DesktopVKContextImpl(
         val maxX = floor(max(v0.screenX, max(v1.screenX, v2.screenX))).toInt().coerceIn(0, targetW - 1)
         val minY = floor(min(v0.screenY, min(v1.screenY, v2.screenY))).toInt().coerceIn(0, targetH - 1)
         val maxY = floor(max(v0.screenY, max(v1.screenY, v2.screenY))).toInt().coerceIn(0, targetH - 1)
+        if (minX > maxX || minY > maxY) return
 
         val denom = (v1.screenY - v2.screenY) * (v0.screenX - v2.screenX) +
             (v2.screenX - v1.screenX) * (v0.screenY - v2.screenY)
         if (abs(denom) < 1e-6f) return
         val invDenom = 1f / denom
+
+        if (tex == null && fragFlags == 0) {
+            val dw0dx = (v1.screenY - v2.screenY) * invDenom
+            val dw0dy = (v2.screenX - v1.screenX) * invDenom
+            val dw1dx = (v2.screenY - v0.screenY) * invDenom
+            val dw1dy = (v0.screenX - v2.screenX) * invDenom
+            val startFx = minX + 0.5f - v2.screenX
+            val startFy = minY + 0.5f - v2.screenY
+            var rowW0 = dw0dx * startFx + dw0dy * startFy
+            var rowW1 = dw1dx * startFx + dw1dy * startFy
+
+            val blend = pipeline?.blend
+            val blendMode = when {
+                blend == null || !blend.enabled -> 0
+                blend.srcColorFactor == GLBlendFactor.SRC_ALPHA &&
+                    blend.dstColorFactor == GLBlendFactor.ONE_MINUS_SRC_ALPHA -> 1
+                blend.srcColorFactor == GLBlendFactor.SRC_ALPHA &&
+                    blend.dstColorFactor == GLBlendFactor.ONE -> 2
+                else -> -1
+            }
+
+            if (blendMode >= 0 && scissorX <= 0 && scissorY <= 0 && scissorW >= targetW && scissorH >= targetH) {
+                val r0 = v0.r.coerceIn(0f, 1f) * 255f
+                val g0 = v0.g.coerceIn(0f, 1f) * 255f
+                val b0 = v0.b.coerceIn(0f, 1f) * 255f
+                val a0 = v0.a.coerceIn(0f, 1f) * 256f
+                val r1 = v1.r.coerceIn(0f, 1f) * 255f
+                val g1 = v1.g.coerceIn(0f, 1f) * 255f
+                val b1 = v1.b.coerceIn(0f, 1f) * 255f
+                val a1 = v1.a.coerceIn(0f, 1f) * 256f
+                val r2 = v2.r.coerceIn(0f, 1f) * 255f
+                val g2 = v2.g.coerceIn(0f, 1f) * 255f
+                val b2 = v2.b.coerceIn(0f, 1f) * 255f
+                val a2 = v2.a.coerceIn(0f, 1f) * 256f
+                val dr0 = r0 - r2; val dr1 = r1 - r2
+                val dg0 = g0 - g2; val dg1 = g1 - g2
+                val db0 = b0 - b2; val db1 = b1 - b2
+                val da0 = a0 - a2; val da1 = a1 - a2
+
+                for (py in minY..maxY) {
+                    var w0 = rowW0
+                    var w1 = rowW1
+                    var dstIdx = (py * targetW + minX) * 4
+                    for (px in minX..maxX) {
+                        if (w0 >= -1e-4f && w1 >= -1e-4f && (w0 + w1) <= 1.0001f) {
+                            val sRInt = (w0 * dr0 + w1 * dr1 + r2 + 0.5f).toInt().coerceIn(0, 255)
+                            val sGInt = (w0 * dg0 + w1 * dg1 + g2 + 0.5f).toInt().coerceIn(0, 255)
+                            val sBInt = (w0 * db0 + w1 * db1 + b2 + 0.5f).toInt().coerceIn(0, 255)
+                            val aFixed = (w0 * da0 + w1 * da1 + a2 + 0.5f).toInt().coerceIn(0, 256)
+                            if (blendMode == 0) {
+                                targetPixels[dstIdx] = sRInt.toByte()
+                                targetPixels[dstIdx + 1] = sGInt.toByte()
+                                targetPixels[dstIdx + 2] = sBInt.toByte()
+                                targetPixels[dstIdx + 3] = aFixed.coerceAtMost(255).toByte()
+                            } else if (blendMode == 1) {
+                                val invAFixed = 256 - aFixed
+                                val dRInt = targetPixels[dstIdx].toInt() and 0xFF
+                                val dGInt = targetPixels[dstIdx + 1].toInt() and 0xFF
+                                val dBInt = targetPixels[dstIdx + 2].toInt() and 0xFF
+                                targetPixels[dstIdx] = ((sRInt * aFixed + dRInt * invAFixed) shr 8).toByte()
+                                targetPixels[dstIdx + 1] = ((sGInt * aFixed + dGInt * invAFixed) shr 8).toByte()
+                                targetPixels[dstIdx + 2] = ((sBInt * aFixed + dBInt * invAFixed) shr 8).toByte()
+                                targetPixels[dstIdx + 3] = -1
+                            } else {
+                                val dRInt = targetPixels[dstIdx].toInt() and 0xFF
+                                val dGInt = targetPixels[dstIdx + 1].toInt() and 0xFF
+                                val dBInt = targetPixels[dstIdx + 2].toInt() and 0xFF
+                                targetPixels[dstIdx] = min(255, dRInt + ((sRInt * aFixed) shr 8)).toByte()
+                                targetPixels[dstIdx + 1] = min(255, dGInt + ((sGInt * aFixed) shr 8)).toByte()
+                                targetPixels[dstIdx + 2] = min(255, dBInt + ((sBInt * aFixed) shr 8)).toByte()
+                                targetPixels[dstIdx + 3] = -1
+                            }
+                        }
+                        w0 += dw0dx
+                        w1 += dw1dx
+                        dstIdx += 4
+                    }
+                    rowW0 += dw0dy
+                    rowW1 += dw1dy
+                }
+                return
+            }
+
+            for (py in minY..maxY) {
+                var w0 = rowW0
+                var w1 = rowW1
+                for (px in minX..maxX) {
+                    val w2 = 1f - w0 - w1
+                    if (w0 >= -1e-4f && w1 >= -1e-4f && w2 >= -1e-4f) {
+                        val r = w0 * v0.r + w1 * v1.r + w2 * v2.r
+                        val g = w0 * v0.g + w1 * v1.g + w2 * v2.g
+                        val b = w0 * v0.b + w1 * v1.b + w2 * v2.b
+                        val a = w0 * v0.a + w1 * v1.a + w2 * v2.a
+                        writeScalarColorFragment(px, py, r, g, b, a, pipeline, targetPixels, targetW, targetH)
+                    }
+                    w0 += dw0dx
+                    w1 += dw1dx
+                }
+                rowW0 += dw0dy
+                rowW1 += dw1dy
+            }
+            return
+        }
 
         for (py in minY..maxY) {
             val fy = py + 0.5f
@@ -887,6 +1500,30 @@ open class DesktopVKContextImpl(
                 }
             }
         }
+    }
+
+    fun readPixelsIntoBgraAndRgba(dstBgra: ByteArray, dstRgba: ByteArray): Int {
+        val (srcPixels, _, _) = resolveTargetBuffer(
+            if (renderPassActive) activeRenderPassDescriptor?.target else null
+        )
+        val copyLen = min(srcPixels.size, min(dstBgra.size, dstRgba.size)) and -4
+        var i = 0
+        while (i < copyLen) {
+            val r = srcPixels[i]
+            val g = srcPixels[i + 1]
+            val b = srcPixels[i + 2]
+            val a = srcPixels[i + 3]
+            dstRgba[i] = r
+            dstRgba[i + 1] = g
+            dstRgba[i + 2] = b
+            dstRgba[i + 3] = a
+            dstBgra[i] = b
+            dstBgra[i + 1] = g
+            dstBgra[i + 2] = r
+            dstBgra[i + 3] = a
+            i += 4
+        }
+        return copyLen
     }
 
     override fun readPixels(x: Int, y: Int, width: Int, height: Int): ByteArray {

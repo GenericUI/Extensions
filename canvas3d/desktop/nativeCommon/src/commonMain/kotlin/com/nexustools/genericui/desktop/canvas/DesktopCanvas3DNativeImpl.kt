@@ -13,11 +13,14 @@ import com.nexustools.genericui.ext.gpu.GpuAcceleration
 import com.nexustools.genericui.ext.gpu.GpuBackendType
 import com.nexustools.genericui.ext.gpu.desktop.DesktopGpuDynamicLoader
 import com.nexustools.genericui.ext.gpu.desktop.DesktopGpuProvider
+import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.PixelFormat
 import com.nexustools.genericui.image.codec.LibJpegCodec
 import com.nexustools.genericui.nativeimpl.media.Canvas3DNativeImpl
+import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Shared desktop base implementation of [Canvas3DNativeImpl] backed by [DesktopVKContextImpl] /
@@ -33,8 +36,25 @@ open class DesktopCanvas3DNativeImpl<out W : DesktopNativeWidget>(
     initialHeight: Int = 600
 ) : DesktopBaseNativeImpl<W>(nativeWidget, "canvas-3d"), Canvas3DNativeImpl<W> {
 
-    protected var surfaceW: Int = initialWidth.coerceAtLeast(1)
-    protected var surfaceH: Int = initialHeight.coerceAtLeast(1)
+    protected var logicalWidth: Int = initialWidth.coerceAtLeast(1)
+    protected var logicalHeight: Int = initialHeight.coerceAtLeast(1)
+
+    private fun computeInternalSurfaceDimensions(w: Int, h: Int): Pair<Int, Int> {
+        val safeW = w.coerceAtLeast(1)
+        val safeH = h.coerceAtLeast(1)
+        val longest = max(safeW, safeH)
+        if (longest <= 360) {
+            return safeW.coerceAtLeast(160) to safeH.coerceAtLeast(90)
+        }
+        val maxEdge = 240
+        val scale = maxEdge.toFloat() / longest.toFloat()
+        val scaledW = (safeW * scale).roundToInt().coerceAtLeast(160)
+        val scaledH = (safeH * scale).roundToInt().coerceAtLeast(90)
+        return scaledW to scaledH
+    }
+
+    protected var surfaceW: Int = computeInternalSurfaceDimensions(logicalWidth, logicalHeight).first
+    protected var surfaceH: Int = computeInternalSurfaceDimensions(logicalWidth, logicalHeight).second
 
     val offscreenCanvas3D: OffscreenCanvas3D = OffscreenCanvas3D(
         width = surfaceW,
@@ -77,8 +97,28 @@ open class DesktopCanvas3DNativeImpl<out W : DesktopNativeWidget>(
     protected var onSurfaceResizedListener: ((GpuRenderContext, Int, Int) -> Unit)? = null
     private var onBeforeFramePresentListener: ((Long, Double) -> Unit)? = null
 
+    private fun applySurfaceResize(w: Int, h: Int) {
+        if (w <= 0 || h <= 0) return
+        if (w == logicalWidth && h == logicalHeight) return
+        logicalWidth = w
+        logicalHeight = h
+        val (targetW, targetH) = computeInternalSurfaceDimensions(w, h)
+        if (targetW != surfaceW || targetH != surfaceH) {
+            surfaceW = targetW
+            surfaceH = targetH
+            offscreenCanvas3D.resize(targetW, targetH)
+            when (val ctx = renderContext) {
+                is DesktopGLContextImpl -> ctx.resizeSurface(targetW, targetH)
+                is DesktopVKContextImpl -> ctx.resizeSwapchain(targetW, targetH)
+                else -> {}
+            }
+            onSurfaceResizedListener?.invoke(renderContext, targetW, targetH)
+        }
+    }
+
     init {
         nativeWidget.attributes["offscreenCanvas3D"] = offscreenCanvas3D
+        nativeWidget.attributes["preferHardwareStretchBlit"] = true
         DesktopInteractiveSurfaceSpec(
             surfaceWidth = { offscreenCanvas3D.width },
             surfaceHeight = { offscreenCanvas3D.height },
@@ -86,17 +126,7 @@ open class DesktopCanvas3DNativeImpl<out W : DesktopNativeWidget>(
             captureBgra = { offscreenCanvas3D.presentFrontBufferBgra() },
             captureRgba = { offscreenCanvas3D.presentFrontBufferRgba() },
             resizeSurface = { w, h ->
-                if (w > 0 && h > 0 && (w != surfaceW || h != surfaceH)) {
-                    surfaceW = w
-                    surfaceH = h
-                    offscreenCanvas3D.resize(w, h)
-                    when (val ctx = renderContext) {
-                        is DesktopGLContextImpl -> ctx.resizeSurface(w, h)
-                        is DesktopVKContextImpl -> ctx.resizeSwapchain(w, h)
-                        else -> {}
-                    }
-                    onSurfaceResizedListener?.invoke(renderContext, w, h)
-                }
+                applySurfaceResize(w, h)
             },
             preferHardwareStretchBlit = true,
             suppressDefaultBorder = true,
@@ -106,11 +136,29 @@ open class DesktopCanvas3DNativeImpl<out W : DesktopNativeWidget>(
         ).attachTo(nativeWidget)
     }
 
+    fun setSize(width: Int, height: Int) {
+        applySurfaceResize(width, height)
+    }
+
+    fun onBoundsChanged(width: Int, height: Int) {
+        applySurfaceResize(width, height)
+    }
+
+    override fun setPreferredSize(size: Size?) {
+        super.setPreferredSize(size)
+        if (size != null && size.width > 0 && size.height > 0) {
+            applySurfaceResize(size.width, size.height)
+        }
+    }
+
     override fun getRenderingContext(): GpuRenderContext = renderContext
 
     override fun setOnSurfaceCreated(listener: ((GpuRenderContext, Int, Int) -> Unit)?) {
         onSurfaceCreatedListener = listener
         listener?.invoke(renderContext, surfaceW, surfaceH)
+        if (vblankActive && offscreenCanvas3D.swapCount == 0L) {
+            runCatching { vblankCallback?.invoke(16.0) }
+        }
     }
 
     override fun setOnSurfaceResized(listener: ((GpuRenderContext, Int, Int) -> Unit)?) {
@@ -122,20 +170,46 @@ open class DesktopCanvas3DNativeImpl<out W : DesktopNativeWidget>(
     }
 
     private fun presentRenderedContextToOffscreenSurface(timestampMs: Double? = null) {
-        val rgba = when (val ctx = renderContext) {
-            is GLContext -> ctx.readPixels(0, 0, surfaceW, surfaceH, GLReadFormat.RGBA8)
-            is VKContext -> ctx.readPixels(0, 0, surfaceW, surfaceH)
-            else -> ByteArray(0)
-        }
-        val dst = offscreenCanvas3D.surface.backBuffer.bytes
-        val copyLen = min(rgba.size, dst.size)
-        if (copyLen > 0) {
-            rgba.copyInto(dst, 0, 0, copyLen)
-            offscreenCanvas3D.surface.markBackBufferDirty()
-        }
         val nextSwap = offscreenCanvas3D.swapCount + 1L
         onBeforeFramePresentListener?.invoke(nextSwap, timestampMs ?: 0.0)
         nativeWidget.interactiveSurfaceSpec?.dispatchBeforePresentFrame(nextSwap, timestampMs)
+        when (val ctx = renderContext) {
+            is DesktopGLContextImpl -> {
+                val dstRgba = offscreenCanvas3D.surface.frontBuffer.bytes
+                val dstBgra = offscreenCanvas3D.surface.ensureFrontBgraBuffer()
+                if (ctx.readPixelsIntoBgraAndRgba(dstBgra, dstRgba) > 0) {
+                    offscreenCanvas3D.surface.markDirectFrontPresentCompleted()
+                    return
+                }
+            }
+            is DesktopVKContextImpl -> {
+                val dstRgba = offscreenCanvas3D.surface.frontBuffer.bytes
+                val dstBgra = offscreenCanvas3D.surface.ensureFrontBgraBuffer()
+                if (ctx.readPixelsIntoBgraAndRgba(dstBgra, dstRgba) > 0) {
+                    offscreenCanvas3D.surface.markDirectFrontPresentCompleted()
+                    return
+                }
+            }
+            is GLContext -> {
+                val dst = offscreenCanvas3D.surface.backBuffer.bytes
+                val rgba = ctx.readPixels(0, 0, surfaceW, surfaceH, GLReadFormat.RGBA8)
+                val copyLen = min(rgba.size, dst.size)
+                if (copyLen > 0) {
+                    rgba.copyInto(dst, 0, 0, copyLen)
+                    offscreenCanvas3D.surface.markBackBufferDirty()
+                }
+            }
+            is VKContext -> {
+                val dst = offscreenCanvas3D.surface.backBuffer.bytes
+                val rgba = ctx.readPixels(0, 0, surfaceW, surfaceH)
+                val copyLen = min(rgba.size, dst.size)
+                if (copyLen > 0) {
+                    rgba.copyInto(dst, 0, 0, copyLen)
+                    offscreenCanvas3D.surface.markBackBufferDirty()
+                }
+            }
+            else -> {}
+        }
         offscreenCanvas3D.swapBuffers()
     }
 
@@ -148,6 +222,9 @@ open class DesktopCanvas3DNativeImpl<out W : DesktopNativeWidget>(
         vblankCallback = if (active) doubleBufferedCallback else null
         if (active) {
             nativeWidget.attributes["vblankDispatch"] = doubleBufferedCallback
+            if (offscreenCanvas3D.swapCount == 0L) {
+                runCatching { doubleBufferedCallback(16.0) }
+            }
         } else {
             nativeWidget.attributes.remove("vblankDispatch")
         }

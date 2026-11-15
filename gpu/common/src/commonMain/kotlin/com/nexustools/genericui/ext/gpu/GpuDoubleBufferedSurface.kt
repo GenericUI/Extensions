@@ -198,6 +198,27 @@ class GpuDoubleBufferedSurface(
         swapCount++
     }
 
+    /**
+     * Fast direct presentation path when the caller has already written the current frame into
+     * [frontBuffer] and [frontBgraBytes] in a single pass.
+     */
+    fun markDirectFrontPresentCompleted() {
+        backBufferDirty = false
+        dirtyMinX = width
+        dirtyMinY = height
+        dirtyMaxX = 0
+        dirtyMaxY = 0
+        swapCount++
+    }
+
+    fun ensureFrontBgraBuffer(): ByteArray {
+        val totalBytes = frontBuffer.bytes.size
+        if (frontBgraBytes.size != totalBytes) {
+            frontBgraBytes = ByteArray(totalBytes)
+        }
+        return frontBgraBytes
+    }
+
     fun presentFrontImageBuffer(): ImageBuffer {
         if (backBufferDirty) {
             swapBuffers()
