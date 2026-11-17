@@ -74,6 +74,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -1024,5 +1025,29 @@ class AlienExtensionTest {
         session.eventDispatcher.dispatchPointerDown(PointerEvent(x = 200f, y = 150f))
         session.eventDispatcher.dispatchPointerUp(PointerEvent(x = 202f, y = 150f))
         assertEquals(1, scaledClicked, "Click with <= 6px pointer movement must fire onClick")
+    }
+
+    @Test
+    fun testTextFieldLabelOnTextInputAlienImpl() {
+        val alienRoot = AlienContainer().apply {
+            widthPx = 640
+            heightPx = 480
+        }
+        val labeledInput = TextField(value = "", placeholder = "127.0.0.1", label = "Host")
+        alienRoot.addChild(labeledInput)
+        alienRoot.ensureNativeImpl()
+
+        val impl = labeledInput.nativeImpl as com.nexustools.genericui.ext.alien.impl.TextInputAlienImpl
+        assertEquals("Host", impl.getLabel())
+
+        labeledInput.label = "Server Address"
+        assertEquals("Server Address", impl.getLabel())
+
+        val session = assertNotNull(alienRoot.renderSession)
+        session.forceFullRepaint(0f)
+
+        labeledInput.label = null
+        assertNull(impl.getLabel())
+        session.forceFullRepaint(0f)
     }
 }

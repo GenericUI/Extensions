@@ -6,6 +6,7 @@ import com.nexustools.genericui.ext.alien.AlienWidgetNode
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Self-rendered Bootstrap 5.3 `.form-control` text field / textarea (`TextInputAlienImpl`)
@@ -22,6 +23,7 @@ class TextInputAlienImpl(
 
     private var textValue: String = ""
     private var placeholderValue: String = ""
+    private var labelValue: String? = null
     private var readOnlyState: Boolean = false
     private var passwordModeState: Boolean = false
     private var onValueChangedListener: ((String) -> Unit)? = null
@@ -65,6 +67,24 @@ class TextInputAlienImpl(
                 verticalCenter = !multiline,
                 maxLines = if (multiline) null else 1
             )
+            val lbl = labelValue?.trim()?.takeIf { it.isNotEmpty() }
+            if (lbl != null && bounds.width >= 32) {
+                val capFontPx = (style.fontSizePx * 0.78f).coerceIn(10f, 13f)
+                ctx.save()
+                ctx.setGlobalAlpha(style.opacity.coerceIn(0f, 1f))
+                ctx.setFont(style.fontFamily, capFontPx, 500, false)
+                val maxCapW = (bounds.width - 20f).coerceAtLeast(12f)
+                val capW = ctx.measureTextWidth(lbl).coerceAtMost(maxCapW)
+                val capX = bounds.x + 10f
+                val bw = style.borderWidthPx.coerceAtLeast(1f)
+                val maskBg = if (style.backgroundColor.a > 0) style.backgroundColor else RgbaColor(255, 255, 255, 255)
+                ctx.setFillColor(maskBg)
+                ctx.fillRect(capX - 3f, bounds.y - bw - 1f, capW + 6f, bw * 2f + 2f)
+                val capColor = if (style.focusRingColor != null) style.borderColor else style.textColor.withAlpha(0.78f)
+                ctx.setFillColor(capColor)
+                ctx.fillText(lbl, capX, bounds.y + capFontPx * 0.35f)
+                ctx.restore()
+            }
         }
         node.onKeyDown = { keyEv ->
             if (!readOnlyState && node.enabled) {
@@ -110,6 +130,17 @@ class TextInputAlienImpl(
     }
 
     override fun getPlaceholder(): String = placeholderValue
+
+    override fun setLabel(label: String?) {
+        val normalized = label?.takeIf { it.isNotBlank() }
+        if (labelValue != normalized) {
+            labelValue = normalized
+            node.markLayoutDirty()
+            node.invalidateBounds()
+        }
+    }
+
+    override fun getLabel(): String? = labelValue
 
     override fun setReadOnly(readOnly: Boolean) {
         readOnlyState = readOnly
