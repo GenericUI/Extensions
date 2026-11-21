@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Choreographer
 import android.view.View
 import com.nexustools.genericui.image.ImageBuffer
@@ -27,6 +28,7 @@ abstract class AndroidAbstractCanvasImpl<C>(
     protected var vblankCallback: ((Double?) -> Unit)? = null
     protected var pointerPassThrough: Boolean = false
     private var choreographerCallback: Choreographer.FrameCallback? = null
+    private var robolectricFrameRunnable: Runnable? = null
 
     override fun getSurfaceWidth(): Int =
         if (nativeWidget.bounds.width > 0) nativeWidget.bounds.width else surfaceW
@@ -78,6 +80,24 @@ abstract class AndroidAbstractCanvasImpl<C>(
         runOnMainThread {
             if (!vblankLoopActive) return@runOnMainThread
             runCatching {
+                val looper = Looper.getMainLooper() ?: return@runCatching
+                val handler = Handler(looper)
+                if (IS_ROBOLECTRIC) {
+                    val runnable = robolectricFrameRunnable ?: object : Runnable {
+                        override fun run() {
+                            if (!vblankLoopActive) return
+                            val timestampMs = SystemClock.uptimeMillis().toDouble()
+                            vblankCallback?.invoke(timestampMs)
+                            onAfterVBlankFrame()
+                            if (vblankLoopActive) {
+                                runCatching { handler.postDelayed(this, 16L) }
+                            }
+                        }
+                    }.also { robolectricFrameRunnable = it }
+                    handler.removeCallbacks(runnable)
+                    handler.postDelayed(runnable, 16L)
+                    return@runCatching
+                }
                 val cb = choreographerCallback ?: Choreographer.FrameCallback { frameTimeNanos ->
                     if (!vblankLoopActive) return@FrameCallback
                     val timestampMs = frameTimeNanos / 1_000_000.0
@@ -96,14 +116,22 @@ abstract class AndroidAbstractCanvasImpl<C>(
     }
 
     private fun cancelChoreographerLoop() {
-        val cb = choreographerCallback ?: return
+        val cb = choreographerCallback
+        val runnable = robolectricFrameRunnable
         if (!isMainLooperAvailable()) {
             choreographerCallback = null
+            robolectricFrameRunnable = null
             return
         }
         runOnMainThread {
             runCatching {
-                Choreographer.getInstance().removeFrameCallback(cb)
+                if (runnable != null) {
+                    Looper.getMainLooper()?.let { Handler(it).removeCallbacks(runnable) }
+                }
+                robolectricFrameRunnable = null
+                if (cb != null) {
+                    Choreographer.getInstance().removeFrameCallback(cb)
+                }
             }
         }
     }
@@ -165,5 +193,12 @@ abstract class AndroidAbstractCanvasImpl<C>(
         vblankCallback = null
         cancelChoreographerLoop()
         super.dispose()
+    }
+
+    companion object {
+        private val IS_ROBOLECTRIC: Boolean = runCatching {
+            Class.forName("org.robolectric.Robolectric")
+            true
+        }.getOrDefault(false)
     }
 }

@@ -44,19 +44,6 @@ open class VideoOverlayHost(
         binder.attachSubtitleCues(cues, trackId)
     }
 
-    override fun setPictureInPictureMode(enabled: Boolean) {
-        super.setPictureInPictureMode(enabled)
-        if (enabled) {
-            if (!videoPlayer.isInPictureInPictureMode) {
-                videoPlayer.enterPictureInPicture()
-            }
-        } else {
-            if (videoPlayer.isInPictureInPictureMode) {
-                videoPlayer.exitPictureInPicture()
-            }
-        }
-    }
-
     override fun dispose() {
         if (videoPlayer.attachedOverlayHost === this) {
             videoPlayer.attachedOverlayHost = null

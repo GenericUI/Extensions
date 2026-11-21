@@ -26,7 +26,8 @@ object IosMediaProvider {
             audioAnalyzerFactory = { IosAudioAnalyzerImpl() },
             mediaSessionManagerFactory = { IosMediaSessionManagerImpl() },
             seekBarFactory = { IosSeekBarImpl() },
-            screenWakeLockFactory = { IosScreenWakeLockImpl() }
+            screenWakeLockFactory = { IosScreenWakeLockImpl() },
+            codecSupportProvider = IosMediaCodecSupportProvider()
         )
     }
 }

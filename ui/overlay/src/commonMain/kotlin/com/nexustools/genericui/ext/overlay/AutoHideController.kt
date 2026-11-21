@@ -13,7 +13,7 @@ import com.nexustools.genericui.style.transition.CssTransitionSpec
  */
 class AutoHideController(
     var spec: AutoHideSpec = AutoHideSpec(),
-    private val targetComponent: AbstractComponent? = null,
+    var targetComponent: AbstractComponent? = null,
     var onVisibilityChanged: ((visible: Boolean, opacity: Float) -> Unit)? = null
 ) : Disposable {
 

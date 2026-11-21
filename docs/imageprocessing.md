@@ -1,12 +1,12 @@
-# `:extensions:imageprocessing` — Offscreen GPU Image Filtering, Resampling, Compositing, & `ImageBuffer2DContext`
+# `:extensions:graphics:imageprocessing` — Offscreen GPU Image Filtering, Resampling, Compositing, & `ImageBuffer2DContext`
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Fragments & Windows (`../../docs/fragments-and-windows.md`)**](../../docs/fragments-and-windows.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:imageprocessing` is a **Multi-Module Project-of-Projects** (`:extensions:imageprocessing:common`, `:extensions:imageprocessing:systemCommon`, `:extensions:imageprocessing:web`) built directly on top of [`:extensions:gpu`](gpu.md) (`GpuDevice`, `GpuOffscreenContext`) and `:common`'s `ImageLoader` / `ImageBuffer`. It provides both:
+`:extensions:graphics:imageprocessing` is a **Single Consolidated KMP Project** (`commonMain`, `systemMain`, `webMain`) built directly on top of [`:extensions:graphics:gpu`](gpu.md) (`GpuDevice`, `GpuOffscreenContext`) and `:common`'s `ImageLoader` / `ImageBuffer`. It provides both:
 1. **Universal Hardware-Accelerated `ImageBuffer` & `ImageBuffer2DContext` (`com.nexustools.genericui.ext.imageprocessing.context2d`)**:
    - `ImageBuffer` extends `:common`'s `ImageBuffer` and exposes `imageBuffer.getContext(): ImageBuffer2DContext` (`context2D`) with **100% HTML5 2D Context feature parity** using strongly-typed `ImageBuffer*` enums and value types (`ImageBufferCompositeOperation`, `ImageBufferLineCap`, `ImageBufferLineJoin`, `ImageBufferFillRule`, `ImageBufferTextAlign`, `ImageBufferTextBaseline`, `ImageBufferTextDirection`, `ImageBufferFontStyle`, `ImageBufferFontKerning`, `ImageBufferFontStretch`, `ImageBufferFontVariantCaps`, `ImageBufferTextRendering`, `ImageBufferImageSmoothingQuality`, `ImageBufferPatternRepetition`, `ImageBufferPaintStyle`, `ImageBufferGradient2D`, `ImageBufferPattern2D`, `ImageBufferMatrix2D`, `ImageBufferPath2D`, `ImageBufferTextMetrics`, and `ScalableVectorFontEngine`).
-   - On **System targets** (`:extensions:imageprocessing:systemCommon`: Windows, macOS, GTK4, Qt6, Swing, Android, iOS), `SystemGpuImageBuffer` and `GpuAcceleratedContext2DBackend` execute 12 hardware **Vulkan (`#version 450`)** and **OpenGL ES (`#version 300 es`)** shaders (`GpuContext2DShaderCatalog`) and support optional double buffering (`doubleBuffer = true`) and `ImageBufferDirtyListener` tracking.
-   - On **Web targets** (`:extensions:imageprocessing:web`), `WebImageBuffer` and `WebImageBuffer2DContext` operate directly on the browser's 2D surface with `enableDirtyTracking = false`.
+   - On **System targets** (`systemMain`: Windows, macOS, GTK4, Qt6, Swing, Android, iOS), `SystemGpuImageBuffer` and `GpuAcceleratedContext2DBackend` execute 12 hardware **Vulkan (`#version 450`)** and **OpenGL ES (`#version 300 es`)** shaders (`GpuContext2DShaderCatalog`) and support optional double buffering (`doubleBuffer = true`) and `ImageBufferDirtyListener` tracking.
+   - On **Web targets** (`webMain`), `WebImageBuffer` and `WebImageBuffer2DContext` operate directly on the browser's 2D surface with `enableDirtyTracking = false`.
 2. **Offscreen GPU Filter Pipelines & Compositing (`com.nexustools.genericui.ext.imageprocessing`)**:
    - Chainable multi-pass filter pipelines (`GpuImageProcessor`), 12-mode multi-layer compositing (`GpuImageCompositor`), Lanczos-3 resampling, cropping, rotation, and 256-bin RGB + Rec.709 luminance histograms (`ImageHistogramResult`).
 
@@ -19,7 +19,7 @@ flowchart LR
     Input["ImageBuffer<br/>(ext.imageprocessing.context2d)"]
     Ctx2D["ImageBuffer2DContext<br/>(imageBuffer.getContext())"]
     Builder["GpuImageProcessor.process(source)<br/>(GpuImagePipelineBuilder)"]
-    GpuCtx["GpuOffscreenContext<br/>(:extensions:gpu Vulkan / GLES)"]
+    GpuCtx["GpuOffscreenContext<br/>(:extensions:graphics:gpu Vulkan / GLES)"]
     Compositor["GpuImageCompositor<br/>(12 ImageBlendMode Modes)"]
     Histogram["GpuImageProcessor.computeHistogram()<br/>(ImageHistogramResult)"]
     Output["Processed ImageBuffer<br/>(Render in ImageView or Canvas2D)"]
@@ -36,7 +36,7 @@ flowchart LR
 
 ## 2. Gradle Plugin Configuration
 
-Enable `:extensions:imageprocessing` via the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md). The plugin automatically includes `:extensions:gpu` and wires `SystemGpuImageBuffer` / `WebImageBuffer` factory registration in each target's generated launcher:
+Enable `:extensions:graphics:imageprocessing` via the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md). The plugin automatically includes `:extensions:graphics:gpu` and wires `SystemGpuImageBuffer` / `WebImageBuffer` factory registration in each target's generated launcher:
 
 ```kotlin
 plugins {
@@ -52,7 +52,7 @@ genericui {
         allExceptSwing()
     }
     extensions {
-        imageProcessing() // Automatically includes :extensions:imageprocessing and :extensions:gpu
+        imageProcessing() // Automatically includes :extensions:graphics:imageprocessing and :extensions:graphics:gpu
         dsl()             // Optional: for mounting processed ImageBuffers in declarative UI
     }
 }
@@ -159,7 +159,7 @@ fun gradeAndCompositeFrame(
 
 ## 5. Related Extensions & Cross-References
 
-- [`:extensions:gpu` (`gpu.md`)](gpu.md) — Provides `GpuDevice`, `GpuOffscreenContext`, `GpuTexture`, `GpuShaderProgram`, `AbstractCanvas`, and `VBlankWatcher`.
-- [`:extensions:canvas2d` (`canvas2d.md`)](canvas2d.md) — Uses a double-buffered `ImageBuffer` (`doubleBuffer = true`) and `ImageBuffer2DContext` as the surface of `Canvas2D`, `Canvas2DExtSurface`, and `ScrollCanvas2D`.
-- [`:extensions:alien` (`alien.md`)](alien.md) — Uses `Canvas2D` and `ImageBuffer2DContext` to self-render Bootstrap 5.3 component trees on System targets.
-- [`:extensions:dsl` (`dsl.md`)](dsl.md) — Declarative Kotlin UI & Style DSL.
+- [`:extensions:graphics:gpu` (`gpu.md`)](gpu.md) — Provides `GpuDevice`, `GpuOffscreenContext`, `GpuTexture`, `GpuShaderProgram`, `AbstractCanvas`, and `VBlankWatcher`.
+- [`:extensions:graphics:canvas2d` (`canvas2d.md`)](canvas2d.md) — Uses a double-buffered `ImageBuffer` (`doubleBuffer = true`) and `ImageBuffer2DContext` as the surface of `Canvas2D` and `ScrollCanvas2D`.
+- [`:extensions:ui:alien` (`alien.md`)](alien.md) — Uses `Canvas2D` and `ImageBuffer2DContext` to self-render Bootstrap 5.3 component trees on System targets.
+- [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Declarative Kotlin UI & Style DSL.

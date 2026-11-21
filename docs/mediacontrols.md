@@ -1,53 +1,55 @@
-# `:extensions:mediacontrols` & `:extensions:mediacontrols:dsl` — Standalone System Media Controls, Taskbar Thumbnail Buttons, & Hardware Media Key Hooks
+# `:extensions:media:mediacontrols` & `:extensions:media:mediacontrols:dsl` — Standalone System Media Controls, Taskbar Thumbnail Buttons, & Hardware Media Key Hooks
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Fragments & Windows (`../../docs/fragments-and-windows.md`)**](../../docs/fragments-and-windows.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:mediacontrols` (`com.nexustools.genericui.ext.mediacontrols`) is a standalone **Multi-Module Project-of-Projects** extension that depends **exclusively on `:common`**. It provides OS/system media transport controls, Windows Taskbar hover preview thumbnail buttons (`ITaskbarList3`), macOS Control Center / Now Playing integration, Linux MPRIS2, Web `navigator.mediaSession`, and hardware keyboard media key hooks across system and web targets.
+`:extensions:media:mediacontrols` (`com.nexustools.genericui.ext.mediacontrols`) is a standalone **Single Consolidated KMP Project** depending **exclusively on `:common`**. It initializes real OS media transport controls across all targets out of the box via [`DefaultPlatformMediaControlsFactory`](../media/mediacontrols/src/commonMain/kotlin/com/nexustools/genericui/ext/mediacontrols/DefaultPlatformMediaControlsFactory.kt) while [`MediaControlsRegistry`](../media/mediacontrols/src/commonMain/kotlin/com/nexustools/genericui/ext/mediacontrols/MediaControlsRegistry.kt) fails fast if no factory is installed.
 
 > [!IMPORTANT]
-> **Zero Extension Dependencies & System/Web Focus**:
-> - `:extensions:mediacontrols` does **not** depend on `:extensions:media`, `:extensions:overlay`, `:extensions:gpu`, `:extensions:canvas2d`, or any other extension. It can be used for any workflow—video/audio players, custom synthesizers/DAWs, slide presentations, timers, or games.
-> - On `:mobile:android` and `:mobile:ios`, `:extensions:mediacontrols` provides a lightweight no-op implementation (`DefaultNoOpMediaControlsNativeImpl` with `supportsSystemTransportControls = false`, `supportsTaskbarThumbnailButtons = false`, `supportsKeyboardMediaKeyHook = false`) and never registers an Android `Service` or mobile notification, leaving mobile apps free to manage their own `androidMain` foreground `Service` setup when desired.
+> **Zero Extension Dependencies & Out-of-the-Box Real OS Media Controls**:
+> - `:extensions:media:mediacontrols` does **not** depend on `:extensions:media:media`, `:extensions:ui:overlay`, `:extensions:graphics:gpu`, `:extensions:graphics:canvas2d`, or any other extension.
+> - Provides real system integration across Desktop, Swing, Android (`MediaSession`), iOS & iPadOS (`MPNowPlayingInfoCenter` / `MPRemoteCommandCenter`), and Web (`navigator.mediaSession`).
 
 ---
 
-## 1. Architecture & Submodule Layout
+## 1. Architecture & Source-Set Layout
 
-`:extensions:mediacontrols` follows the Phase 3 multi-module structure (`:common`, `:systemCommon`, `:desktop:nativeCommon`, `:desktop:{windows,macos,gtk,qt,swing}`, `:mobile:common`, `:mobile:{android,ios}`, `:web`, plus `:dsl`):
+`:extensions:media:mediacontrols` consolidates all platform drivers (`commonMain`, `mingwMain`, `macosMain`, `linuxMain`, `jvmMain`, `androidMain`, `iosMain`, `webMain`, plus `:dsl`):
 
 ```mermaid
 flowchart TD
-    Session["MediaControlsSession (bound optionally to IWindow)<br/>(:extensions:mediacontrols:common & :dsl)"]
-    Win[":extensions:mediacontrols:desktop:windows<br/>(WindowsMediaControlsImpl: ITaskbarList3 Thumbnail Buttons + SMTC + WM_APPCOMMAND & WH_KEYBOARD_LL)"]
-    Mac[":extensions:mediacontrols:desktop:macos<br/>(MacosMediaControlsImpl: MPRemoteCommandCenter + MPNowPlayingInfoCenter + NSSystemDefined Media Keys)"]
-    Linux[":extensions:mediacontrols:desktop:{gtk,qt}<br/>(GtkMediaControlsImpl & QtMediaControlsImpl: XF86Audio* Keys + D-Bus MPRIS2)"]
-    Swing[":extensions:mediacontrols:desktop:swing<br/>(SwingMediaControlsImpl: AWT KeyEventDispatcher Multimedia Key Hooks)"]
-    Web[":extensions:mediacontrols:web<br/>(WebMediaControlsImpl: navigator.mediaSession + DOM Media Key Events)"]
-    Mobile[":extensions:mediacontrols:mobile:{android,ios}<br/>(No-Op Stub: DefaultNoOpMediaControlsNativeImpl)"]
+    Session["MediaControlsSession (bound optionally to IWindow)<br/>(:extensions:media:mediacontrols + :dsl)"]
+    Win["mingwMain (WindowsMediaControlsImpl: ITaskbarList3 Thumbnail Buttons + SMTC + WM_APPCOMMAND & WH_KEYBOARD_LL)"]
+    Mac["macosMain (MacosMediaControlsImpl: MPRemoteCommandCenter + MPNowPlayingInfoCenter + NSSystemDefined Keys)"]
+    Linux["linuxMain (GtkMediaControlsImpl & QtMediaControlsImpl: XF86Audio* Keys + D-Bus MPRIS2)"]
+    Swing["jvmMain (SwingMediaControlsImpl: AWT KeyEventDispatcher Multimedia Key Hooks)"]
+    Web["webMain (WebMediaControlsImpl: navigator.mediaSession + DOM Media Key Events)"]
+    Android["androidMain (AndroidMediaControlsImpl: MediaSession + MediaMetadata + PlaybackState + Hardware Media Keys)"]
+    Ios["iosMain (IosMediaControlsImpl: MPNowPlayingInfoCenter + MPRemoteCommandCenter + AVAudioSession)"]
 
     Session --> Win
     Session --> Mac
     Session --> Linux
     Session --> Swing
     Session --> Web
-    Session --> Mobile
+    Session --> Android
+    Session --> Ios
 ```
 
-| Target Backend | Submodule | System Media Transport & Taskbar Integration | Hardware Keyboard Media Key Hooks |
+| Target Backend | Source Set | System Media Transport & Taskbar Integration | Hardware Keyboard Media Key Hooks |
 | :--- | :--- | :--- | :--- |
-| **Windows (`:windows`)** | `:extensions:mediacontrols:desktop:windows` | **Windows Taskbar Hover Preview Toolbar (`ITaskbarList3`)**: Attaches `ThumbBarAddButtons` / `ThumbBarUpdateButtons` (Previous, dynamic Play/Pause icon & tooltip, Next) to the `IWindow`'s `HWND` (`TaskbarButtonCreated` + `WM_COMMAND` `THBN_CLICKED`), plus Windows System Media Transport Controls (SMTC) | Hooks `WM_APPCOMMAND` (`APPCOMMAND_MEDIA_PLAY_PAUSE`, `PLAY`, `PAUSE`, `STOP`, `NEXTTRACK`, `PREVIOUSTRACK`, `FAST_FORWARD`, `REWIND`) and low-level `WH_KEYBOARD_LL` (`VK_MEDIA_PLAY_PAUSE`, `VK_MEDIA_NEXT_TRACK`, `VK_MEDIA_PREV_TRACK`, `VK_MEDIA_STOP`) |
-| **macOS (`:macos`)** | `:extensions:mediacontrols:desktop:macos` | **macOS Control Center, Now Playing & Touch Bar**: Registers command handlers on `MPRemoteCommandCenter` (`playCommand`, `pauseCommand`, `togglePlayPauseCommand`, `stopCommand`, `nextTrackCommand`, `previousTrackCommand`, `changePlaybackPositionCommand`) and updates `MPNowPlayingInfoCenter` metadata & elapsed time | Installs an `NSEvent` `NSSystemDefined` (`subtype == 8`) media key monitor for physical Mac keyboard media keys (`NX_KEYTYPE_PLAY`, `NX_KEYTYPE_NEXT`, `NX_KEYTYPE_PREVIOUS`, `NX_KEYTYPE_FAST`, `NX_KEYTYPE_REWIND`) |
-| **Linux GTK4 (`:gtk`)** | `:extensions:mediacontrols:desktop:gtk` | D-Bus `org.mpris.MediaPlayer2` transport & metadata bridge | Hooks `XF86AudioPlay`, `XF86AudioPause`, `XF86AudioStop`, `XF86AudioNext`, `XF86AudioPrev` multimedia keys |
-| **Linux Qt6 (`:qt`)** | `:extensions:mediacontrols:desktop:qt` | D-Bus `org.mpris.MediaPlayer2` transport & metadata bridge | Hooks `Qt::Key_MediaPlay`, `Qt::Key_MediaPause`, `Qt::Key_MediaTogglePlayPause`, `Qt::Key_MediaStop`, `Qt::Key_MediaNext`, `Qt::Key_MediaPrevious` |
-| **Desktop JVM (`:swing`)** | `:extensions:mediacontrols:desktop:swing` | Desktop multimedia session state tracking | AWT `KeyboardFocusManager` `KeyEventDispatcher` multimedia key hooks |
-| **Web (`:web`)** | `:extensions:mediacontrols:web` | Browser `navigator.mediaSession` (`MediaMetadata` title, artist, album, artwork + action handlers for `play`, `pause`, `previoustrack`, `nexttrack`, `seekbackward`, `seekforward`, `seekto`, `stop`) | DOM `keydown` listener for `MediaPlayPause`, `MediaTrackNext`, `MediaTrackPrevious`, and `MediaStop` |
-| **Mobile (`:android`, `:ios`)** | `:extensions:mediacontrols:mobile:{android,ios}` | Lightweight no-op (`supportsSystemTransportControls = false`, `supportsTaskbarThumbnailButtons = false`) | No-op (`supportsKeyboardMediaKeyHook = false`) |
+| **Windows (`:windows`)** | `mingwMain` | **Windows Taskbar Hover Preview Toolbar (`ITaskbarList3`)**: Attaches `ThumbBarAddButtons` / `ThumbBarUpdateButtons` + Windows System Media Transport Controls (SMTC) | Hooks `WM_APPCOMMAND` and low-level `WH_KEYBOARD_LL` (`VK_MEDIA_*`) |
+| **macOS (`:macos`)** | `macosMain` | **macOS Control Center, Now Playing & Touch Bar**: `MPRemoteCommandCenter` & `MPNowPlayingInfoCenter` | Installs `NSEvent` `NSSystemDefined` (`subtype == 8`) physical media key monitor |
+| **Linux GTK4 & Qt6 (`:gtk`, `:qt`)** | `linuxMain` | D-Bus `org.mpris.MediaPlayer2` transport & metadata bridge | Hooks `XF86Audio*` / `Qt::Key_Media*` multimedia keys |
+| **Desktop JVM (`:swing`)** | `jvmMain` | Desktop multimedia session state tracking | AWT `KeyboardFocusManager` `KeyEventDispatcher` multimedia key hooks |
+| **Android (`:android`)** | `androidMain` | `android.media.session.MediaSession`, `MediaMetadata`, & `PlaybackState` (`supportsSystemTransportControls = true`) | Dispatches hardware / Bluetooth `KeyEvent` media buttons (`supportsKeyboardMediaKeyHook = true`) |
+| **iOS & iPadOS (`:ios`)** | `iosMain` | Apple `MPNowPlayingInfoCenter`, `MPRemoteCommandCenter`, & `AVAudioSession` (`supportsSystemTransportControls = true`) | Handles Lock Screen, Control Center, and accessory remote command events (`supportsKeyboardMediaKeyHook = true`) |
+| **Web (`:web`)** | `webMain` | Browser `navigator.mediaSession` (`MediaMetadata` + action handlers) | DOM `keydown` listener for `MediaPlayPause`, `MediaTrackNext`, `MediaTrackPrevious`, and `MediaStop` |
 
 ---
 
 ## 2. Gradle Plugin Configuration
 
-Enable `mediaControls()` inside the `genericui { extensions { ... } }` block in `build.gradle.kts`. The GenericUI Gradle plugin automatically wires the platform provider into each target's generated launcher (`GeneratedAppDescriptor`), and automatically adds `:extensions:mediacontrols:dsl` when `dsl()` is enabled:
+Enable `mediaControls()` inside `genericui { extensions { ... } }` in `build.gradle.kts` (automatically adds `:extensions:media:mediacontrols:dsl` when `dsl()` is enabled):
 
 ```kotlin
 plugins {
@@ -63,8 +65,8 @@ genericui {
         allExceptSwing()
     }
     extensions {
-        dsl()           // Enables :extensions:dsl + :extensions:mediacontrols:dsl
-        mediaControls() // Enables :extensions:mediacontrols across all active backends
+        dsl()           // Enables :extensions:ui:dsl + :extensions:media:mediacontrols:dsl
+        mediaControls() // Enables :extensions:media:mediacontrols across all active backends
     }
 }
 ```
@@ -84,7 +86,7 @@ genericui {
 | `MediaControlEvent` | `ext.mediacontrols` | Event payload delivered to listeners: `action: MediaControlAction`, `seekPositionMs: Long? = null`, `source: MediaControlEventSource`. |
 | `MediaControlListener` | `ext.mediacontrols` | Functional interface: `fun onMediaControlEvent(event: MediaControlEvent)`. |
 | `MediaControlsCapabilities` | `ext.mediacontrols` | Platform capability flags: `supportsSystemTransportControls: Boolean`, `supportsTaskbarThumbnailButtons: Boolean`, `supportsKeyboardMediaKeyHook: Boolean`. |
-| `mediaControlsSession` | `ext.mediacontrols.dsl` | Declarative DSL builders (`mediaControlsSession(...)` and `IWindow.mediaControlsSession(...)`) in `:extensions:mediacontrols:dsl`. |
+| `mediaControlsSession` | `ext.mediacontrols.dsl` | Declarative DSL builders (`mediaControlsSession(...)` and `IWindow.mediaControlsSession(...)`) in `:extensions:media:mediacontrols:dsl`. |
 
 ---
 
@@ -168,7 +170,7 @@ class WorkstationFragment : Fragment() {
 
 ---
 
-## 5. Declarative `:extensions:mediacontrols:dsl` Examples
+## 5. Declarative `:extensions:media:mediacontrols:dsl` Examples
 
 When `dsl()` and `mediaControls()` are enabled, use `mediaControlsSession { ... }` (or `hostingWindow?.mediaControlsSession { ... }`) to configure and activate system media controls declaratively:
 
@@ -212,9 +214,9 @@ fun Fragment.bindDeclarativeMediaControls() = mediaControlsSession(
 ## 6. Related Extensions & Cross-References
 
 - **Related Extensions**:
-  - [`:extensions:media` & `:extensions:media:dsl` (`media.md`)](media.md) — Hardware-accelerated `VideoPlayerExt`, `AudioPlayerExt`, and `AudioAnalyzerExt`.
-  - [`:extensions:overlay` & `:extensions:overlay:dsl` (`overlay.md`)](overlay.md) — Universal domain-agnostic overlay framework (`MobileOverlayPreset`, `WebSystemOverlayPreset`, `VideoOverlayHost`).
-  - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
+  - [`:extensions:media:media` & `:extensions:media:media:dsl` (`media.md`)](media.md) — Hardware-accelerated `VideoPlayer`, `AudioPlayer`, `AudioAnalyzer`, `ExpandingVolumeSlider`, and `MediaExtension`.
+  - [`:extensions:ui:overlay` & `:extensions:ui:overlay:dsl` (`overlay.md`)](overlay.md) — Pure `LayeredContainer` overlay framework (`Overlay`, `YoutubePlayerOverlay`, `HybridOverlayDifferenceController`, `OverlayHostBox`).
+  - [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
 - **Root & Backend Documentation**:
   - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Fragments & Windows (`../../docs/fragments-and-windows.md`)](../../docs/fragments-and-windows.md) · [Source Sets (`../../docs/sourcesets.md`)](../../docs/sourcesets.md) · [Backends (`../../docs/backends.md`)](../../docs/backends.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)
   - [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) · [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) · [Web Backend (`../../web/README.md`)](../../web/README.md)

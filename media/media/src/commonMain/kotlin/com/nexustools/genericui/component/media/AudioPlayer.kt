@@ -295,12 +295,6 @@ class AudioPlayer(
         }
     }
 
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> =
-        ensureImpl()?.getSupportedAudioCodecs() ?: emptySet()
-
-    override fun isAudioCodecSupported(codec: AudioCodec): Boolean =
-        ensureImpl()?.isAudioCodecSupported(codec) ?: false
-
     override fun setSource(url: String, seekOffsetSeconds: Double, durationOverrideSeconds: Double?) {
         this.sourceUrl = url
         this.seekOffsetSeconds = seekOffsetSeconds.coerceAtLeast(0.0)

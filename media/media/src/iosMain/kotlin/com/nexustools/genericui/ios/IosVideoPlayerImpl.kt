@@ -46,7 +46,6 @@ import platform.AVFoundation.replaceCurrentItemWithPlayerItem
 import platform.AVFoundation.seekToTime
 import platform.AVFoundation.selectMediaOption
 import platform.AVFoundation.volume
-import platform.AVKit.AVPictureInPictureController
 import platform.CoreGraphics.CGRect
 import platform.CoreGraphics.CGRectMake
 import platform.CoreMedia.CMTimeGetSeconds
@@ -63,7 +62,7 @@ import platform.UIKit.UIView
 /**
  * Apple iOS & iPadOS (`BackendTarget.IOS` and `BackendTarget.IPadOS`) implementation of
  * [VideoPlayerNativeImpl] backed by `AVPlayer`, `AVPlayerLayer` inside a genuine `UIView`,
- * `AVPictureInPictureController`, and `AVAudioSession`.
+ * and `AVAudioSession`.
  */
 class IosVideoPlayerImpl private constructor(
     private val hostView: AvPlayerHostView
@@ -97,7 +96,6 @@ class IosVideoPlayerImpl private constructor(
         preventsDisplaySleepDuringVideoPlayback = true
     }
 
-    private var pipController: AVPictureInPictureController? = null
     private var timeObserverToken: Any? = null
     private var endedNotificationObserver: Any? = null
 
@@ -115,7 +113,6 @@ class IosVideoPlayerImpl private constructor(
     @kotlin.concurrent.Volatile
     private var nativePlayerDisposed: Boolean = false
     private var mediaReadyFlag: Boolean = false
-    private var pipActive: Boolean = false
     private var bufferedRangesState: List<Pair<Double, Double>> = emptyList()
     private val audioTracks = mutableListOf<MediaTrackInfo>()
     private val subtitleTracks = mutableListOf<SubtitleTrackInfo>()
@@ -135,11 +132,6 @@ class IosVideoPlayerImpl private constructor(
 
     init {
         hostView.playerLayer.player = avPlayer
-        runCatching {
-            if (AVPictureInPictureController.isPictureInPictureSupported()) {
-                pipController = AVPictureInPictureController(playerLayer = hostView.playerLayer)
-            }
-        }
         installTimeObserver()
     }
 
@@ -246,79 +238,6 @@ class IosVideoPlayerImpl private constructor(
             NSURL.URLWithString(trimmed) ?: NSURL.fileURLWithPath(trimmed)
         }
     }
-
-    private fun isExtendedMimePlayable(probes: List<String>): Boolean =
-        probes.any { probe ->
-            runCatching { AVURLAsset.isPlayableExtendedMIMEType(probe) }.getOrDefault(false)
-        }
-
-    override fun isVideoCodecSupported(codec: VideoCodec): Boolean =
-        isExtendedMimePlayable(codec.html5CanPlayProbes)
-
-    override fun isAudioCodecSupported(codec: AudioCodec): Boolean =
-        isExtendedMimePlayable(codec.html5CanPlayProbes)
-
-    override fun getSupportedVideoCodecs(): Set<VideoCodec> =
-        VideoCodec.entries.filterTo(linkedSetOf()) { isVideoCodecSupported(it) }
-
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> =
-        AudioCodec.entries.filterTo(linkedSetOf()) { isAudioCodecSupported(it) }
-
-    override fun getMediaCapabilities(): MediaCapabilitiesReport {
-        val videoMap = linkedMapOf<VideoCodec, CodecSupportLevel>()
-        for (codec in VideoCodec.entries) {
-            if (isVideoCodecSupported(codec)) {
-                videoMap[codec] = when (codec) {
-                    VideoCodec.H264,
-                    VideoCodec.HEVC,
-                    VideoCodec.VP9,
-                    VideoCodec.AV1,
-                    VideoCodec.PRORES -> CodecSupportLevel.HARDWARE_ACCELERATED
-                    else -> CodecSupportLevel.SUPPORTED
-                }
-            }
-        }
-        val audioMap = linkedMapOf<AudioCodec, CodecSupportLevel>()
-        for (codec in AudioCodec.entries) {
-            if (isAudioCodecSupported(codec)) {
-                audioMap[codec] = when (codec) {
-                    AudioCodec.AAC,
-                    AudioCodec.ALAC,
-                    AudioCodec.AC3,
-                    AudioCodec.EAC3 -> CodecSupportLevel.HARDWARE_ACCELERATED
-                    else -> CodecSupportLevel.SUPPORTED
-                }
-            }
-        }
-        val containerSet = linkedSetOf<MediaContainer>()
-        if (isExtendedMimePlayable(listOf("video/mp4"))) containerSet.add(MediaContainer.MP4)
-        if (isExtendedMimePlayable(listOf("video/quicktime"))) containerSet.add(MediaContainer.MOV)
-        if (isExtendedMimePlayable(listOf("application/vnd.apple.mpegurl", "application/x-mpegurl"))) {
-            containerSet.add(MediaContainer.HLS)
-        }
-
-        return MediaCapabilitiesReport(
-            videoCodecs = videoMap,
-            audioCodecs = audioMap,
-            containers = containerSet,
-            maxWidth = 3840,
-            maxHeight = 2160,
-            maxFrameRate = 120,
-            supportsHdr10 = VideoCodec.HEVC in videoMap || VideoCodec.AV1 in videoMap,
-            supportsHlg = VideoCodec.HEVC in videoMap || VideoCodec.AV1 in videoMap,
-            supportsDolbyVision = isExtendedMimePlayable(
-                listOf("video/mp4; codecs=\"dvh1.05.06\"", "video/mp4; codecs=\"dvhe.05.06\"")
-            ),
-            supportsSurround51 = AudioCodec.AC3 in audioMap || AudioCodec.EAC3 in audioMap || AudioCodec.AAC in audioMap,
-            supportsSurround71 = AudioCodec.EAC3 in audioMap,
-            supportsAudioTrackSelection = true,
-            supportsSubtitleTrackSelection = true,
-            hardwareAccelerationBackend = "AVPlayer / AVURLAsset / VideoToolbox"
-        )
-    }
-
-    override fun supportsAudioTrackSelection(): Boolean = true
-    override fun supportsSubtitleTrackSelection(): Boolean = true
 
     override fun setSource(url: String, seekOffsetSeconds: Double, durationOverrideSeconds: Double?) {
         currentTimeSec = seekOffsetSeconds.coerceAtLeast(0.0)
@@ -441,7 +360,7 @@ class IosVideoPlayerImpl private constructor(
         resizeMode = mode
         hostView.playerLayer.videoGravity = when (mode) {
             VideoResizeMode.FIT -> AVLayerVideoGravityResizeAspect
-            VideoResizeMode.FILL, VideoResizeMode.ZOOM -> AVLayerVideoGravityResizeAspectFill
+            VideoResizeMode.FILL -> AVLayerVideoGravityResizeAspectFill
             VideoResizeMode.STRETCH -> AVLayerVideoGravityResize
         }
     }
@@ -513,20 +432,6 @@ class IosVideoPlayerImpl private constructor(
         return true
     }
 
-    override fun supportsPictureInPicture(): Boolean =
-        runCatching { AVPictureInPictureController.isPictureInPictureSupported() }.getOrDefault(false)
-
-    override fun enterPictureInPicture(): Boolean {
-        pipActive = true
-        runCatching { pipController?.startPictureInPicture() }
-        return true
-    }
-
-    override fun exitPictureInPicture() {
-        pipActive = false
-        runCatching { pipController?.stopPictureInPicture() }
-    }
-
     override fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {
         attachedAnalyzer = analyzer
     }
@@ -584,7 +489,6 @@ class IosVideoPlayerImpl private constructor(
             avPlayer.replaceCurrentItemWithPlayerItem(null)
         }
         hostView.playerLayer.player = null
-        pipController = null
         MediaScreenWakeController.releaseToken(screenWakeToken)
         super.dispose()
     }

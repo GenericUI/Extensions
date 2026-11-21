@@ -3,6 +3,7 @@ package com.nexustools.genericui.ext.media.web
 import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.web.WebAudioAnalyzerImpl
 import com.nexustools.genericui.web.WebAudioPlayerImpl
+import com.nexustools.genericui.web.WebMediaCodecSupportProvider
 import com.nexustools.genericui.web.WebMediaSessionManagerImpl
 import com.nexustools.genericui.web.WebScreenWakeLockImpl
 import com.nexustools.genericui.web.WebSeekBarImpl
@@ -22,7 +23,8 @@ object WebMediaExtensionProvider {
             },
             mediaSessionManager = { WebMediaSessionManagerImpl() },
             seekBar = { WebSeekBarImpl() },
-            screenWakeLock = { WebScreenWakeLockImpl() }
+            screenWakeLock = { WebScreenWakeLockImpl() },
+            codecSupportProvider = WebMediaCodecSupportProvider()
         )
     }
 }

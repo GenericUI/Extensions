@@ -1,60 +1,44 @@
-# `:extensions:overlay` & `:extensions:overlay:dsl` — Universal Domain-Agnostic Overlay Framework
+# `:extensions:ui:overlay` & `:extensions:ui:overlay:dsl` — Pure Layered Overlay Chrome, Vector Icons, `YoutubePlayerOverlay`, & `HybridOverlayDifferenceController`
 
-> **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Fragments & Windows (`../../docs/fragments-and-windows.md`)**](../../docs/fragments-and-windows.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
+> **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Fragments & Windows (`../../docs/fragments-and-windows.md`)**](../../docs/fragments-and-windows.md) · [**Resources (`../../docs/resources.md`)**](../../docs/resources.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:overlay` (`com.nexustools.genericui.ext.overlay`) is a **Single Multiplatform Project** depending **exclusively on `:common`**. It provides a 100% generic, domain-agnostic overlay architecture for interactive media players, 2D/3D canvases, visualizers, viewports, and custom surfaces across all 8 GenericUI backends.
+`:extensions:ui:overlay` (`com.nexustools.genericui.ext.overlay`) is a **Single Consolidated KMP Project** depending **exclusively on `:common`**. It provides a pure, background-free `LayeredContainer` overlay framework (`OverlayHost`, `OverlayHostBox`, `AbstractOverlay`, `Overlay`), built-in pure-Bezier SVG icons (`com.nexustools.genericui.ext.overlay.res.R`), themed transport buttons (`OverlayControlButton`, `OverlayPlayPauseButton`, `OverlayFullscreenButton`, `OverlayControlButtons`), a ready-to-bind 3-zone player HUD (`YoutubePlayerOverlay`), responsive mobile/desktop layout policy (`HybridOverlayDifferenceController`), lifecycle-bound auto-hide (`AutoHideController`), and app-wide keyboard/pointer routing (`OverlayInputRouter`).
 
-Its companion module `:extensions:overlay:dsl` (`com.nexustools.genericui.ext.overlay.dsl`) provides declarative `kotlinx.html`-style builders for `OverlayHostBox`, `MobileOverlayPreset`, `WebSystemOverlayPreset`, `OverlayPresetResolver`, and every reusable overlay building block.
+Its companion module `:extensions:ui:overlay:dsl` (`com.nexustools.genericui.ext.overlay.dsl`) exposes declarative builders (`overlayHostBox`, `overlay`, `attachPureOverlay`, `youtubePlayerOverlay`, `attachYoutubePlayerOverlay`, `hybridOverlayDifference`, `overlayControlButton`, `overlayPlayPauseButton`, `overlayFullscreenButton`).
 
 ---
 
-## 1. Architectural Principles & Preset Matrix
+## 1. Architectural Principles (`LayeredContainer`, Pure Visual Chrome, & PiP Awareness)
 
-- **100% Domain-Agnostic Core**:
-  - `:extensions:overlay` contains zero application-specific domain assumptions. Instead, it provides structured slots (`OverlaySlot`), reactive state (`OverlayState`) with `customProperties`, action callbacks (`OverlayActions`) with `onCustomAction`, generic badges (`OverlayBadge`, `OverlayBadgeStrip`), transport controls, seek bars, popovers, modal dialogs, curtains, auto-hide timers, and keyboard shortcut routing.
-- **Integrated Across Media, Canvas2D, & Canvas3D**:
-  - [`:extensions:media`](media.md) provides `VideoOverlayHost` and `VideoPlayerOverlayBinder` (`videoPlayer.attachVideoOverlay(...)` / `videoPlayer.withOverlay(...)`).
-  - [`:extensions:canvas2d`](canvas2d.md) provides `Canvas2DOverlayHost` and `ScrollCanvas2DOverlayHost` (`canvas.attachOverlay(...)` / `scrollCanvas.attachOverlay(...)`).
-  - [`:extensions:canvas3d`](canvas3d.md) provides `Canvas3DOverlayHost` and `ScrollCanvas3DOverlayHost` (`canvas3D.attachOverlay(...)` / `scrollCanvas3D.attachOverlay(...)`).
-  - On `ScrollCanvas2D` and `ScrollCanvas3D`, the overlay host covers **only the visible viewport area (`viewportWidth` x `viewportHeight`)**, never obscuring the horizontal or vertical scrollbars (`overlayCoversScrollbars == false`).
-  - No default overlay is attached to 2D or 3D canvases unless explicitly configured by the consumer.
-- **Picture-in-Picture (PiP) Awareness**:
-  - Calling `host.setPictureInPictureMode(true)` or `overlay.setPictureInPictureMode(true)` immediately hides and disables the overlay (`isInPictureInPictureMode == true`) while the host surface is in Picture-in-Picture mode, and restores normal auto-hide behavior when exiting PiP.
+- **100% Pure, Background-Free `OverlayHostBox` & `Overlay`**:
+  - [`OverlayHostBox`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayHostBox.kt) and [`Overlay`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/Overlay.kt) auto-attach zero preset chrome or background scrims unless explicitly configured, layering `overlayRoot` cleanly over any hosted `AbstractComponent` (`VideoPlayer`, `Canvas2D`, `Canvas3D`, or custom widgets).
+- **Integrated Across Media, Picture-in-Picture, Canvas2D, & Canvas3D**:
+  - [`:extensions:media:media`](media.md) pairs [`VideoOverlayHost`](../media/media/src/commonMain/kotlin/com/nexustools/genericui/ext/media/overlay/VideoOverlayHost.kt) + [`YoutubeMediaOverlayHelper`](../media/media/src/commonMain/kotlin/com/nexustools/genericui/ext/media/overlay/YoutubeMediaOverlayHelper.kt) with `YoutubePlayerOverlay`.
+  - [`:extensions:ui:pip`](pip.md) extends `AbstractOverlay` for floating [`PipControlOverlay`](../ui/pip/src/commonMain/kotlin/com/nexustools/genericui/ext/pip/PipControlOverlay.kt).
+  - [`:extensions:graphics:canvas2d`](canvas2d.md) and [`:extensions:graphics:canvas3d`](canvas3d.md) expose `Canvas2DOverlayHost`, `ScrollCanvas2DOverlayHost`, `Canvas3DOverlayHost`, and `ScrollCanvas3DOverlayHost` (covering only the visible viewport without obscuring scrollbars).
+- **Hardware `backdrop-filter` Support & Picture-in-Picture Suppression**:
+  - Both `StyledButton` and `StyledContainer` honor hardware `backdropFilter` (`backdropBlurPx`) across all 9 backends, leveraged directly by `OverlayControlButton` and `HybridOverlayDifferenceController`.
+  - Calling `host.setPictureInPictureMode(true)` or `overlay.setPictureInPictureMode(true)` immediately hides and disables the main viewport overlay (`AutoHideController.setPictureInPictureMode`) while PiP is active, and restores auto-hide when PiP exits.
 
 ```mermaid
 flowchart TD
-    Host["OverlayHost / OverlayHostBox<br/>(VideoOverlayHost • Canvas2DOverlayHost • ScrollCanvas2DOverlayHost • Canvas3DOverlayHost • ScrollCanvas3DOverlayHost)"]
-    Overlay["AbstractOverlay / PresetOverlay<br/>(Slots: TOP_BAR, CENTER, SUBTITLE_CUE, BOTTOM_SEEK, BOTTOM_BAR, BOTTOM_STATUS, POPOVER, CURTAIN, BELOW_HOST)"]
-    Presets["Built-In Presets (OverlayPresetResolver)<br/>MobileOverlayPreset (Android & iOS) • WebSystemOverlayPreset (Web & Desktop)"]
-    Controllers["Behavior Controllers<br/>AutoHideController (3500ms delay, 200ms fade, pin reasons, PiP suppression)<br/>OverlayInputRouter (250ms click debounce, double-click fullscreen, app-wide shortcuts)"]
-    Blocks["Reusable Building Blocks<br/>GradientScrim • MetadataHeader • TrackSeekBar • SliderSeekBar • CenterTransportCluster<br/>OverlayButtonBar • VolumeControl • OverlayBadgeStrip • SubtitleCueView • OverlayPopoverPanel • OverlayModalDialog • OverlayCurtain"]
+    Host["OverlayHost / OverlayHostBox<br/>(VideoOverlayHost • Canvas2DOverlayHost • Canvas3DOverlayHost)"]
+    Overlay["AbstractOverlay / Overlay<br/>(Pure LayeredContainer, OverlayState, OverlayActions, OverlayElement)"]
+    Youtube["YoutubePlayerOverlay (3-Zone HUD + Persistent Caption Layer + Popovers)<br/>+ HybridOverlayDifferenceController (SMALL_MOBILE_PORTRAIT / MEDIUM_LARGE)"]
+    Buttons["OverlayControlButton • OverlayPlayPauseButton • OverlayFullscreenButton<br/>OverlayControlButtons • OverlayIcons (com.nexustools.genericui.ext.overlay.res.R)"]
+    Controllers["AutoHideController (pin reasons, PiP suppression)<br/>OverlayInputRouter (250ms debounce, Space/K/J/L/Arrow/M/F shortcuts)"]
 
     Host --> Overlay
-    Overlay --> Presets
+    Overlay --> Youtube
     Overlay --> Controllers
-    Presets --> Blocks
+    Youtube --> Buttons
 ```
-
-### Mobile (`MobileOverlayPreset`) vs. System + Web (`WebSystemOverlayPreset`) Comparison
-
-`OverlayPresetResolver.resolveForBackend(backend)` automatically selects `MobileOverlayPreset` on mobile touch targets (`Android`, `IOS`) and `WebSystemOverlayPreset` on Web and desktop/system targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`):
-
-| Feature Area | `MobileOverlayPreset` (`Android`, `IOS`) | `WebSystemOverlayPreset` (`Web`, `Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`) |
-| :--- | :--- | :--- |
-| **Gradient Scrims** | Top scrim (`#EE000000 → #99000000 → transparent`) + bottom scrim helper | Top (`rgba(0,0,0,0.65) → transparent`) & bottom (`rgba(0,0,0,0.8) → transparent`) gradient scrims |
-| **Top Bar & Status (`OverlaySlot.TOP_BAR` / `BOTTOM_STATUS`)** | `MetadataHeader` (title 15sp bold, subtitle 12sp, outlined `topBadges` chips, trailing 44dp circle action buttons); centered bottom `OverlayStatusPill` (`#88000000`) when `statusText` is non-empty | `MetadataHeader` with inline status/loading line visible whenever `statusText` is non-empty |
-| **Badge Strip (`OverlaySlot.BELOW_HOST`)** | Outlined chips in `TOP_BAR` + optional `BELOW_HOST` strip | `OverlayBadgeStrip` mounted in `host.belowHostContainer` outside the overlay surface, supporting `NEUTRAL`, `SUCCESS`, `DANGER`, `INFO`, `THEME`, and `OUTLINED` badge variants with click callbacks |
-| **Transport & Bottom Controls** | `CenterTransportCluster` (**−30s** 56dp, **Play/Pause** 64dp with `LoadingIndicator`, **+30s** 56dp on `#88000000` circles); bottom bar with formatted `timePill` (`0:00 / --:--`) + 44dp circle action buttons (`optionsButton`, `fullscreenButton`, custom buttons) | Center `LoadingIndicator`; bottom `OverlayButtonBar` with leading Play/Pause, optional Next (`actions.onNext != null`), hover-expanding `VolumeControl`, formatted `timeLabel`, `customLeadingSlot`, `customTrailingSlot`, `settingsButton`, and `fullscreenButton` |
-| **Seek Bar & Time Format** | `SliderSeekBar` in `BOTTOM_SEEK` below the button row: uses app primary `themeColor` by default, disabled until duration is known, drag with live time preview, commit on release (`[0, dur−0.5]`); formats both times as `H:MM:SS` once either is $\ge 1\text{h}$ (`--:--` when unknown) | `TrackSeekBar` (6px track expanding to 10px on hover) in `BOTTOM_SEEK` above the button row: uses app primary `themeColor` by default, hover time tooltip + drag-with-live-preview and click-to-seek; same `H:MM:SS` time format |
-| **Pointer / Tap, Auto-Hide, & PiP** | Single tap toggles overlay visibility (`instantHideOnTap = true`); `3500ms` auto-hide delay with `200ms` fade-in/out; generic pin reasons (`setPinned(reason, Boolean)`); hidden in PiP (`setPictureInPictureMode(true)`) | Single click = Play/Pause (`250ms` debounce), double-click = Fullscreen (`onToggleFullscreen`); pointer move shows overlay, **pointer leave hides immediately** (`onPointerLeave`); cursor hidden while overlay is hidden; same `3500ms`/`200ms` auto-hide, pin reasons, & PiP suppression |
-| **Keyboard Shortcuts (`OverlayInputRouter`)** | Configurable shortcuts on all 8 backends (`Space`/`K` Play/Pause, `ArrowLeft`/`J` −10s, `ArrowRight`/`L` +10s, `ArrowUp`/`ArrowDown` Volume ±5%, `M` Mute, `F` Fullscreen, plus custom `OverlayShortcutBinding`s; ignored when a text input has focus) | Identical configurable keyboard shortcuts |
-| **Settings / Menus, Subtitles, & Curtain** | `OverlayModalDialog` for audio/subtitle tracks, playback speed, and custom sections (`registerCustomMenuSection`); `SubtitleCueView` in `SUBTITLE_CUE`; `OverlayCurtain` in `CURTAIN` | Anchored `OverlayPopoverPanel` for audio/subtitle tracks, playback speed, and custom sections (`registerCustomMenuSection`); `SubtitleCueView` in `SUBTITLE_CUE`; `OverlayCurtain` in `CURTAIN` |
 
 ---
 
 ## 2. Gradle Plugin Configuration
 
-Enable `overlay()` in the `genericui { extensions { ... } }` block in `build.gradle.kts` (note that enabling `media()`, `canvas2d()`, or `canvas3d()` automatically enables `overlay()`, and enabling `dsl()` automatically adds `:extensions:overlay:dsl`):
+Enable `overlay()` in `genericui { extensions { ... } }` inside `build.gradle.kts` (automatically enabled by `media()`, `pip()`, `canvas2d()`, and `canvas3d()`; `dsl()` auto-wires `:extensions:ui:overlay:dsl`):
 
 ```kotlin
 plugins {
@@ -70,173 +54,147 @@ genericui {
         allExceptSwing()
     }
     extensions {
-        dsl()     // Enables :extensions:dsl and auto-wires :extensions:overlay:dsl
-        overlay() // Enables :extensions:overlay across all configured backends
+        dsl()     // Enables :extensions:ui:dsl + :extensions:ui:overlay:dsl
+        overlay() // Enables :extensions:ui:overlay across all configured backends
     }
 }
 ```
 
 ---
 
-## 3. Core API Reference (`com.nexustools.genericui.ext.overlay`)
+## 3. Built-In Vector Icons (`com.nexustools.genericui.ext.overlay.res.R`) & Control Chrome
 
-| Class / Interface / Enum | Description & Key Members |
+### 3.1 `com.nexustools.genericui.ext.overlay.res.R` (9 Pure-Bezier SVGs)
+All overlay icon drawables live inside `:extensions:ui:overlay` as pure-Bezier SVGs under `src/commonMain/resources/drawable/` and are resolved through `com.nexustools.genericui.ext.overlay.res.R` and [`OverlayIcons`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayIcons.kt):
+
+| [`OverlayIconType`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayIconType.kt) | Generated `R.drawable` Resource ID | SVG File |
+| :--- | :--- | :--- |
+| `OverlayIconType.PLAY` | `R.drawable.ic_play` | [`ic_play.svg`](../ui/overlay/src/commonMain/resources/drawable/ic_play.svg) |
+| `OverlayIconType.PAUSE` | `R.drawable.ic_pause` | [`ic_pause.svg`](../ui/overlay/src/commonMain/resources/drawable/ic_pause.svg) |
+| `OverlayIconType.REWIND` | `R.drawable.ic_rewind` | [`ic_rewind.svg`](../ui/overlay/src/commonMain/resources/drawable/ic_rewind.svg) |
+| `OverlayIconType.FAST_FORWARD` | `R.drawable.ic_fast_forward` | [`ic_fast_forward.svg`](../ui/overlay/src/commonMain/resources/drawable/ic_fast_forward.svg) |
+| `OverlayIconType.STOP` | `R.drawable.ic_stop` | [`ic_stop.svg`](../ui/overlay/src/commonMain/resources/drawable/ic_stop.svg) |
+| `OverlayIconType.NEXT` | `R.drawable.ic_next` | [`ic_next.svg`](../ui/overlay/src/commonMain/resources/drawable/ic_next.svg) |
+| `OverlayIconType.PREVIOUS` | `R.drawable.ic_previous` | [`ic_previous.svg`](../ui/overlay/src/commonMain/resources/drawable/ic_previous.svg) |
+| `OverlayIconType.FULLSCREEN_ENTER` | `R.drawable.ic_fullscreen_enter` | [`ic_fullscreen_enter.svg`](../ui/overlay/src/commonMain/resources/drawable/ic_fullscreen_enter.svg) |
+| `OverlayIconType.FULLSCREEN_EXIT` | `R.drawable.ic_fullscreen_exit` | [`ic_fullscreen_exit.svg`](../ui/overlay/src/commonMain/resources/drawable/ic_fullscreen_exit.svg) |
+
+Use `OverlayIcons.resourceFor(type)` to retrieve a `ResourceID` or `OverlayIcons.uriFor(type)` for resource URIs.
+
+### 3.2 `OverlayControlButton`, `OverlayFullscreenButton`, & `OverlayControlButtons`
+- **[`OverlayControlButton`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayControlButton.kt)**: Extends `:common`'s `StyledButton` with translucent circular HUD styling (`DEFAULT_ACCENT_COLOR`, interactive hover/focus rings, and `tooltipText = null` unless explicitly set), configurable [`OverlayButtonVariant`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayButtonVariant.kt):
+  - `CIRCLE_PILL` (`40x40`, radius `20f`)
+  - `CENTER_PRIMARY` (`64x64`, radius `32f`, `data-overlay-role="primary-center-action"`)
+  - `CENTER_SECONDARY` (`56x56`, radius `28f`)
+  - `INNER_PILL` (`32x32` borderless button for inside `40px` pill containers)
+  - Supports frosted-glass chrome via `applyFrostedGlassStyle(filter, fillColor, borderColor)` (`DEFAULT_FROSTED_BACKDROP_FILTER = CssFilter(blur = CssLength.px(16f), saturate = 1.2f)`) and `clearFrostedGlassStyle(...)`.
+- **[`OverlayPlayPauseButton`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayPlayPauseButton.kt)**: Stateful `OverlayControlButton` toggling `R.drawable.ic_play` / `R.drawable.ic_pause` via `isPlaying` (`data-playing`, `aria-pressed`).
+- **[`OverlayFullscreenButton`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayFullscreenButton.kt)**: Stateful `OverlayControlButton` switching between `R.drawable.ic_fullscreen_enter` and `R.drawable.ic_fullscreen_exit` via `isFullscreen` (`data-fullscreen`, `aria-pressed`) + `toggle()`.
+- **[`OverlayControlButtons`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayControlButtons.kt)**: Factory helpers:
+  - Transport & icon buttons: `play`, `pause`, `playPause`, `rewind`, `fastForward`, `stop`, `next`, `previous`, `fullscreenEnter`, `fullscreenExit`, `fullscreenToggle`
+  - Structural pills & badges: `createControlsPill(role, backgroundColor, borderColor, backdropFilter, id)`, `createTimePill(initialText, backgroundColor, borderColor, backdropFilter, id)`, `createOutlinedBadge(text, borderColor, textColor, id)`
+
+---
+
+## 4. `YoutubePlayerOverlay` & `HybridOverlayDifferenceController`
+
+### 4.1 `YoutubePlayerOverlay` Structure & APIs
+[`YoutubePlayerOverlay`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/YoutubePlayerOverlay.kt) (configured via [`YoutubeOverlayConfig`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/YoutubeOverlayConfig.kt)) arranges three clean layer stacks inside `AbstractOverlay`:
+1. **`hudControlsContainer` (`zIndex = 10`, `data-overlay-role = "controls-layer"`)**: Auto-hidden after `config.autoHideSpec.delayMs` (`5000ms` default, `220ms` fade-in/out) while keeping the root hit-testable to wake the HUD on pointer/tap activity:
+   - `topBar`: `titleLabel`, `subtitleLabel`, `statusLabel`, `topBadgesContainer` (`addTopBadge`), `topRightActionsRow` (`addTopRightAction`).
+   - `centerZone`: `loadingSpinner` + `centerTransportRow` (`centerPreviousButton`, `centerRewindButton`, `centerPlayPauseButton`, `centerStopButton`, `centerFastForwardButton`, `centerNextButton`).
+   - `bottomBar`: [`timelineContainer`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/YoutubeTimelinePlacement.kt) (placed `ABOVE_CONTROLS` or `BELOW_CONTROLS` via `setTimelinePlacement`), hover `seekHoverBubble` (`showTimelineHover(fraction, label)` / `hideTimelineHover()`), and `controlsRow` containing left transport buttons (`previousButton`, `playPauseButton`, `stopButton`, `rewindButton`, `fastForwardButton`, `nextButton`), `leftAccessoryContainer` (e.g., for `ExpandingVolumeSlider`), `timePillContainer` / `timeReadoutLabel`, and `rightControlsPill` (`rightPillAccessoryRow` + `fullscreenButton`, extended via `addRightPillButton`).
+2. **`subtitleBanner` (`zIndex = 15`, `LayerAlignment.BOTTOM_CENTER`, `data-overlay-role = "caption-banner"`)**: Mounted outside `hudControlsContainer` so subtitles (`setSubtitleCueText`) remain visible even when HUD chrome auto-hides.
+3. **Registered Popover Layers (`zIndex = 30`)**: Managed via `registerPopoverLayer(id, component, constraint)`, `unregisterPopoverLayer`, `setPopoverOpen`, `togglePopover`, `closeAllPopovers`, automatically pinning/unpinning `autoHideController` while open.
+
+### 4.2 `HybridOverlayDifferenceController` (`SMALL_MOBILE_PORTRAIT` vs `MEDIUM_LARGE`)
+[`HybridOverlayDifferenceController`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/HybridOverlayDifferenceController.kt) reconciles responsive layout differences on `YoutubePlayerOverlay` using `:common`'s `HybridBreakpointSpec`, viewport dimensions, and `BackendTarget` per [`HybridOverlayDifferenceSpec`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/HybridOverlayDifferenceSpec.kt):
+
+| Behavior | `HybridOverlayLayoutMode.SMALL_MOBILE_PORTRAIT` | `HybridOverlayLayoutMode.MEDIUM_LARGE` |
+| :--- | :--- | :--- |
+| **Timeline Placement (`YoutubeTimelinePlacement`)** | **`BELOW_CONTROLS`** (thumb-reachable under the bottom transport bar) | **`ABOVE_CONTROLS`** (wide desktop/tablet/web layout) |
+| **Center Transport Cluster** | Revealed (`centerRewindButton` `56x56`, `centerPlayPauseButton` `64x64`, `centerFastForwardButton` `56x56`) | Hidden by default (shows bottom controls row + loading spinner) |
+| **Frosted Hardware `backdrop-filter`** | Applies `CssFilter(blur = CssLength.px(16f), saturate = 1.2f)` + frosted fill `rgba(20, 24, 32, 97)` + border `rgba(255, 255, 255, 56)` via `setCenterTransportBackdropFilter(...)` | Clears frosted filter (`mediumLargeCenterBackdropFilter = null`) and resets center chrome |
+| **Bottom Duplicate Transport Buttons** | Hides `playPauseButton`, `rewindButton`, and `fastForwardButton` when `hideDuplicateBottomTransportInCompact == true` | Displays bottom transport buttons according to `overlay.config` |
+
+---
+
+## 5. Core API Summary (`com.nexustools.genericui.ext.overlay`)
+
+| Symbol | Key Members |
 | :--- | :--- |
-| `OverlayExtension` | Global registry for default `themeColorHex` and custom `OverlayElementFactory` registrations (`effectiveDefaultThemeColorHex()`, `registerElementFactory`, `createElement`). |
-| `OverlayHost` / `OverlayHostBox` | Host contract and `Container` implementation wrapping a `content` component, layering `overlayRoot` on top, and mounting `belowHostContainer` (`OverlaySlot.BELOW_HOST`) directly underneath. Key members: `activeOverlay`, `state`, `actions`, `isInPictureInPictureMode`, `themeColorHex`, `attachOverlay(overlay)`, `detachOverlay()`, `updateState { ... }`, `updateActions { ... }`, `setPictureInPictureMode(enabled)`. |
-| `AbstractOverlay` | Base overlay `Container` managing the 9 `OverlaySlot` containers, `autoHideController`, `inputRouter`, `state`, `actions`, and `setPictureInPictureMode(enabled)`. Key methods: `addElement`, `removeElement`, `getElement`, `getElementsInSlot`, `clearSlot`, `updateState`, `updateActions`. |
-| `PresetOverlay` | Open subclass of `AbstractOverlay` providing `metadataHeader`, `subtitleCueView`, `bottomButtonBar`, `curtain`, `belowHostBadgeStrip`, and convenience mutators (`addTopBarIconButton`, `addBottomIconButton`, `addBottomPillButton`, `addBottomLeadingControl`, `addBottomTrailingControl`, `registerCustomMenuSection`, `setCurtainContent`, `setBelowHostBadges`). |
-| `MobileOverlayPreset` | Built-in mobile touch preset (`topScrim`, `bottomScrim`, `centerTransportCluster`, `statusPill`, `timePill`, `sliderSeekBar`, `modalDialog`, `optionsButton`, `fullscreenButton`, `addBottomCircleButton`). |
-| `WebSystemOverlayPreset` | Built-in Web & desktop preset (`topScrim`, `bottomScrim`, `loadingIndicator`, `trackSeekBar`, `playPauseButton`, `nextButton`, `volumeControl`, `timeLabel`, `popoverPanel`, `settingsButton`, `fullscreenButton`). |
-| `OverlayPresetResolver` | Resolves `MobileOverlayPreset` when `backend.isMobile == true` and `WebSystemOverlayPreset` otherwise (`resolveForBackend(backend)`). |
-| `OverlaySlot` | Enum defining the 9 overlay regions: `TOP_BAR`, `CENTER`, `SUBTITLE_CUE`, `BOTTOM_SEEK`, `BOTTOM_BAR`, `BOTTOM_STATUS`, `POPOVER`, `CURTAIN`, `BELOW_HOST`. |
-| `OverlayState` | Immutable state snapshot: `title`, `subtitle`, `statusText`, `isPlaying`, `isLoading`, `positionSec`, `durationSec`, `bufferedRanges`, `volumePercent`, `isMuted`, `playbackSpeed`, `availableSpeeds`, `isFullscreen`, `isInPictureInPictureMode`, `subtitleCueText`, `audioTracks`, `subtitleTracks`, `topBadges`, `belowHostBadges`, `customProperties`, `formattedPosition`, `formattedDuration`, `formattedTimePair`. |
-| `OverlayActions` | Callback bundle: `onPlayPause`, `onPlay`, `onPause`, `onSeekToSec`, `onSkipDeltaSec`, `onNext`, `onPrevious`, `onVolumeChange`, `onMuteToggle`, `onSpeedChange`, `onSelectAudioTrack`, `onSelectSubtitleTrack`, `onToggleFullscreen`, `onBadgeClick`, `onCustomAction`. |
-| `AutoHideController` / `AutoHideSpec` | Lifecycle-bound timer controller (`delayMs = 3500`, `fadeInMs = 200`, `fadeOutMs = 200`, `hideImmediatelyOnPointerLeave`, `hideCursorWhenOverlayHidden`, `instantHideOnTap`). Key methods: `setPinned(reason, pinned)`, `clearAllPins()`, `showOverlay()`, `hideOverlay(instant)`, `notifyUserActivity()`, `notifyPointerLeave()`, `toggleVisibilityByTap()`, `setPictureInPictureMode(inPip)`. |
-| `OverlayInputRouter` / `OverlayShortcutBinding` | Routes pointer clicks (`250ms` debounce), double-clicks (fullscreen), pointer enter/move/leave, and keyboard shortcuts (`registerShortcut`, `unregisterShortcut`, `resetDefaultShortcuts`), ignoring keys while a text input is focused. |
-| `TrackSeekBar` & `SliderSeekBar` | Desktop/Web thin expandable seek track with hover time tooltip (`TrackSeekBar`) and Mobile slider seek bar (`SliderSeekBar`), both supporting live drag preview, buffered range rendering, and app `themeColor` styling via standard CSS `getStyle().setAccentColor(...)` and `getStyle().setBackgroundColor(...)`. |
-| `GradientScrim` / `MetadataHeader` / `CenterTransportCluster` / `VolumeControl` / `OverlayButtonBar` | Modular UI building blocks implementing `OverlayElement`. |
-| `OverlayBadge` / `OverlayBadgeStrip` / `OverlayBadgeSpec` / `OverlayBadgeVariant` | Clickable or informational badge chips (`NEUTRAL`, `SUCCESS`, `DANGER`, `INFO`, `THEME`, `OUTLINED`) mountable in `TOP_BAR` or `BELOW_HOST`. |
-| `OverlayPopoverPanel` / `OverlayModalDialog` / `SubtitleCueView` / `OverlayCurtain` | Settings popover/modal shells, formatted subtitle cue box, and full-surface overlay curtain slot. |
+| [`OverlayExtension`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayExtension.kt) | `defaultThemeColorHex`, `activeApplication`, `effectiveDefaultThemeColorHex()`, `elementRegistry`, `createOverlay(...)`. |
+| [`OverlayHost`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayHost.kt) / [`OverlayHostBox`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayHostBox.kt) | Pure host wrapping `contentComponent`, exposing `overlay` / `activeOverlay`, `overlayRoot`, `state`, `actions`, `isInPictureInPictureMode`, `attachOverlay`, `detachOverlay`, `updateState`, `updateActions`, `setPictureInPictureMode`, `bindToFramePresentTarget`. |
+| [`AbstractOverlay`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/AbstractOverlay.kt) & [`Overlay`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/Overlay.kt) | Pure background-free `LayeredContainer` managing `OverlayElement`s (`addElement`, `removeElement`, `getElement`, `clearElements`), `autoHideController`, `inputRouter`, `updateState`, `updateActions`, `setPictureInPictureMode`, frame hooks (`onBeforeTargetFramePresent`, `notifyTargetRenderFrame`, `notifyTargetResize`). |
+| [`OverlayState`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayState.kt) & [`OverlayActions`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayActions.kt) | Immutable snapshot (`title`, `subtitle`, `statusText`, `isPlaying`, `isLoading`, `positionSec`, `durationSec`, `bufferedRanges`, `volumePercent`, `isMuted`, `playbackSpeed`, `availableSpeeds`, `isFullscreen`, `isInPictureInPictureMode`, `subtitleCueText`, `audioTracks`, `subtitleTracks`, `customProperties`) and callback bundle (`onPlayPause`, `onPlay`, `onPause`, `onSeekToSec`, `onSkipDeltaSec`, `onNext`, `onPrevious`, `onVolumeChange`, `onMuteToggle`, `onSpeedChange`, `onSelectAudioTrack`, `onSelectSubtitleTrack`, `onToggleFullscreen`, `onBadgeClick`, `onCustomAction`). |
+| [`AutoHideController`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/AutoHideController.kt) & [`AutoHideSpec`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/AutoHideSpec.kt) | `setPinned(reason, Boolean)`, `clearAllPins()`, `setPictureInPictureMode(Boolean)`, `showOverlay()`, `hideOverlay()`, `notifyUserActivity()`, `notifyPointerLeave()`, `toggleVisibilityByTap()`. |
+| [`OverlayInputRouter`](../ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayInputRouter.kt) | `250ms` click debounce on Desktop/Web, single-tap HUD toggle on touch-primary targets, double-click fullscreen toggle, and configurable shortcuts (`Space`/`K`, `ArrowLeft`/`J`, `ArrowRight`/`L`, `ArrowUp`/`ArrowDown`, `M`, `F`, plus `registerShortcut` / `unregisterShortcut`), ignored while text inputs have focus. |
 
 ---
 
-## 4. Imperative Kotlin Examples
+## 6. `:extensions:ui:overlay:dsl` Usage Examples
 
-### Example 1: Attaching a Platform-Resolved Preset Overlay to a `VideoPlayerExt`
+### Example 1: Custom Pure Layer Overlay (`attachPureOverlay` + `floatingLayer`)
 
 ```kotlin
-import com.nexustools.genericui.ext.media.VideoPlayerExt
-import com.nexustools.genericui.ext.media.overlay.VideoOverlayHost
-import com.nexustools.genericui.ext.overlay.OverlayBadgeSpec
-import com.nexustools.genericui.ext.overlay.OverlayBadgeVariant
-import com.nexustools.genericui.ext.overlay.OverlayPresetResolver
-import com.nexustools.genericui.ext.overlay.OverlayShortcutBinding
+import com.nexustools.genericui.component.layout.LayerAlignment
+import com.nexustools.genericui.ext.dsl.buildDiv
+import com.nexustools.genericui.ext.dsl.p
+import com.nexustools.genericui.ext.overlay.OverlayButtonVariant
+import com.nexustools.genericui.ext.overlay.OverlayIconType
+import com.nexustools.genericui.ext.overlay.dsl.attachPureOverlay
+import com.nexustools.genericui.ext.overlay.dsl.floatingLayer
+import com.nexustools.genericui.ext.overlay.dsl.overlayControlButton
+import com.nexustools.genericui.ext.overlay.dsl.overlayHostBox
 
-fun createVideoPlayerWithAdaptiveOverlay(): VideoOverlayHost {
-    val player = VideoPlayerExt(sourceUrl = "https://cdn.example.com/streams/concert.mp4")
-
-    // Resolve MobileOverlayPreset on Android/iOS, or WebSystemOverlayPreset on Desktop/Web
-    val overlay = OverlayPresetResolver.resolveForBackend().apply {
-        // Add a custom action button to the bottom bar
-        addBottomPillButton(
-            id = "skip-intro",
-            text = "Skip Intro",
-            variant = OverlayBadgeVariant.THEME,
-            leading = false
-        ) {
-            player.seekTo(85.0)
-        }
-
-        // Register a custom keyboard shortcut ('S' to skip intro)
-        inputRouter.registerShortcut(
-            OverlayShortcutBinding(id = "skip_intro_key", key = "s", allowRepeat = false) { _, actions ->
-                actions.onSeekToSec?.invoke(85.0)
-            }
-        )
-    }
-
-    // Wrap the VideoPlayerExt in a VideoOverlayHost (automatically binds state, tracks, and actions)
-    val host = player.attachVideoOverlay(overlay)
-    host.updateState { state ->
-        state.copy(
-            title = "Live Symphony Broadcast",
-            subtitle = "Season 4 • Episode 2",
-            belowHostBadges = listOf(
-                OverlayBadgeSpec(id = "uhd", text = "4K UHD", variant = OverlayBadgeVariant.SUCCESS, clickable = true),
-                OverlayBadgeSpec(id = "hdr", text = "HDR10", variant = OverlayBadgeVariant.INFO, clickable = true),
-                OverlayBadgeSpec(id = "codec", text = "V: HEVC • A: FLAC", variant = OverlayBadgeVariant.NEUTRAL)
+fun createCanvasWithPureHud(surface: com.nexustools.genericui.core.AbstractComponent) = buildDiv {
+    overlayHostBox(content = surface) {
+        attachPureOverlay(classPrefix = "viewport-hud") {
+            floatingLayer(
+                elementId = "hud-status",
+                alignment = LayerAlignment.TOP_START,
+                leftPx = 12,
+                topPx = 12,
+                component = p("60 FPS")
             )
-        )
-    }
-
-    return host
-}
-```
-
-### Example 2: Attaching an Overlay to a `ScrollCanvas2D` (Covering Only the Viewport)
-
-```kotlin
-import com.nexustools.genericui.ext.canvas2d.ScrollCanvas2D
-import com.nexustools.genericui.ext.canvas2d.overlay.ScrollCanvas2DOverlayHost
-import com.nexustools.genericui.ext.overlay.WebSystemOverlayPreset
-
-fun createScrollableCanvasWithHudOverlay(): ScrollCanvas2DOverlayHost {
-    val scrollCanvas = ScrollCanvas2D(
-        viewportWidth = 960,
-        viewportHeight = 540,
-        contentWidth = 4000,
-        contentHeight = 3000
-    )
-
-    val overlay = WebSystemOverlayPreset(overlayId = "canvas-hud").apply {
-        addTopBarIconButton(id = "reset-zoom", symbol = "🔍", tooltip = "Reset View") {
-            scrollCanvas.scrollTo(0, 0)
+            floatingLayer(
+                elementId = "fullscreen-btn",
+                alignment = LayerAlignment.BOTTOM_END,
+                rightPx = 12,
+                bottomPx = 12,
+                component = overlayControlButton(
+                    iconType = OverlayIconType.FULLSCREEN_ENTER,
+                    variant = OverlayButtonVariant.CIRCLE_PILL
+                )
+            )
         }
     }
-
-    // Attaches the overlay strictly over the 960x540 viewport area, excluding scrollbars
-    return scrollCanvas.attachOverlay(overlay).apply {
-        updateState { it.copy(title = "Interactive Vector Map", statusText = "Zoom: 100%") }
-    }
 }
 ```
 
----
-
-## 5. Declarative `:extensions:overlay:dsl` Examples
-
-When `dsl()` and `overlay()` (or `media()`, `canvas2d()`, `canvas3d()`) are enabled in `genericui { extensions { ... } }`, use `videoOverlayHost`, `canvas2DOverlayHost`, `scrollCanvas2DOverlayHost`, `canvas3DOverlayHost`, `scrollCanvas3DOverlayHost`, `overlayHostBox`, `defaultOverlayPreset`, `mobileOverlayPreset`, and `webSystemOverlayPreset` in declarative UI layouts:
+### Example 2: `YoutubePlayerOverlay` with `hybridOverlayDifference`
 
 ```kotlin
-import com.nexustools.genericui.component.fragment.AppFragment
-import com.nexustools.genericui.component.fragment.Fragment
-import com.nexustools.genericui.component.fragment.FragmentBundle
-import com.nexustools.genericui.ext.dsl.build
-import com.nexustools.genericui.ext.dsl.div
+import com.nexustools.genericui.ext.dsl.buildDiv
 import com.nexustools.genericui.ext.media.dsl.videoOverlayHost
-import com.nexustools.genericui.ext.overlay.OverlayBadgeSpec
-import com.nexustools.genericui.ext.overlay.OverlayBadgeVariant
-import com.nexustools.genericui.ext.overlay.dsl.defaultOverlayPreset
+import com.nexustools.genericui.ext.media.overlay.YoutubeMediaOverlayHelper
+import com.nexustools.genericui.ext.overlay.YoutubeOverlayConfig
+import com.nexustools.genericui.ext.overlay.dsl.attachYoutubePlayerOverlay
+import com.nexustools.genericui.ext.overlay.dsl.hybridOverlayDifference
 
-@AppFragment(label = "Media Overlay Player", route = "player")
-class MediaOverlayPlayerFragment : Fragment() {
-    override fun onCreate(savedState: FragmentBundle?) {
-        super.onCreate(savedState)
-        rootContainer.build {
-            div(classes = "p-3") {
-                videoOverlayHost(
-                    sourceUrl = "https://cdn.example.com/video/documentary.mp4",
-                    themeColorHex = "#0d6efd"
-                ) {
-                    defaultOverlayPreset {
-                        addBottomPillButton(
-                            id = "next-chapter",
-                            text = "Next Chapter ⏭",
-                            variant = OverlayBadgeVariant.THEME,
-                            leading = false
-                        ) {
-                            videoPlayer.skipDelta(60.0)
-                        }
-                        setBelowHostBadges(
-                            listOf(
-                                OverlayBadgeSpec(
-                                    id = "direct-play",
-                                    text = "Direct Play",
-                                    variant = OverlayBadgeVariant.SUCCESS,
-                                    clickable = true
-                                )
-                            )
-                        )
-                    }
-                    updateState {
-                        it.copy(
-                            title = "Deep Ocean Exploration",
-                            subtitle = "Chapter 1 • Mariana Trench"
-                        )
-                    }
-                }
-            }
+fun createAdaptiveYoutubePlayer() = buildDiv {
+    videoOverlayHost(sourceUrl = "https://cdn.example.com/streams/concert.mp4") {
+        val overlay = attachYoutubePlayerOverlay(
+            config = YoutubeOverlayConfig(skipDeltaSeconds = 10.0)
+        ) {
+            hybridOverlayDifference()
+        }
+        YoutubeMediaOverlayHelper(overlay = overlay, includeVolumeSlider = true)
+        updateState {
+            it.copy(
+                title = "Live Symphony Broadcast",
+                subtitle = "Season 4 • Episode 2"
+            )
         }
     }
 }
@@ -244,13 +202,9 @@ class MediaOverlayPlayerFragment : Fragment() {
 
 ---
 
-## 6. Related Extensions & Cross-References
+## 7. Related Extensions & Cross-References
 
-- **Integrated Host Extensions**:
-  - [`:extensions:media` & `:extensions:media:dsl` (`media.md`)](media.md) — `VideoOverlayHost`, `VideoPlayerOverlayBinder`, `VideoPlayerExt.attachVideoOverlay`, and `videoOverlayHost { ... }`.
-  - [`:extensions:canvas2d` & `:extensions:canvas2d:dsl` (`canvas2d.md`)](canvas2d.md) — `Canvas2DOverlayHost`, `ScrollCanvas2DOverlayHost`, `canvas2DOverlayHost { ... }`, and `scrollCanvas2DOverlayHost { ... }`.
-  - [`:extensions:canvas3d` & `:extensions:canvas3d:dsl` (`canvas3d.md`)](canvas3d.md) — `Canvas3DOverlayHost`, `ScrollCanvas3DOverlayHost`, `canvas3DOverlayHost { ... }`, and `scrollCanvas3DOverlayHost { ... }`.
-  - [`:extensions:mediacontrols` & `:extensions:mediacontrols:dsl` (`mediacontrols.md`)](mediacontrols.md) — Companion standalone OS media transport controls, Windows taskbar preview buttons, and hardware keyboard media key hooks.
-  - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
-- **Root & Backend Documentation**:
-  - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Fragments & Windows (`../../docs/fragments-and-windows.md`)](../../docs/fragments-and-windows.md) · [Source Sets (`../../docs/sourcesets.md`)](../../docs/sourcesets.md) · [Backends (`../../docs/backends.md`)](../../docs/backends.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)
+- [`:extensions:media:media` & `:extensions:media:media:dsl` (`media.md`)](media.md) — `VideoOverlayHost`, `VideoPlayerOverlayBinder`, `YoutubeMediaOverlayHelper`, and 3-wave `ExpandingVolumeSlider`.
+- [`:extensions:ui:pip` & `:extensions:ui:pip:dsl` (`pip.md`)](pip.md) — `PipControlOverlay` floating Picture-in-Picture HUD and PiP suppression (`setPictureInPictureMode`).
+- [`:extensions:graphics:canvas2d` (`canvas2d.md`)](canvas2d.md) & [`:extensions:graphics:canvas3d` (`canvas3d.md`)](canvas3d.md) — Viewport-scoped `Canvas2DOverlayHost` and `Canvas3DOverlayHost`.
+- [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.

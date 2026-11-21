@@ -4,7 +4,11 @@ package com.nexustools.genericui.ext.media.desktop.libvlc
 
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.enums.media.AudioCodec
+import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
+import com.nexustools.genericui.ext.media.desktop.DesktopVlcMediaExtensionProvider
+import com.nexustools.genericui.ext.media.vlc.VlcConfiguration
+import com.nexustools.genericui.ext.media.vlc.VlcPlatformCapabilities
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import kotlinx.cinterop.COpaquePointer
 import kotlinx.cinterop.StableRef
@@ -55,9 +59,17 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
     @kotlin.concurrent.Volatile
     private var nativePlayerDisposed: Boolean = false
+    override val isDisposed: Boolean
+        get() = nativePlayerDisposed
+    private var lastAppliedAudioOutputModule: String = ""
+    private var lastAppliedAudioDeviceId: String = ""
     private val pollScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var playbackMonitorJob: Job? = null
     private var attachedAnalyzer: AudioAnalyzer? = null
+
+    init {
+        DesktopVlcMediaExtensionProvider.registerAudioPlayer(this)
+    }
 
     private var onTimeUpdateListener: ((Double) -> Unit)? = null
     private var onDurationChangedListener: ((Double) -> Unit)? = null
@@ -107,15 +119,36 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     private fun ensureVlcPlayer(): COpaquePointer? {
         if (!vlcInitAttempted) {
             vlcInitAttempted = true
-            val inst = LibVlcBindings.libvlc_new(listOf("--no-video", "--quiet"))
+            val config = MediaExtension.vlcConfiguration
+            val args = VlcPlatformCapabilities.mergeLibVlcArgs(
+                baseArgs = listOf("--no-video", "--quiet"),
+                config = config,
+                includeVideoOptions = false,
+                allowWindowVoutFlag = false
+            )
+            val inst = LibVlcBindings.libvlc_new(args)
             initializedVlcInstance = inst
             val player = LibVlcBindings.libvlc_media_player_new(inst)
             initializedVlcMediaPlayer = player
             if (player != null) {
                 LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
+                applyVlcConfiguration(config)
             }
         }
         return initializedVlcMediaPlayer
+    }
+
+    internal fun applyVlcConfiguration(config: VlcConfiguration) {
+        if (nativePlayerDisposed) return
+        val player = vlcMediaPlayer ?: return
+        val (nextModule, nextDeviceId) = LibVlcBindings.applyAudioConfiguration(
+            player = player,
+            config = config,
+            previousModule = lastAppliedAudioOutputModule,
+            previousDeviceId = lastAppliedAudioDeviceId
+        )
+        lastAppliedAudioOutputModule = nextModule
+        lastAppliedAudioDeviceId = nextDeviceId
     }
 
     private fun ensureAnalyzerVlcPlayer(): COpaquePointer? {
@@ -175,10 +208,6 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
         )
     }
 
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> = AudioCodec.entries.toSet()
-
-    override fun isAudioCodecSupported(codec: AudioCodec): Boolean = true
-
     override fun setSource(url: String, seekOffsetSeconds: Double) {
         stopPlaybackMonitor()
         currentSourceUrl = url
@@ -188,16 +217,23 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
 
         if (url.isNotBlank()) {
             val player = ensureVlcPlayer()
+            val config = MediaExtension.vlcConfiguration
             LibVlcBindings.libvlc_media_release(currentVlcMedia)
             val media = if (url.contains("://")) {
                 LibVlcBindings.libvlc_media_new_location(vlcInstance, url)
             } else {
                 LibVlcBindings.libvlc_media_new_path(vlcInstance, url)
             }
-            if (seekOffsetSeconds > 0.0) {
-                LibVlcBindings.libvlc_media_add_option(media, ":start-time=$seekOffsetSeconds")
+            for (option in VlcPlatformCapabilities.buildMediaOptions(
+                config = config,
+                seekOffsetSeconds = seekOffsetSeconds,
+                includeVideoOptions = false,
+                allowWindowVoutOption = false
+            )) {
+                LibVlcBindings.libvlc_media_add_option(media, option)
             }
             currentVlcMedia = media
+            applyVlcConfiguration(config)
             LibVlcBindings.libvlc_media_player_set_media(player, media)
             if (attachedAnalyzer != null) {
                 syncAnalyzerMedia(url, seekOffsetSeconds)
@@ -352,6 +388,7 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
 
     override fun dispose() {
         nativePlayerDisposed = true
+        DesktopVlcMediaExtensionProvider.unregisterAudioPlayer(this)
         playingFallback = false
         stopPlaybackMonitor()
         pollScope.cancel()

@@ -2,9 +2,13 @@
 
 package com.nexustools.genericui.ext.media.desktop.libvlc
 
+import com.nexustools.genericui.ext.media.vlc.VlcAudioOutputDevice
+import com.nexustools.genericui.ext.media.vlc.VlcAudioOutputModule
+import com.nexustools.genericui.ext.media.vlc.VlcConfiguration
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CFunction
 import kotlinx.cinterop.COpaquePointer
+import kotlinx.cinterop.COpaquePointerVar
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.CPointerVar
 import kotlinx.cinterop.IntVar
@@ -16,6 +20,7 @@ import kotlinx.cinterop.plus
 import kotlinx.cinterop.pointed
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.set
+import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.value
 
@@ -271,6 +276,167 @@ object LibVlcBindings {
         return fn.invoke(player) > 0
     }
 
+    fun libvlc_audio_output_list_get(instance: COpaquePointer?): COpaquePointer? {
+        if (instance == null) return null
+        val fn = symbol("libvlc_audio_output_list_get")
+            ?.reinterpret<CFunction<(COpaquePointer) -> COpaquePointer?>>()
+            ?: return null
+        return fn.invoke(instance)
+    }
+
+    fun libvlc_audio_output_list_release(pList: COpaquePointer?) {
+        if (pList == null) return
+        val fn = symbol("libvlc_audio_output_list_release")
+            ?.reinterpret<CFunction<(COpaquePointer) -> Unit>>()
+            ?: return
+        fn.invoke(pList)
+    }
+
+    fun libvlc_audio_output_set(player: COpaquePointer?, name: String): Int {
+        if (player == null) return -1
+        val fn = symbol("libvlc_audio_output_set")
+            ?.reinterpret<CFunction<(COpaquePointer, CPointer<ByteVar>) -> Int>>()
+            ?: return -1
+        return memScoped {
+            fn.invoke(player, name.cstr.ptr)
+        }
+    }
+
+    fun libvlc_audio_output_device_enum(player: COpaquePointer?): COpaquePointer? {
+        if (player == null) return null
+        val fn = symbol("libvlc_audio_output_device_enum")
+            ?.reinterpret<CFunction<(COpaquePointer) -> COpaquePointer?>>()
+            ?: return null
+        return fn.invoke(player)
+    }
+
+    fun libvlc_audio_output_device_list_get(instance: COpaquePointer?, aout: String): COpaquePointer? {
+        if (instance == null) return null
+        val fn = symbol("libvlc_audio_output_device_list_get")
+            ?.reinterpret<CFunction<(COpaquePointer, CPointer<ByteVar>) -> COpaquePointer?>>()
+            ?: return null
+        return memScoped {
+            fn.invoke(instance, aout.cstr.ptr)
+        }
+    }
+
+    fun libvlc_audio_output_device_list_release(pList: COpaquePointer?) {
+        if (pList == null) return
+        val fn = symbol("libvlc_audio_output_device_list_release")
+            ?.reinterpret<CFunction<(COpaquePointer) -> Unit>>()
+            ?: return
+        fn.invoke(pList)
+    }
+
+    fun libvlc_audio_output_device_set(player: COpaquePointer?, module: String?, deviceId: String?) {
+        if (player == null) return
+        val fn = symbol("libvlc_audio_output_device_set")
+            ?.reinterpret<CFunction<(COpaquePointer, CPointer<ByteVar>?, CPointer<ByteVar>?) -> Unit>>()
+            ?: return
+        memScoped {
+            fn.invoke(player, module?.cstr?.ptr, deviceId?.cstr?.ptr)
+        }
+    }
+
+    internal fun applyAudioConfiguration(
+        player: COpaquePointer?,
+        config: VlcConfiguration,
+        previousModule: String,
+        previousDeviceId: String
+    ): Pair<String, String> {
+        if (player == null || !isAvailable) return previousModule to previousDeviceId
+        val nextModule = if (config.audioOutputModule.isNotBlank()) {
+            libvlc_audio_output_set(player, config.audioOutputModule)
+            config.audioOutputModule
+        } else if (previousModule.isNotBlank()) {
+            libvlc_audio_output_set(player, "any")
+            ""
+        } else {
+            ""
+        }
+        val nextDeviceId = if (config.audioOutputDeviceId.isNotBlank()) {
+            libvlc_audio_output_device_set(
+                player = player,
+                module = config.audioOutputModule.ifBlank { null },
+                deviceId = config.audioOutputDeviceId
+            )
+            config.audioOutputDeviceId
+        } else if (previousDeviceId.isNotBlank()) {
+            libvlc_audio_output_device_set(
+                player = player,
+                module = config.audioOutputModule.ifBlank { null },
+                deviceId = ""
+            )
+            ""
+        } else {
+            ""
+        }
+        return nextModule to nextDeviceId
+    }
+
+    fun readAudioOutputModules(instance: COpaquePointer?): List<VlcAudioOutputModule> {
+        val head = libvlc_audio_output_list_get(instance) ?: return emptyList()
+        val result = mutableListOf<VlcAudioOutputModule>()
+        val ptrSize = sizeOf<COpaquePointerVar>().toInt()
+        try {
+            var cur: CPointer<ByteVar>? = head.reinterpret()
+            var safety = 0
+            while (cur != null && safety < 256) {
+                safety += 1
+                // VLC 3.x libvlc_audio_output_t: +0 psz_name, +8 psz_description, +16 p_next
+                val namePtr = (cur + 0)!!.reinterpret<CPointerVar<ByteVar>>().pointed.value
+                val descPtr = (cur + ptrSize)!!.reinterpret<CPointerVar<ByteVar>>().pointed.value
+                val nextPtr = (cur + (ptrSize * 2))!!.reinterpret<COpaquePointerVar>().pointed.value?.reinterpret<ByteVar>()
+                val name = namePtr?.toKString()?.trim().orEmpty()
+                val description = descPtr?.toKString()?.trim().orEmpty().ifEmpty { name }
+                if (name.isNotEmpty()) {
+                    result.add(VlcAudioOutputModule(name = name, description = description))
+                }
+                cur = nextPtr
+            }
+        } finally {
+            libvlc_audio_output_list_release(head)
+        }
+        return result
+    }
+
+    fun readAudioOutputDevices(instance: COpaquePointer?, audioOutputModule: String): List<VlcAudioOutputDevice> {
+        val trimmedModule = audioOutputModule.trim()
+        if (trimmedModule.isEmpty()) return emptyList()
+        val head = libvlc_audio_output_device_list_get(instance, trimmedModule) ?: return emptyList()
+        return parseAudioOutputDeviceList(head)
+    }
+
+    fun readAudioOutputDevices(player: COpaquePointer?): List<VlcAudioOutputDevice> {
+        val head = libvlc_audio_output_device_enum(player) ?: return emptyList()
+        return parseAudioOutputDeviceList(head)
+    }
+
+    private fun parseAudioOutputDeviceList(head: COpaquePointer): List<VlcAudioOutputDevice> {
+        val result = mutableListOf<VlcAudioOutputDevice>()
+        val ptrSize = sizeOf<COpaquePointerVar>().toInt()
+        try {
+            var cur: CPointer<ByteVar>? = head.reinterpret()
+            var safety = 0
+            while (cur != null && safety < 256) {
+                safety += 1
+                // VLC 3.x libvlc_audio_output_device_t: +0 p_next, +8 psz_device, +16 psz_description
+                val nextPtr = (cur + 0)!!.reinterpret<COpaquePointerVar>().pointed.value?.reinterpret<ByteVar>()
+                val devicePtr = (cur + ptrSize)!!.reinterpret<CPointerVar<ByteVar>>().pointed.value
+                val descPtr = (cur + (ptrSize * 2))!!.reinterpret<CPointerVar<ByteVar>>().pointed.value
+                val deviceId = devicePtr?.toKString()?.trim().orEmpty()
+                val description = descPtr?.toKString()?.trim().orEmpty().ifEmpty { deviceId }
+                if (deviceId.isNotEmpty()) {
+                    result.add(VlcAudioOutputDevice(deviceId = deviceId, description = description))
+                }
+                cur = nextPtr
+            }
+        } finally {
+            libvlc_audio_output_device_list_release(head)
+        }
+        return result
+    }
+
     fun libvlc_audio_get_track(player: COpaquePointer?): Int {
         if (player == null) return -1
         val fn = symbol("libvlc_audio_get_track")
@@ -385,6 +551,16 @@ object LibVlcBindings {
             ?.reinterpret<CFunction<(COpaquePointer, Float) -> Unit>>()
             ?: return
         fn.invoke(player, factor)
+    }
+
+    fun libvlc_video_set_deinterlace(player: COpaquePointer?, mode: String?) {
+        if (player == null) return
+        val fn = symbol("libvlc_video_set_deinterlace")
+            ?.reinterpret<CFunction<(COpaquePointer, CPointer<ByteVar>?) -> Unit>>()
+            ?: return
+        memScoped {
+            fn.invoke(player, mode?.cstr?.ptr)
+        }
     }
 
     fun libvlc_media_player_add_slave(player: COpaquePointer?, type: Int, uri: String, select: Boolean): Int {

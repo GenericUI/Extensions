@@ -236,9 +236,6 @@ open class VideoPlayer(
     override fun getRequiredSafeBufferSeconds(): Double =
         typedNative<VideoPlayerNativeImpl<*>>()?.getRequiredSafeBufferSeconds() ?: 0.0
 
-    var isInPictureInPictureMode: Boolean = false
-        private set
-
     override val currentTimeSeconds: Double
         get() = typedNative<VideoPlayerNativeImpl<*>>()?.getCurrentTimeSeconds() ?: seekOffsetSeconds
 
@@ -260,7 +257,6 @@ open class VideoPlayer(
     var onBufferingStateChanged: ((Boolean) -> Unit)? = null
     override var onBufferedRangesChanged: ((List<Pair<Double, Double>>) -> Unit)? = null
     var onTracksChanged: (() -> Unit)? = null
-    var onPictureInPictureChanged: ((Boolean) -> Unit)? = null
 
     private var attachedAnalyzer: AudioAnalyzer? = null
 
@@ -308,56 +304,6 @@ open class VideoPlayer(
         for (observer in stateChangeObservers.toList()) {
             observer.invoke()
         }
-    }
-
-    /**
-     * Queries the uniform codec, container, 4K, HDR10/HLG/Dolby Vision, and surround audio capabilities
-     * of the active platform video engine.
-     */
-    fun getMediaCapabilities(): MediaCapabilitiesReport {
-        val impl = typedNative<VideoPlayerNativeImpl<*>>()
-            ?: MediaExtension.createVideoPlayerNative()
-        return impl?.getMediaCapabilities() ?: MediaCapabilitiesReport(
-            videoCodecs = emptyMap(),
-            audioCodecs = emptyMap(),
-            containers = emptySet()
-        )
-    }
-
-    /**
-     * Checks whether [codec] is supported by the active video player backend.
-     */
-    fun isVideoCodecSupported(codec: VideoCodec): Boolean {
-        val impl = typedNative<VideoPlayerNativeImpl<*>>()
-            ?: MediaExtension.createVideoPlayerNative()
-        return impl?.isVideoCodecSupported(codec) ?: false
-    }
-
-    /**
-     * Checks whether [codec] is supported by the active video player backend.
-     */
-    override fun isAudioCodecSupported(codec: AudioCodec): Boolean {
-        val impl = typedNative<VideoPlayerNativeImpl<*>>()
-            ?: MediaExtension.createVideoPlayerNative()
-        return impl?.isAudioCodecSupported(codec) ?: false
-    }
-
-    /**
-     * Returns all [VideoCodec] entries supported by the active video player backend.
-     */
-    fun getSupportedVideoCodecs(): Set<VideoCodec> {
-        val impl = typedNative<VideoPlayerNativeImpl<*>>()
-            ?: MediaExtension.createVideoPlayerNative()
-        return impl?.getSupportedVideoCodecs() ?: emptySet()
-    }
-
-    /**
-     * Returns all [AudioCodec] entries supported by the active video player backend.
-     */
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> {
-        val impl = typedNative<VideoPlayerNativeImpl<*>>()
-            ?: MediaExtension.createVideoPlayerNative()
-        return impl?.getSupportedAudioCodecs() ?: emptySet()
     }
 
     override fun setSource(url: String, seekOffsetSeconds: Double, durationOverrideSeconds: Double?) {
@@ -519,18 +465,6 @@ open class VideoPlayer(
         } else {
             exitFullscreen()
         }
-    }
-
-    fun supportsAudioTrackSelection(): Boolean {
-        val impl = typedNative<VideoPlayerNativeImpl<*>>()
-            ?: MediaExtension.createVideoPlayerNative()
-        return impl?.supportsAudioTrackSelection() ?: false
-    }
-
-    fun supportsSubtitleTrackSelection(): Boolean {
-        val impl = typedNative<VideoPlayerNativeImpl<*>>()
-            ?: MediaExtension.createVideoPlayerNative()
-        return impl?.supportsSubtitleTrackSelection() ?: false
     }
 
     fun setAudioTracks(tracks: List<MediaTrackInfo>) {
@@ -705,28 +639,6 @@ open class VideoPlayer(
             subtitleCuesByTrackId[activeTrackId]?.let { return it }
         }
         return directSubtitleCues
-    }
-
-    fun supportsPictureInPicture(): Boolean =
-        typedNative<VideoPlayerNativeImpl<*>>()?.supportsPictureInPicture() ?: false
-
-    fun enterPictureInPicture(): Boolean {
-        val entered = typedNative<VideoPlayerNativeImpl<*>>()?.enterPictureInPicture() ?: true
-        if (entered && !isInPictureInPictureMode) {
-            isInPictureInPictureMode = true
-            onPictureInPictureChanged?.invoke(true)
-            notifyStateChangeObservers()
-        }
-        return entered
-    }
-
-    fun exitPictureInPicture() {
-        typedNative<VideoPlayerNativeImpl<*>>()?.exitPictureInPicture()
-        if (isInPictureInPictureMode) {
-            isInPictureInPictureMode = false
-            onPictureInPictureChanged?.invoke(false)
-            notifyStateChangeObservers()
-        }
     }
 
     override fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {

@@ -7,7 +7,7 @@ import com.nexustools.genericui.enums.media.VideoCodec
 
 /**
  * Uniform cross-platform media codec, container, resolution, HDR, and surround-audio capability report
- * returned by [VideoPlayer.getMediaCapabilities].
+ * returned by [com.nexustools.genericui.ext.media.MediaExtension.getMediaCapabilities].
  *
  * Allows applications to build transcoding/direct-play profiles (`clientCapabilities`)
  * without platform-specific codec probing logic.

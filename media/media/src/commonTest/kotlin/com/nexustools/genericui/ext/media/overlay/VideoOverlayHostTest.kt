@@ -88,7 +88,7 @@ class VideoOverlayHostTest {
         assertEquals(1.5, host.state.playbackSpeed)
 
         // Audio and subtitle track selection (by ID and by 0-based index)
-        assertFalse(player.supportsAudioTrackSelection())
+        assertFalse(com.nexustools.genericui.ext.media.MediaExtension.supportsAudioTrackSelection())
         assertTrue(player.selectAudioTrackByIndex(1))
         assertEquals("ja", player.getSelectedAudioTrackId())
         assertTrue(host.state.audioTracks.first { it.id == "ja" }.selected)

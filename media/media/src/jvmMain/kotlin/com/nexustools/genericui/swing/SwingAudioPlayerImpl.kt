@@ -2,22 +2,41 @@ package com.nexustools.genericui.swing
 
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.enums.media.AudioCodec
+import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
+import com.nexustools.genericui.ext.media.swing.SwingMediaExtensionProvider
+import com.nexustools.genericui.ext.media.vlc.VlcConfiguration
+import com.nexustools.genericui.ext.media.vlc.VlcPlatformCapabilities
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import com.sun.jna.Pointer
+import uk.co.caprica.vlcj.factory.MediaPlayerFactory
 import uk.co.caprica.vlcj.player.base.MediaPlayer
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
 import uk.co.caprica.vlcj.player.base.callback.AudioCallbackAdapter
 import uk.co.caprica.vlcj.player.component.AudioPlayerComponent
+import uk.co.caprica.vlcj.player.component.MediaPlayerSpecs
 
 /**
  * Java Swing [AudioPlayerNativeImpl] backed by `libvlcj` ([AudioPlayerComponent]).
  */
 class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
 
-    private val vlcjAudioComponent: AudioPlayerComponent? = runCatching {
-        AudioPlayerComponent()
-    }.getOrNull()
+    private val initialConfig: VlcConfiguration = MediaExtension.vlcConfiguration
+    private val vlcjFactory: MediaPlayerFactory? = SwingMediaExtensionProvider.createMediaPlayerFactorySafely(
+        VlcPlatformCapabilities.mergeLibVlcArgs(
+            baseArgs = listOf("--quiet", "--intf=dummy", "--no-video"),
+            config = initialConfig,
+            includeVideoOptions = false,
+            allowWindowVoutFlag = false
+        )
+    )
+    private val vlcjAudioComponent: AudioPlayerComponent? = vlcjFactory?.let { factory ->
+        runCatching {
+            MediaPlayerSpecs.audioPlayerSpec()
+                .withFactory(factory)
+                .audioPlayer()
+        }.getOrNull()
+    }
 
     private val vlcjPlayer: MediaPlayer?
         get() = vlcjAudioComponent?.mediaPlayer()
@@ -31,6 +50,10 @@ class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
     private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
     @Volatile
     private var nativePlayerDisposed: Boolean = false
+    override val isDisposed: Boolean
+        get() = nativePlayerDisposed
+    private var lastAppliedAudioOutputModule: String = ""
+    private var lastAppliedAudioDeviceId: String = ""
     private var attachedAnalyzer: AudioAnalyzer? = null
     private var timeUpdateListener: ((Double) -> Unit)? = null
     private var durationChangedListener: ((Double) -> Unit)? = null
@@ -46,7 +69,22 @@ class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
         MediaScreenWakeController.setTokenActive(screenWakeToken, active)
     }
 
+    internal fun applyVlcConfiguration(config: VlcConfiguration) {
+        if (nativePlayerDisposed) return
+        val player = vlcjPlayer ?: return
+        val (nextModule, nextDeviceId) = SwingMediaExtensionProvider.applyAudioConfiguration(
+            mediaPlayer = player,
+            config = config,
+            previousModule = lastAppliedAudioOutputModule,
+            previousDeviceId = lastAppliedAudioDeviceId
+        )
+        lastAppliedAudioOutputModule = nextModule
+        lastAppliedAudioDeviceId = nextDeviceId
+    }
+
     init {
+        SwingMediaExtensionProvider.registerAudioPlayer(this)
+        applyVlcConfiguration(initialConfig)
         vlcjAudioComponent?.mediaPlayer()?.events()?.addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
             override fun playing(mediaPlayer: MediaPlayer) {
                 playingFallback = true
@@ -139,19 +177,18 @@ class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
         runCatching { tapPlayer.media().prepare(url, *options) }
     }
 
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> = AudioCodec.entries.toSet()
-
-    override fun isAudioCodecSupported(codec: AudioCodec): Boolean = true
-
     override fun setSource(url: String, seekOffsetSeconds: Double) {
         currentSourceUrl = url
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
         mediaReady = false
-        val options = if (seekOffsetSeconds > 0.0) {
-            arrayOf(":start-time=$seekOffsetSeconds")
-        } else {
-            emptyArray()
-        }
+        val config = MediaExtension.vlcConfiguration
+        val options = VlcPlatformCapabilities.buildMediaOptions(
+            config = config,
+            seekOffsetSeconds = seekOffsetSeconds,
+            includeVideoOptions = false,
+            allowWindowVoutOption = false
+        ).toTypedArray()
+        applyVlcConfiguration(config)
         vlcjPlayer?.media()?.prepare(url, *options)
         if (attachedAnalyzer != null) {
             syncAnalyzerTapMedia(url, seekOffsetSeconds)
@@ -260,10 +297,12 @@ class SwingAudioPlayerImpl : AudioPlayerNativeImpl {
 
     override fun dispose() {
         nativePlayerDisposed = true
+        SwingMediaExtensionProvider.unregisterAudioPlayer(this)
         playingFallback = false
         MediaScreenWakeController.releaseToken(screenWakeToken)
         runCatching { analyzerTapComponent?.release() }
         analyzerTapComponent = null
-        vlcjAudioComponent?.release()
+        runCatching { vlcjAudioComponent?.release() }
+        runCatching { vlcjFactory?.release() }
     }
 }

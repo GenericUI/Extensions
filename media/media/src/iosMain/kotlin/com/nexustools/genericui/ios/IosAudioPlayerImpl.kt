@@ -102,14 +102,6 @@ class IosAudioPlayerImpl : AudioPlayerNativeImpl {
         }
     }
 
-    override fun isAudioCodecSupported(codec: AudioCodec): Boolean =
-        codec.html5CanPlayProbes.any { probe ->
-            runCatching { AVURLAsset.isPlayableExtendedMIMEType(probe) }.getOrDefault(false)
-        }
-
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> =
-        AudioCodec.entries.filterTo(linkedSetOf()) { isAudioCodecSupported(it) }
-
     override fun setSource(url: String, seekOffsetSeconds: Double) {
         currentTimeSec = seekOffsetSeconds.coerceAtLeast(0.0)
         endedNotificationObserver?.let { obs ->

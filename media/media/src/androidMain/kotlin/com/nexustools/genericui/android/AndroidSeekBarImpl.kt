@@ -3,8 +3,10 @@ package com.nexustools.genericui.android
 import android.content.Context
 import android.view.View
 import android.widget.SeekBar
+import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.nativeimpl.media.SeekBarNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.threading.GenericUiThreading
 import kotlin.math.round
 
 /**
@@ -38,6 +40,17 @@ class AndroidSeekBarImpl : AndroidBaseNativeImpl(
     private var onSeekStartListener: ((Double) -> Unit)? = null
     private var onSeekCommitListener: ((Double) -> Unit)? = null
 
+    private fun dispatchToLogic(block: () -> Unit) {
+        if (GenericUI.activeFactory != null &&
+            GenericUiThreading.isSplitThreadingEnabled &&
+            !GenericUiThreading.isOnLogicThread()
+        ) {
+            GenericUiThreading.runOnLogic(block)
+        } else {
+            block()
+        }
+    }
+
     override fun createDefaultAndroidView(context: Context): View? = SeekBar(context).apply {
         max = NATIVE_RESOLUTION
         setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -45,15 +58,17 @@ class AndroidSeekBarImpl : AndroidBaseNativeImpl(
                 if (!fromUser || suppressNativeCallback) return
                 val mapped = quantize(minVal + (progress.toDouble() / NATIVE_RESOLUTION) * (maxVal - minVal))
                 currentValue = mapped
-                onValueChangedListener?.invoke(mapped)
+                dispatchToLogic { onValueChangedListener?.invoke(mapped) }
             }
 
             override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                onSeekStartListener?.invoke(currentValue)
+                val snapshot = currentValue
+                dispatchToLogic { onSeekStartListener?.invoke(snapshot) }
             }
 
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                onSeekCommitListener?.invoke(currentValue)
+                val snapshot = currentValue
+                dispatchToLogic { onSeekCommitListener?.invoke(snapshot) }
             }
         })
     }

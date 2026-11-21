@@ -55,6 +55,7 @@ kotlin {
             dependencies {
                 api(project(":common"))
                 api(project(":extensions:ui:overlay"))
+                api(project(":extensions:data:schema"))
                 api(libs.kotlinx.coroutines.core)
             }
         }

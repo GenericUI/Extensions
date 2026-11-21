@@ -1,7 +1,10 @@
 package com.nexustools.genericui.component.media
 
 import com.nexustools.genericui.component.action.StyledButton
+import com.nexustools.genericui.component.content.Icon
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.LayerAlignment
+import com.nexustools.genericui.component.layout.LayeredContainer
 import com.nexustools.genericui.component.layout.StyledContainer
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.enums.bootstrap.AlignItems
@@ -16,11 +19,14 @@ import com.nexustools.genericui.enums.css.CssBoxSizing
 import com.nexustools.genericui.enums.css.CssCursor
 import com.nexustools.genericui.enums.css.CssDisplay
 import com.nexustools.genericui.enums.css.CssPointerEvents
+import com.nexustools.genericui.enums.css.CssPosition
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.resources.ResourceID
+import com.nexustools.genericui.style.color.ImageTintMode
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssCornerRadii
 import com.nexustools.genericui.style.css.CssEdgeLengths
+import com.nexustools.genericui.style.css.CssFilter
 import com.nexustools.genericui.style.css.CssLength
 import com.nexustools.genericui.style.transition.CssTransitionSpec
 import kotlinx.coroutines.CoroutineScope
@@ -39,8 +45,10 @@ import kotlin.math.roundToInt
  * a bordered translucent pill [StyledContainer].
  *
  * At rest (`isExpanded == false`), the control renders as a compact `40x40` circular pill around
- * [muteButton]. When hovered (`onPointerEnter`), focused, or actively scrubbed, [sliderContainer]
- * smoothly animates its expansion and collapse across all backends.
+ * [muteButton] overlaid with a 5-layer vector stack (`speaker + wave1 + wave2 + wave3 + muteCross`)
+ * backed by `:extensions:media:media` `R.drawable.*` SVGs with smooth per-wave fade transitions.
+ * When hovered (`onPointerEnter`), focused, or actively scrubbed, [sliderContainer] smoothly
+ * animates its expansion and collapse across all backends.
  */
 open class ExpandingVolumeSlider(
     value: Double = 100.0,
@@ -53,10 +61,22 @@ open class ExpandingVolumeSlider(
     private var muteIconRes: ResourceID? = null
     private var tintIconsToTheme: Boolean = true
     private var isInternalSync: Boolean = false
+    private var suppressIconSync: Boolean = false
     private var lastNonZeroPercent: Double = value.coerceIn(0.0, 100.0).let { if (it > 0.0) it else 100.0 }
     private var pointerInside: Boolean = false
     private val animationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var animationJob: Job? = null
+    private var iconAnimationJob: Job? = null
+    private var currentWave1Opacity: Float = 0f
+    private var currentWave2Opacity: Float = 0f
+    private var currentWave3Opacity: Float = 0f
+    private var currentMuteCrossOpacity: Float = 0f
+
+    var iconAnimationDurationMs: Long = 160L
+        set(value) {
+            field = value.coerceAtLeast(0L)
+            syncLayerTransitions()
+        }
 
     /**
      * Normalized expansion progress in `[0f..1f]` (`0f` = collapsed, `1f` = fully expanded).
@@ -72,7 +92,7 @@ open class ExpandingVolumeSlider(
 
     val muteButton: StyledButton = StyledButton(
         text = "",
-        icon = DEFAULT_VOLUME_SVG,
+        icon = null,
         type = BootstrapType.NONE,
         size = BootstrapSize.SM,
         outline = false
@@ -106,6 +126,60 @@ open class ExpandingVolumeSlider(
             borderWidthPx = 0f,
             focusRingColor = null,
             focusRingWidthPx = 0f
+        )
+    }
+
+    val speakerIconLayer: Icon = createVolumeLayerIcon(MediaVolumeIcons.speaker, "speaker")
+    val wave1Layer: Icon = createVolumeLayerIcon(MediaVolumeIcons.wave1, "wave-1")
+    val wave2Layer: Icon = createVolumeLayerIcon(MediaVolumeIcons.wave2, "wave-2")
+    val wave3Layer: Icon = createVolumeLayerIcon(MediaVolumeIcons.wave3, "wave-3")
+    val muteCrossLayer: Icon = createVolumeLayerIcon(MediaVolumeIcons.muteCross, "mute-cross")
+
+    val muteIconOverlay: LayeredContainer = LayeredContainer(
+        tagName = "genericui:volume-icon-stack",
+        classPrefix = "expanding-volume-icon-stack"
+    ).apply {
+        setAttribute("data-overlay-role", "volume-icon-stack")
+        widthPx = 32
+        heightPx = 32
+        getStyle().apply {
+            setPosition(CssPosition.ABSOLUTE)
+            setLeft(CssLength.px(4))
+            setTop(CssLength.px(3))
+            setWidth(CssLength.px(32))
+            setHeight(CssLength.px(32))
+            setPointerEvents(CssPointerEvents.NONE)
+            setZIndex(2)
+        }
+        addFloatingLayer(
+            component = speakerIconLayer,
+            alignment = LayerAlignment.CENTER,
+            zIndex = 1,
+            passThroughPointerEvents = true
+        )
+        addFloatingLayer(
+            component = wave1Layer,
+            alignment = LayerAlignment.CENTER,
+            zIndex = 2,
+            passThroughPointerEvents = true
+        )
+        addFloatingLayer(
+            component = wave2Layer,
+            alignment = LayerAlignment.CENTER,
+            zIndex = 3,
+            passThroughPointerEvents = true
+        )
+        addFloatingLayer(
+            component = wave3Layer,
+            alignment = LayerAlignment.CENTER,
+            zIndex = 4,
+            passThroughPointerEvents = true
+        )
+        addFloatingLayer(
+            component = muteCrossLayer,
+            alignment = LayerAlignment.CENTER,
+            zIndex = 5,
+            passThroughPointerEvents = true
         )
     }
 
@@ -160,8 +234,10 @@ open class ExpandingVolumeSlider(
             } finally {
                 isInternalSync = false
             }
-            syncMuteButtonIcon()
-            syncStateAttributes()
+            if (!suppressIconSync) {
+                syncMuteButtonIcon(animate = true)
+                syncStateAttributes()
+            }
         }
 
     var volume: Float
@@ -180,8 +256,10 @@ open class ExpandingVolumeSlider(
             } finally {
                 isInternalSync = false
             }
-            syncMuteButtonIcon()
-            syncStateAttributes()
+            if (!suppressIconSync) {
+                syncMuteButtonIcon(animate = true)
+                syncStateAttributes()
+            }
         }
 
     var alwaysExpanded: Boolean = false
@@ -246,6 +324,7 @@ open class ExpandingVolumeSlider(
         backgroundColor = RgbaColor(18, 18, 22, 188)
         setBorder(1, RgbaColor(255, 255, 255, 36), CssBorderStyle.SOLID, radiusPx = 20)
         getStyle().apply {
+            setPosition(CssPosition.RELATIVE)
             setDisplay(CssDisplay.INLINE_FLEX)
             setFlexDirection(FlexDirection.ROW)
             setAlignItems(AlignItems.CENTER)
@@ -257,6 +336,7 @@ open class ExpandingVolumeSlider(
 
         addChild(muteButton)
         addChild(sliderContainer)
+        addChild(muteIconOverlay)
 
         onPointerEnter = {
             pointerInside = true
@@ -276,10 +356,12 @@ open class ExpandingVolumeSlider(
                 onCompactButtonClick?.invoke()
             } else {
                 val nextMuted = !isMuted
-                if (!nextMuted && this.value <= 0.0) {
-                    this.value = lastNonZeroPercent.coerceIn(5.0, 100.0)
+                val nextValue = if (!nextMuted && this.value <= 0.0) {
+                    lastNonZeroPercent.coerceIn(5.0, 100.0)
+                } else {
+                    this.value
                 }
-                updateVolumeState(this.value, nextMuted)
+                updateVolumeState(nextValue, nextMuted)
                 onMuteToggle?.invoke(nextMuted)
             }
         }
@@ -304,7 +386,7 @@ open class ExpandingVolumeSlider(
             }
         }
 
-        syncMuteButtonIcon()
+        syncMuteButtonIcon(animate = false)
         syncExpansionStyles(animate = false)
         syncStateAttributes()
     }
@@ -313,7 +395,9 @@ open class ExpandingVolumeSlider(
         this.volumeIconRes = volumeIcon
         this.muteIconRes = muteIcon
         this.tintIconsToTheme = tintToTheme
-        syncMuteButtonIcon()
+        setAttribute("data-custom-volume-icons", "true")
+        muteIconOverlay.isVisible = false
+        syncMuteButtonIcon(animate = false)
     }
 
     fun updateVolumeState(volumePercent: Double, muted: Boolean) {
@@ -321,23 +405,173 @@ open class ExpandingVolumeSlider(
         if (clamped > 0.0) {
             lastNonZeroPercent = clamped
         }
-        this.value = clamped
-        this.isMuted = muted
+        suppressIconSync = true
+        try {
+            this.value = clamped
+            this.isMuted = muted
+        } finally {
+            suppressIconSync = false
+        }
+        syncMuteButtonIcon(animate = true)
+        syncStateAttributes()
     }
 
-    private fun syncMuteButtonIcon() {
+    private fun createVolumeLayerIcon(resId: ResourceID, layerTag: String): Icon = Icon(
+        resId = resId,
+        sizePx = 18
+    ).apply {
+        placeholderUrl = ""
+        tintMode = ImageTintMode.SRC_IN
+        tintColor = RgbaColor(242, 245, 250, 255)
+        cssFilter = CssFilter(brightness = 0f, invert = 1f)
+        setAttribute("data-volume-layer", layerTag)
+        getStyle().apply {
+            setWidth(CssLength.px(18))
+            setHeight(CssLength.px(18))
+            setPointerEvents(CssPointerEvents.NONE)
+            setTransitions(CssTransitionSpec.parseList("opacity ${iconAnimationDurationMs.coerceAtLeast(1L)}ms ease"))
+        }
+    }
+
+    private fun syncLayerTransitions() {
+        val dur = iconAnimationDurationMs.coerceAtLeast(1L)
+        val specs = CssTransitionSpec.parseList("opacity ${dur}ms ease")
+        speakerIconLayer.style.setTransitions(specs)
+        wave1Layer.style.setTransitions(specs)
+        wave2Layer.style.setTransitions(specs)
+        wave3Layer.style.setTransitions(specs)
+        muteCrossLayer.style.setTransitions(specs)
+    }
+
+    private fun computeTargetLayerOpacities(percent: Double, muted: Boolean): FloatArray {
+        if (muted) {
+            return floatArrayOf(0f, 0f, 0f, 1f)
+        }
+        if (percent <= 0.0) {
+            return floatArrayOf(0f, 0f, 0f, 0f)
+        }
+        val w1 = (percent / 10.0).toFloat().coerceIn(0f, 1f)
+        val w2 = if (percent <= 33.0) 0f else ((percent - 33.0) / 12.0).toFloat().coerceIn(0f, 1f)
+        val w3 = if (percent <= 66.0) 0f else ((percent - 66.0) / 14.0).toFloat().coerceIn(0f, 1f)
+        return floatArrayOf(w1, w2, w3, 0f)
+    }
+
+    private fun applyIconLayerOpacities(
+        wave1: Float,
+        wave2: Float,
+        wave3: Float,
+        muteCross: Float
+    ) {
+        val w1 = wave1.coerceIn(0f, 1f)
+        val w2 = wave2.coerceIn(0f, 1f)
+        val w3 = wave3.coerceIn(0f, 1f)
+        val mc = muteCross.coerceIn(0f, 1f)
+        currentWave1Opacity = w1
+        currentWave2Opacity = w2
+        currentWave3Opacity = w3
+        currentMuteCrossOpacity = mc
+        speakerIconLayer.opacity = 1f
+        wave1Layer.opacity = w1
+        wave2Layer.opacity = w2
+        wave3Layer.opacity = w3
+        muteCrossLayer.opacity = mc
+        setAttribute("data-wave-1-opacity", formatOpacityAttr(w1))
+        setAttribute("data-wave-2-opacity", formatOpacityAttr(w2))
+        setAttribute("data-wave-3-opacity", formatOpacityAttr(w3))
+        setAttribute("data-mute-cross-opacity", formatOpacityAttr(mc))
+    }
+
+    private fun formatOpacityAttr(value: Float): String {
+        val clamped = value.coerceIn(0f, 1f)
+        return when {
+            clamped <= 0.0005f -> "0"
+            clamped >= 0.9995f -> "1"
+            else -> ((clamped * 1000f).roundToInt() / 1000f).toString()
+        }
+    }
+
+    private fun syncMuteButtonIcon(animate: Boolean = true) {
         val showMute = isMuted || value <= 0.0
         val volRes = volumeIconRes
         val mRes = muteIconRes
         if (volRes != null && mRes != null) {
+            iconAnimationJob?.cancel()
+            iconAnimationJob = null
+            muteIconOverlay.isVisible = false
             val targetRes = if (showMute) mRes else volRes
             if (muteButton.iconRes != targetRes) {
                 muteButton.setImage(targetRes, tintToTheme = tintIconsToTheme)
             }
-        } else {
-            val targetSvg = if (showMute) DEFAULT_MUTE_SVG else DEFAULT_VOLUME_SVG
-            if (muteButton.icon != targetSvg) {
-                muteButton.icon = targetSvg
+            val targets = computeTargetLayerOpacities(value, isMuted)
+            applyIconLayerOpacities(targets[0], targets[1], targets[2], targets[3])
+            return
+        }
+
+        if (!muteIconOverlay.isVisible) {
+            muteIconOverlay.isVisible = true
+        }
+        if (muteButton.icon != null || muteButton.image != null) {
+            muteButton.icon = null
+            muteButton.setImage(null, tintToTheme = tintIconsToTheme)
+        }
+
+        val targets = computeTargetLayerOpacities(value, isMuted)
+        val targetW1 = targets[0]
+        val targetW2 = targets[1]
+        val targetW3 = targets[2]
+        val targetCross = targets[3]
+
+        iconAnimationJob?.cancel()
+        iconAnimationJob = null
+
+        val activeBackendName = resolveActiveFactory()?.backendTarget?.name
+        val shouldInterpolateSystem = animate &&
+            activeBackendName != null &&
+            activeBackendName != "WEB" &&
+            iconAnimationDurationMs > 0L &&
+            (
+                abs(currentWave1Opacity - targetW1) > 0.005f ||
+                    abs(currentWave2Opacity - targetW2) > 0.005f ||
+                    abs(currentWave3Opacity - targetW3) > 0.005f ||
+                    abs(currentMuteCrossOpacity - targetCross) > 0.005f
+                )
+
+        if (!shouldInterpolateSystem) {
+            applyIconLayerOpacities(targetW1, targetW2, targetW3, targetCross)
+            return
+        }
+
+        val startW1 = currentWave1Opacity
+        val startW2 = currentWave2Opacity
+        val startW3 = currentWave3Opacity
+        val startCross = currentMuteCrossOpacity
+        val stepIntervalMs = 16L
+        val totalSteps = (iconAnimationDurationMs / stepIntervalMs).toInt().coerceAtLeast(2)
+
+        val firstT = 1f / totalSteps.toFloat()
+        val firstEased = firstT * firstT * (3f - 2f * firstT)
+        applyIconLayerOpacities(
+            startW1 + (targetW1 - startW1) * firstEased,
+            startW2 + (targetW2 - startW2) * firstEased,
+            startW3 + (targetW3 - startW3) * firstEased,
+            startCross + (targetCross - startCross) * firstEased
+        )
+
+        iconAnimationJob = animationScope.launch {
+            for (step in 2..totalSteps) {
+                delay(stepIntervalMs)
+                val t = (step.toFloat() / totalSteps.toFloat()).coerceIn(0f, 1f)
+                val eased = t * t * (3f - 2f * t)
+                if (step == totalSteps) {
+                    applyIconLayerOpacities(targetW1, targetW2, targetW3, targetCross)
+                } else {
+                    applyIconLayerOpacities(
+                        startW1 + (targetW1 - startW1) * eased,
+                        startW2 + (targetW2 - startW2) * eased,
+                        startW3 + (targetW3 - startW3) * eased,
+                        startCross + (targetCross - startCross) * eased
+                    )
+                }
             }
         }
     }
@@ -432,6 +666,8 @@ open class ExpandingVolumeSlider(
     override fun dispose() {
         animationJob?.cancel()
         animationJob = null
+        iconAnimationJob?.cancel()
+        iconAnimationJob = null
         super.dispose()
     }
 

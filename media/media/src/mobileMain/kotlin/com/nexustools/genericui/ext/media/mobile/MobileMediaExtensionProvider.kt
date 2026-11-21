@@ -1,7 +1,9 @@
 package com.nexustools.genericui.ext.media.mobile
 
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.ext.media.MediaCodecSupportProvider
 import com.nexustools.genericui.ext.media.MediaExtension
+import com.nexustools.genericui.ext.media.MediaPlayerSettingsProvider
 import com.nexustools.genericui.nativeimpl.media.AudioAnalyzerNativeImpl
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import com.nexustools.genericui.nativeimpl.media.SeekBarNativeImpl
@@ -24,7 +26,9 @@ object MobileMediaExtensionProvider {
         audioAnalyzer: ((Int) -> AudioAnalyzerNativeImpl)? = null,
         mediaSessionManager: (() -> MediaSessionManagerNativeImpl)? = null,
         seekBar: (() -> SeekBarNativeImpl<*>)? = null,
-        screenWakeLock: (() -> ScreenWakeLockNativeImpl)? = null
+        screenWakeLock: (() -> ScreenWakeLockNativeImpl)? = null,
+        codecSupportProvider: MediaCodecSupportProvider? = null,
+        playerSettingsProvider: MediaPlayerSettingsProvider? = null
     ) {
         require(supportsTarget(target)) {
             "MobileMediaExtensionProvider supports mobile targets only (Android, IOS, IPadOS); got $target."
@@ -35,7 +39,9 @@ object MobileMediaExtensionProvider {
             audioAnalyzer = audioAnalyzer,
             mediaSessionManager = mediaSessionManager,
             seekBar = seekBar,
-            screenWakeLock = screenWakeLock
+            screenWakeLock = screenWakeLock,
+            codecSupportProvider = codecSupportProvider,
+            playerSettingsProvider = playerSettingsProvider
         )
     }
 
@@ -45,7 +51,9 @@ object MobileMediaExtensionProvider {
         audioAnalyzer: ((Int) -> AudioAnalyzerNativeImpl)? = null,
         mediaSessionManager: (() -> MediaSessionManagerNativeImpl)? = null,
         seekBar: (() -> SeekBarNativeImpl<*>)? = null,
-        screenWakeLock: (() -> ScreenWakeLockNativeImpl)? = null
+        screenWakeLock: (() -> ScreenWakeLockNativeImpl)? = null,
+        codecSupportProvider: MediaCodecSupportProvider? = null,
+        playerSettingsProvider: MediaPlayerSettingsProvider? = null
     ) {
         MediaExtension.registerProviders(
             videoPlayer = videoPlayer,
@@ -53,7 +61,9 @@ object MobileMediaExtensionProvider {
             audioAnalyzer = audioAnalyzer,
             mediaSessionManager = mediaSessionManager,
             seekBar = seekBar,
-            screenWakeLock = screenWakeLock
+            screenWakeLock = screenWakeLock,
+            codecSupportProvider = codecSupportProvider,
+            playerSettingsProvider = playerSettingsProvider
         )
     }
 
@@ -63,7 +73,9 @@ object MobileMediaExtensionProvider {
         audioAnalyzerFactory: () -> AudioAnalyzerNativeImpl,
         mediaSessionManagerFactory: () -> MediaSessionManagerNativeImpl,
         seekBarFactory: (() -> SeekBarNativeImpl<*>)? = null,
-        screenWakeLockFactory: (() -> ScreenWakeLockNativeImpl)? = null
+        screenWakeLockFactory: (() -> ScreenWakeLockNativeImpl)? = null,
+        codecSupportProvider: MediaCodecSupportProvider? = null,
+        playerSettingsProvider: MediaPlayerSettingsProvider? = null
     ) {
         MediaExtension.registerProviders(
             videoPlayer = videoPlayerFactory,
@@ -73,7 +85,9 @@ object MobileMediaExtensionProvider {
             },
             mediaSessionManager = mediaSessionManagerFactory,
             seekBar = seekBarFactory,
-            screenWakeLock = screenWakeLockFactory
+            screenWakeLock = screenWakeLockFactory,
+            codecSupportProvider = codecSupportProvider,
+            playerSettingsProvider = playerSettingsProvider
         )
     }
 }

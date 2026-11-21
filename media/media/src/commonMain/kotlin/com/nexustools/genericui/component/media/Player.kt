@@ -1,7 +1,6 @@
 package com.nexustools.genericui.component.media
 
 import com.nexustools.genericui.core.Disposable
-import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.enums.media.MediaPreloadMode
 
 /**
@@ -38,8 +37,6 @@ interface Player : Disposable {
 
     suspend fun awaitMediaReady(timeoutMs: Long = 8_000L): Boolean
     fun getRequiredSafeBufferSeconds(): Double
-    fun getSupportedAudioCodecs(): Set<AudioCodec>
-    fun isAudioCodecSupported(codec: AudioCodec): Boolean
     fun setSource(url: String, seekOffsetSeconds: Double = 0.0, durationOverrideSeconds: Double? = null)
     fun play()
     fun pause()

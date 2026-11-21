@@ -1,11 +1,9 @@
 package com.nexustools.genericui.android
 
-import android.media.MediaCodecList
 import android.media.MediaPlayer
 import android.media.audiofx.Visualizer
 import android.os.PowerManager
 import com.nexustools.genericui.component.media.AudioAnalyzer
-import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 
@@ -38,18 +36,6 @@ class AndroidAudioPlayerImpl : AudioPlayerNativeImpl {
         val active = !nativePlayerDisposed && keepScreenOnState && playing
         MediaScreenWakeController.setTokenActive(screenWakeToken, active)
     }
-
-    override fun isAudioCodecSupported(codec: AudioCodec): Boolean = runCatching {
-        val codecInfos = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos ?: return@runCatching false
-        codecInfos.any { info ->
-            !info.isEncoder && (info.supportedTypes?.any { supportedMime ->
-                codec.mimeTypes.any { targetMime -> supportedMime.equals(targetMime, ignoreCase = true) }
-            } == true)
-        }
-    }.getOrDefault(false)
-
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> =
-        AudioCodec.entries.filterTo(linkedSetOf()) { isAudioCodecSupported(it) }
 
     private fun attachVisualizerIfPossible() {
         val activeAnalyzer = analyzer ?: run {

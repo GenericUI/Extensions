@@ -149,7 +149,7 @@ class VideoPlayerOverlayBinder(
             val muted = videoPlayer.isMuted
             val speed = (videoPlayer.playbackSpeed * 100f).roundToInt() / 100.0
             val fullscreen = videoPlayer.isFullscreen()
-            val pip = videoPlayer.isInPictureInPictureMode
+            val pip = host.isInPictureInPictureMode
             val audioItems = videoPlayer.getAudioTracks().map { track ->
                 OverlayTrackItem(
                     id = track.id,
@@ -167,10 +167,6 @@ class VideoPlayerOverlayBinder(
                 )
             }
             val cueText = videoPlayer.getActiveSubtitleCueText(posSec)
-
-            if (host.isInPictureInPictureMode != pip) {
-                host.setPictureInPictureMode(pip)
-            }
 
             host.updateState { current ->
                 current.copy(

@@ -3,6 +3,7 @@ package com.nexustools.genericui.ext.media.dsl
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.component.media.AudioAnalyzerConfig
 import com.nexustools.genericui.component.media.AudioPlayer
+import com.nexustools.genericui.component.media.ExpandingVolumeSlider
 import com.nexustools.genericui.component.media.SeekBar
 import com.nexustools.genericui.component.media.VideoPlayer
 import com.nexustools.genericui.core.AbstractContainer
@@ -290,4 +291,65 @@ fun videoOverlayHost(
         host.block()
     }
     return host
+}
+
+/**
+ * In-place [ExpandingVolumeSlider] builder inside a parent [AbstractContainer].
+ */
+fun AbstractContainer.expandingVolumeSlider(
+    value: Double = 100.0,
+    muted: Boolean = false,
+    expandedSliderWidthPx: Int = 92,
+    animationDurationMs: Long = 180L,
+    alwaysExpanded: Boolean = false,
+    compactPopupMode: Boolean = false,
+    id: String? = null,
+    classes: String? = null,
+    block: (@GenericUiDslMarker ExpandingVolumeSlider.() -> Unit)? = null
+): ExpandingVolumeSlider {
+    val slider = buildExpandingVolumeSlider(
+        value = value,
+        muted = muted,
+        expandedSliderWidthPx = expandedSliderWidthPx,
+        animationDurationMs = animationDurationMs,
+        alwaysExpanded = alwaysExpanded,
+        compactPopupMode = compactPopupMode,
+        id = id,
+        classes = classes,
+        block = block
+    )
+    addChild(slider)
+    return slider
+}
+
+/**
+ * Standalone [ExpandingVolumeSlider] builder.
+ */
+fun buildExpandingVolumeSlider(
+    value: Double = 100.0,
+    muted: Boolean = false,
+    expandedSliderWidthPx: Int = 92,
+    animationDurationMs: Long = 180L,
+    alwaysExpanded: Boolean = false,
+    compactPopupMode: Boolean = false,
+    id: String? = null,
+    classes: String? = null,
+    block: (@GenericUiDslMarker ExpandingVolumeSlider.() -> Unit)? = null
+): ExpandingVolumeSlider = ExpandingVolumeSlider(
+    value = value,
+    muted = muted,
+    expandedSliderWidthPx = expandedSliderWidthPx,
+    animationDurationMs = animationDurationMs
+).apply {
+    this.alwaysExpanded = alwaysExpanded
+    this.compactPopupMode = compactPopupMode
+    if (!classes.isNullOrBlank()) {
+        addClass(classes)
+    }
+    if (!id.isNullOrBlank()) {
+        this.id = id
+    }
+    if (block != null) {
+        block()
+    }
 }

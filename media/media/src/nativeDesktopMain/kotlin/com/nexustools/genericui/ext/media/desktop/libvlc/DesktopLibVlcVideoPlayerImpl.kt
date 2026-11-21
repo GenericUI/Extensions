@@ -15,7 +15,12 @@ import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
+import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
+import com.nexustools.genericui.ext.media.desktop.DesktopVlcMediaExtensionProvider
+import com.nexustools.genericui.ext.media.vlc.VlcConfiguration
+import com.nexustools.genericui.ext.media.vlc.VlcPlatformCapabilities
+import com.nexustools.genericui.ext.media.vlc.VlcVideoRendererMode
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import com.nexustools.genericui.threading.GenericUiThreading
 import kotlinx.cinterop.ByteVar
@@ -27,6 +32,7 @@ import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.asStableRef
 import kotlinx.cinterop.free
+import kotlinx.cinterop.get
 import kotlinx.cinterop.nativeHeap
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.set
@@ -134,6 +140,10 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     private var pendingSubtitleTrackSelection: String? = null
     private var disableSpuByDefault: Boolean = false
     private var spuDisabledAppliedForMedia: Boolean = false
+    private var lastAppliedAudioOutputModule: String = ""
+    private var lastAppliedAudioDeviceId: String = ""
+    @kotlin.concurrent.Volatile
+    private var activeCallbackChroma: String = "RV32"
 
     protected val vlcInstance: COpaquePointer?
         get() = initializedVlcInstance
@@ -168,6 +178,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         nativeWidget.attributes["vblankDispatch"] = { _: Double? -> tickVBlank() }
         nativeWidget.attributes["antialiasing"] = true
         nativeWidget.attributes["keepScreenOn"] = true
+        DesktopVlcMediaExtensionProvider.registerVideoPlayer(this)
     }
 
     private fun syncWakeLockState() {
@@ -312,8 +323,24 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     internal fun onVlcFrameDisplayed(picture: COpaquePointer?) {
         var newSwapCount = 0L
         var updatedFrame = false
+        val needsRv16Conversion = activeCallbackChroma == "RV16"
+        var rv16SlotIdx = -1
+        var rv16SlotPtr: CPointer<ByteVar>? = null
+        if (needsRv16Conversion) {
+            withBufferPoolLock {
+                val idx = resolveSlotIndexByPtr(picture)
+                if (idx in 0 until frameSlotCount) {
+                    slotState[idx] = SLOT_LOCKED_DECODING
+                    rv16SlotIdx = idx
+                    rv16SlotPtr = frameSlots[idx]
+                }
+            }
+            if (rv16SlotPtr != null) {
+                convertRgb565SlotToBgra32(rv16SlotPtr!!)
+            }
+        }
         withBufferPoolLock {
-            val idx = resolveSlotIndexByPtr(picture)
+            val idx = if (rv16SlotIdx >= 0) rv16SlotIdx else resolveSlotIndexByPtr(picture)
             if (idx in 0 until frameSlotCount) {
                 // Do NOT free other SLOT_DECODED_PENDING_DISPLAY slots here:
                 // H.264/HEVC B-frame reordering decodes future P-frames (lower decodeSeq) BEFORE B-frames (higher decodeSeq)
@@ -371,6 +398,24 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         }
     }
 
+    private fun convertRgb565SlotToBgra32(slot: CPointer<ByteVar>) {
+        val totalPixels = videoFrameWidth * videoFrameHeight
+        for (p in (totalPixels - 1) downTo 0) {
+            val src = p * 2
+            val lo = slot[src].toInt() and 0xFF
+            val hi = slot[src + 1].toInt() and 0xFF
+            val rgb565 = (hi shl 8) or lo
+            val r5 = (rgb565 ushr 11) and 0x1F
+            val g6 = (rgb565 ushr 5) and 0x3F
+            val b5 = rgb565 and 0x1F
+            val dst = p * 4
+            slot[dst] = ((b5 shl 3) or (b5 ushr 2)).toByte()
+            slot[dst + 1] = ((g6 shl 2) or (g6 ushr 4)).toByte()
+            slot[dst + 2] = ((r5 shl 3) or (r5 ushr 2)).toByte()
+            slot[dst + 3] = 0xFF.toByte()
+        }
+    }
+
     internal fun onVlcFrameDecoded() {
         onVlcFrameDisplayed(null)
     }
@@ -378,7 +423,15 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     private fun ensureVlcPlayer(): COpaquePointer? {
         if (!vlcInitAttempted) {
             vlcInitAttempted = true
-            val inst = LibVlcBindings.libvlc_new(libVlcArgs)
+            val config = MediaExtension.vlcConfiguration
+            val usesNativeHandle = pendingWin32Hwnd != 0L || pendingMacosNsView != 0L || pendingXWindowId != 0u
+            val effectiveArgs = VlcPlatformCapabilities.mergeLibVlcArgs(
+                baseArgs = libVlcArgs,
+                config = config,
+                includeVideoOptions = true,
+                allowWindowVoutFlag = usesNativeHandle
+            )
+            val inst = LibVlcBindings.libvlc_new(effectiveArgs)
             initializedVlcInstance = inst
             val player = LibVlcBindings.libvlc_media_player_new(inst)
             initializedVlcMediaPlayer = player
@@ -394,12 +447,15 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                     if (selfStableRef == null) {
                         selfStableRef = StableRef.create(this)
                     }
+                    val chroma = if (config.videoRenderer == VlcVideoRendererMode.RV16) "RV16" else "RV32"
+                    activeCallbackChroma = chroma
+                    val pitch = if (chroma == "RV16") videoFrameWidth * 2 else videoFrameWidth * 4
                     LibVlcBindings.libvlc_video_set_format(
                         player = player,
-                        chroma = "RV32",
+                        chroma = chroma,
                         width = videoFrameWidth,
                         height = videoFrameHeight,
-                        pitch = videoFrameWidth * 4
+                        pitch = pitch
                     )
                     LibVlcBindings.libvlc_video_set_callbacks(
                         player = player,
@@ -409,9 +465,25 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                         opaque = selfStableRef?.asCPointer()
                     )
                 }
+                applyVlcConfiguration(config)
             }
         }
         return initializedVlcMediaPlayer
+    }
+
+    internal fun applyVlcConfiguration(config: VlcConfiguration) {
+        if (nativePlayerDisposed) return
+        val player = vlcMediaPlayer ?: return
+        if (!LibVlcBindings.isAvailable) return
+        val (nextModule, nextDeviceId) = LibVlcBindings.applyAudioConfiguration(
+            player = player,
+            config = config,
+            previousModule = lastAppliedAudioOutputModule,
+            previousDeviceId = lastAppliedAudioDeviceId
+        )
+        lastAppliedAudioOutputModule = nextModule
+        lastAppliedAudioDeviceId = nextDeviceId
+        LibVlcBindings.libvlc_video_set_deinterlace(player, config.deinterlaceMode.vlcMode)
     }
 
     private var currentSecFallback: Double = 0.0
@@ -470,32 +542,6 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             LibVlcBindings.libvlc_media_player_set_xwindow(player, xWindowId)
         }
     }
-
-    override fun getMediaCapabilities(): MediaCapabilitiesReport = MediaCapabilitiesReport(
-        videoCodecs = VideoCodec.entries.associateWith { CodecSupportLevel.HARDWARE_ACCELERATED },
-        audioCodecs = AudioCodec.entries.associateWith { CodecSupportLevel.HARDWARE_ACCELERATED },
-        containers = MediaContainer.entries.toSet(),
-        supportsHdr10 = true,
-        supportsDolbyVision = true,
-        supportsHlg = true,
-        supportsSurround51 = true,
-        supportsSurround71 = true,
-        supportsAudioTrackSelection = true,
-        supportsSubtitleTrackSelection = true,
-        hardwareAccelerationBackend = "libvlc [$platformName]"
-    )
-
-    override fun isVideoCodecSupported(codec: VideoCodec): Boolean = true
-
-    override fun isAudioCodecSupported(codec: AudioCodec): Boolean = true
-
-    override fun getSupportedVideoCodecs(): Set<VideoCodec> = VideoCodec.entries.toSet()
-
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> = AudioCodec.entries.toSet()
-
-    override fun supportsAudioTrackSelection(): Boolean = true
-
-    override fun supportsSubtitleTrackSelection(): Boolean = true
 
     private var mediaLoadSequence: Long = 0L
 
@@ -640,9 +686,18 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             }
             LibVlcBindings.libvlc_media_new_path(vlcInstance, normalizedPath)
         }
-        if (resolvedUri.startsWith("http://", ignoreCase = true) || resolvedUri.startsWith("https://", ignoreCase = true)) {
-            LibVlcBindings.libvlc_media_add_option(media, ":http-reconnect")
-            LibVlcBindings.libvlc_media_add_option(media, ":network-caching=1500")
+        val config = MediaExtension.vlcConfiguration
+        val usesNativeHandle = pendingWin32Hwnd != 0L || pendingMacosNsView != 0L || pendingXWindowId != 0u
+        val isHttp = resolvedUri.startsWith("http://", ignoreCase = true) ||
+            resolvedUri.startsWith("https://", ignoreCase = true)
+        for (option in VlcPlatformCapabilities.buildMediaOptions(
+            config = config,
+            seekOffsetSeconds = 0.0,
+            includeVideoOptions = true,
+            allowWindowVoutOption = usesNativeHandle,
+            includeHttpReconnect = isHttp
+        )) {
+            LibVlcBindings.libvlc_media_add_option(media, option)
         }
         if (startSec > 0.0 && !isServerTranscodeUrl(resolvedUri)) {
             if (isRemoteOrUri) {
@@ -662,6 +717,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             spuDisabledAppliedForMedia = true
         }
         currentVlcMedia = media
+        applyVlcConfiguration(config)
         LibVlcBindings.libvlc_media_player_set_media(player, media)
     }
 
@@ -1452,10 +1508,6 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
     override fun isInternalSubtitlesEnabled(): Boolean = internalSubtitlesEnabledState
 
-    override fun supportsPictureInPicture(): Boolean = true
-    override fun enterPictureInPicture(): Boolean = true
-    override fun exitPictureInPicture() {}
-
     override fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {
         attachedAnalyzer = analyzer
     }
@@ -1549,6 +1601,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
     override fun dispose() {
         nativePlayerDisposed = true
+        DesktopVlcMediaExtensionProvider.unregisterVideoPlayer(this)
         playingFallback = false
         cachedPlayingState = false
         cachedIsPlaying = false

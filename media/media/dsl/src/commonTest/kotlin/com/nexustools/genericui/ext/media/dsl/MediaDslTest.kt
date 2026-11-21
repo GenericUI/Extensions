@@ -1,6 +1,7 @@
 package com.nexustools.genericui.ext.media.dsl
 
 import com.nexustools.genericui.component.media.AudioPlayer
+import com.nexustools.genericui.component.media.ExpandingVolumeSlider
 import com.nexustools.genericui.component.media.Player
 import com.nexustools.genericui.component.media.SeekBar
 import com.nexustools.genericui.component.media.VideoPlayer
@@ -37,12 +38,15 @@ class MediaDslTest {
             seekBar(value = 12.5, min = 0.0, max = 120.0, step = 0.5, id = "seek") {
                 bufferedValue = 45.0
             }
+            expandingVolumeSlider(value = 50.0, muted = false, alwaysExpanded = true, id = "vol")
         }
+        val standaloneVol = buildExpandingVolumeSlider(value = 0.0, muted = true, id = "standalone-vol")
         val standaloneAudio = audioPlayer(sourceUrl = "https://example.com/standalone.mp3", volume = 0.6f)
-        assertEquals(3, root.children.size)
+        assertEquals(4, root.children.size)
         val vid = root.children[0] as VideoPlayer
         val host = root.children[1] as VideoOverlayHost
         val bar = root.children[2] as SeekBar
+        val vol = root.children[3] as ExpandingVolumeSlider
         assertIs<Player>(vid)
         assertIs<Player>(scopedAudio)
         assertIs<Player>(standaloneAudio)
@@ -56,6 +60,15 @@ class MediaDslTest {
         assertEquals("seek", bar.id)
         assertEquals(12.5, bar.value)
         assertEquals(45.0, bar.bufferedValue)
+        assertEquals("vol", vol.id)
+        assertTrue(vol.alwaysExpanded)
+        assertTrue(vol.isExpanded)
+        assertEquals(1f, vol.wave1Layer.opacity, 0.001f)
+        assertEquals(1f, vol.wave2Layer.opacity, 0.001f)
+        assertEquals(0f, vol.wave3Layer.opacity, 0.001f)
+        assertEquals(0f, vol.muteCrossLayer.opacity, 0.001f)
+        assertEquals("standalone-vol", standaloneVol.id)
+        assertEquals(1f, standaloneVol.muteCrossLayer.opacity, 0.001f)
         assertSame(host, host.videoPlayer.attachedOverlayHost)
         assertSame(customOverlay, host.activeOverlay)
         assertTrue(vid.keepScreenOn)
@@ -65,6 +78,8 @@ class MediaDslTest {
 
         val optOutAudio = audioPlayer(sourceUrl = "https://example.com/bg.mp3", keepScreenOn = false)
         assertFalse(optOutAudio.keepScreenOn)
+        vol.dispose()
+        standaloneVol.dispose()
         optOutAudio.dispose()
         standaloneAudio.dispose()
         scopedAudio.dispose()

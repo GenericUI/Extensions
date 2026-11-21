@@ -35,11 +35,13 @@ kotlin {
 
     js {
         browser()
+        nodejs()
     }
 
     @OptIn(ExperimentalWasmDsl::class)
     wasmJs {
         browser()
+        nodejs()
     }
 
     sourceSets {
@@ -48,6 +50,7 @@ kotlin {
             api(project(":extensions:media:media"))
             api(project(":extensions:ui:overlay"))
             api(project(":extensions:ui:overlay:dsl"))
+            api(project(":extensions:data:schema:dsl"))
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

@@ -1,8 +1,8 @@
-# `:extensions:threejs` & `:extensions:threejs:dsl` — 3D Scene Graph, PBR Materials, Controls, & Loaders on `Canvas3D`
+# `:extensions:graphics:threejs` & `:extensions:graphics:threejs:dsl` — 3D Scene Graph, PBR Materials, Controls, & Loaders on `Canvas3D`
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:threejs` is a **Single Multiplatform Project** (`src/commonMain` across all 8 platform targets) providing a pure Kotlin Multiplatform port of the **Three.js** 3D engine built directly atop [`:extensions:canvas3d`](canvas3d.md) (`Canvas3D`, `Canvas3DConfig`, `Canvas3DOverlayHost`), [`:extensions:gpu`](gpu.md), and `:common`'s `ImageLoader` / `ImageBuffer`. It includes hierarchical scene graphs (`Scene`, `Object3D`, `Group`), PBR materials (`MeshStandardMaterial`, `MeshPhysicalMaterial`, `ShaderMaterial`), lights & shadows, `OrbitControls` / `TransformControls`, skeletal animations (`SkinnedMesh`, `AnimationMixer`), 3D picking (`Raycaster`), asset loaders (`GltfLoader`, `ObjLoader`, `TextureLoader`), and declarative `threeJsCanvas { ... }` builders in `:extensions:threejs:dsl`.
+`:extensions:graphics:threejs` is a **Single Consolidated KMP Project** (`src/commonMain` across all GenericUI targets) providing a pure Kotlin Multiplatform port of the **Three.js** 3D engine built directly atop [`:extensions:graphics:canvas3d`](canvas3d.md) (`Canvas3D`, `Canvas3DConfig`, `Canvas3DOverlayHost`), [`:extensions:graphics:gpu`](gpu.md), and `:common`'s `ImageLoader` / `ImageBuffer`. It includes hierarchical scene graphs (`Scene`, `Object3D`, `Group`), PBR materials (`MeshStandardMaterial`, `MeshPhysicalMaterial`, `ShaderMaterial`), lights & shadows, `OrbitControls` / `TransformControls`, skeletal animations (`SkinnedMesh`, `AnimationMixer`), 3D picking (`Raycaster`), asset loaders (`GltfLoader`, `ObjLoader`, `TextureLoader`), and declarative `threeJsCanvas { ... }` builders in `:extensions:graphics:threejs:dsl`.
 
 ---
 
@@ -15,7 +15,7 @@ flowchart TD
     MaterialsAndLights["PBR Materials & Lights<br/>(MeshStandardMaterial, MeshPhysicalMaterial, ShaderMaterial,<br/>AmbientLight, DirectionalLight, PointLight, SpotLight, HemisphereLight)"]
     LoadersAndAnim["Loaders & Animation<br/>(GltfLoader, ObjLoader, TextureLoader, AnimationMixer, KeyframeTrack)"]
     Renderer["WebGLRenderer<br/>(VBlank setAnimationLoop { deltaMs, elapsedMs -> ... })"]
-    Canvases["Canvas3D & Canvas3DOverlayHost<br/>(:extensions:canvas3d + :extensions:overlay + :extensions:gpu)"]
+    Canvases["Canvas3D & Canvas3DOverlayHost<br/>(:extensions:graphics:canvas3d + :extensions:ui:overlay + :extensions:graphics:gpu)"]
 
     SceneGraph --> Renderer
     CamerasAndControls --> Renderer
@@ -28,7 +28,7 @@ flowchart TD
 
 ## 2. Gradle Plugin Configuration
 
-Enabling `threeJs()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) automatically configures `:extensions:threejs`, `:extensions:canvas3d`, `:extensions:overlay`, `:extensions:gpu`, and (when `dsl()` is active) `:extensions:threejs:dsl`, and automatically registers the underlying 3D/GPU providers at startup:
+Enabling `threeJs()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) automatically configures `:extensions:graphics:threejs`, `:extensions:graphics:canvas3d`, `:extensions:ui:overlay`, `:extensions:graphics:gpu`, and (when `dsl()` is active) `:extensions:graphics:threejs:dsl`:
 
 ```kotlin
 plugins {
@@ -40,8 +40,8 @@ genericui {
         allExceptSwing()
     }
     extensions {
-        dsl()     // Enables :extensions:dsl
-        threeJs() // Automatically includes :extensions:threejs, :extensions:canvas3d, :extensions:overlay, :extensions:gpu, and :extensions:threejs:dsl
+        dsl()     // Enables :extensions:ui:dsl + :extensions:graphics:threejs:dsl
+        threeJs() // Includes :extensions:graphics:threejs, canvas3d(), overlay(), and gpu()
     }
 }
 ```
@@ -158,7 +158,7 @@ fun createInteractiveThreeViewport(): Canvas3D {
 
 ### Example 2: Embedding a Three.js 3D Viewport in `:common`'s `OverlayDockWorkspaceFragment` or `Canvas3DOverlayHost`
 
-`Canvas3D` mounts as a central background viewport inside `:common`'s `OverlayDockWorkspaceFragment` (with translucent floating inspector docks layered over the 3D scene) or inside [`:extensions:canvas3d`](canvas3d.md)'s `Canvas3DOverlayHost` (`viewport3D.withOverlay(PresetOverlay())`):
+`Canvas3D` mounts as a central background viewport inside `:common`'s `OverlayDockWorkspaceFragment` (with translucent floating inspector docks layered over the 3D scene) or inside [`:extensions:graphics:canvas3d`](canvas3d.md)'s `Canvas3DOverlayHost` (`viewport3D.withOverlay(Overlay())`):
 
 ```kotlin
 import com.nexustools.genericui.component.docking.DockEdge
@@ -192,7 +192,7 @@ fun createStudioWorkspace(): OverlayDockWorkspaceFragment {
 
 ---
 
-## 5. Declarative `:extensions:threejs:dsl` Examples
+## 5. Declarative `:extensions:graphics:threejs:dsl` Examples
 
 With `dsl()` and `threeJs()` enabled, use `threeJsCanvas { ... }` or standalone `scene { ... }` builders directly in declarative UI layouts:
 
@@ -258,12 +258,12 @@ val declarative3DSceneView = buildDiv(classes = "p-3") {
 ## 6. Related Extensions & Cross-References
 
 - **Related Extensions**:
-  - [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Provides `Canvas3D`, `Canvas3DOverlayHost`, and `ScrollCanvas3DOverlayHost` swapchain viewports for `WebGLRenderer`.
-  - [`:extensions:overlay` (`overlay.md`)](overlay.md) — Composable overlay host and HUD widgets for 3D viewports.
-  - [`:extensions:gpu` (`gpu.md`)](gpu.md) — Provides the underlying Vulkan 1.2+ and OpenGL ES 3.0+ / ANGLE GPU contexts.
-  - [`:extensions:box3d` (`box3d.md`)](box3d.md) — 3D rigid-body physics engine that automatically synchronizes `RigidBody3D` world transforms with Three.js `Object3D` / `Mesh` nodes every physics step.
-  - [`:extensions:aichat` (`aichat.md`)](aichat.md) — AI Studio chat with tool execution for natural-language 3D scene manipulation.
-  - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
+  - [`:extensions:graphics:canvas3d` (`canvas3d.md`)](canvas3d.md) — Provides `Canvas3D`, `Canvas3DOverlayHost`, and `ScrollCanvas3DOverlayHost` swapchain viewports for `WebGLRenderer`.
+  - [`:extensions:ui:overlay` (`overlay.md`)](overlay.md) — Pure `LayeredContainer` overlay host and HUD widgets for 3D viewports.
+  - [`:extensions:graphics:gpu` (`gpu.md`)](gpu.md) — Provides the underlying Vulkan 1.2+ and OpenGL ES 3.0+ / ANGLE GPU contexts.
+  - [`:extensions:physics:box3d` (`box3d.md`)](box3d.md) — 3D rigid-body physics engine that automatically synchronizes `RigidBody3D` world transforms with Three.js `Object3D` / `Mesh` nodes every physics step.
+  - [`:extensions:ui:aichat` (`aichat.md`)](aichat.md) — AI Studio chat with tool execution for natural-language 3D scene manipulation.
+  - [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
 - **Root & Backend Documentation**:
   - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Source Sets (`../../docs/sourcesets.md`)](../../docs/sourcesets.md) · [Backends (`../../docs/backends.md`)](../../docs/backends.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)
   - [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) · [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) · [Web Backend (`../../web/README.md`)](../../web/README.md)

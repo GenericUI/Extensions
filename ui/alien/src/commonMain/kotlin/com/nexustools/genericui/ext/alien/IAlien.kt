@@ -95,13 +95,10 @@ interface IAlien {
          * Pass this ID to [removeStyleSheet] to disable the default Bootstrap stylesheet on an
          * [AlienContainer] or [AlienFragment], or to [addStyleSheet] to re-enable it.
          */
-        val BOOTSTRAP_STYLE_SHEET_ID: ResourceID = ResourceID(
-            id = 0x7F06_0001,
-            type = ResourceType.STYLE,
-            name = "bootstrap",
-            relativePath = "styles/bootstrap.scss"
-        )
+        val BOOTSTRAP_STYLE_SHEET_ID: ResourceID
+            get() = com.nexustools.genericui.ext.alien.res.R.style.bootstrap
 
-        val BOOTSTRAP_RESOURCE_ID: ResourceID = BOOTSTRAP_STYLE_SHEET_ID
+        val BOOTSTRAP_RESOURCE_ID: ResourceID
+            get() = BOOTSTRAP_STYLE_SHEET_ID
     }
 }

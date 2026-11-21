@@ -3,6 +3,7 @@ package com.nexustools.genericui.component.media
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.enums.media.MediaPreloadMode
+import com.nexustools.genericui.ext.media.MediaExtension
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -65,8 +66,8 @@ class PlayerInterfaceTest {
             assertEquals(listOf(0.0 to 60.0), lastBuffered)
             assertTrue(player.getRequiredSafeBufferSeconds() >= 0.0)
 
-            assertTrue(player.getSupportedAudioCodecs().isEmpty())
-            assertFalse(player.isAudioCodecSupported(AudioCodec.MP3))
+            assertTrue(MediaExtension.getSupportedAudioCodecs().isEmpty())
+            assertFalse(MediaExtension.isAudioCodecSupported(AudioCodec.MP3))
 
             player.attachAudioAnalyzer(analyzer)
             player.attachAudioAnalyzer(null)

@@ -1,22 +1,30 @@
 package com.nexustools.genericui.android
 
-import android.app.Activity
-import android.app.PictureInPictureParams
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.SurfaceTexture
+import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaPlayer
 import android.media.PlaybackParams
 import android.media.audiofx.Visualizer
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.view.Gravity
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
-import android.widget.VideoView
+import android.widget.FrameLayout
+import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import com.nexustools.genericui.component.media.AudioAnalyzer
 import com.nexustools.genericui.component.media.MediaCapabilitiesReport
 import com.nexustools.genericui.component.media.MediaTrackInfo
 import com.nexustools.genericui.component.media.SubtitleTrackInfo
+import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.enums.media.CodecSupportLevel
 import com.nexustools.genericui.enums.media.MediaContainer
@@ -24,12 +32,14 @@ import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
+import com.nexustools.genericui.threading.GenericUiThreading
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Android `android.widget.VideoView` + `android.media.MediaPlayer` + `Visualizer` + PiP
+ * Android `android.view.TextureView` + `android.media.MediaPlayer` + `Visualizer`
  * implementation of [VideoPlayerNativeImpl].
  */
-class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView", "video-player"), VideoPlayerNativeImpl<AndroidViewHandle> {
+class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.view.TextureView", "video-player"), VideoPlayerNativeImpl<AndroidViewHandle> {
     private var sourceUrl: String = ""
     private var currentPositionSeconds: Double = 0.0
     private var durationSeconds: Double = 0.0
@@ -45,14 +55,84 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
     @Volatile
     private var nativePlayerDisposed: Boolean = false
     private var mediaReadyFlag: Boolean = false
-    private var pipActive: Boolean = false
+    private var isPreparedFlag: Boolean = false
+    private var isPreparingFlag: Boolean = false
+    private var hasDurationOverride: Boolean = false
+    private var sourceGeneration: Long = 0L
+    private val positionPollHandler: Handler? by lazy {
+        runCatching { Looper.getMainLooper()?.let { Handler(it) } }.getOrNull()
+    }
+    private val positionPollRunnable = object : Runnable {
+        override fun run() {
+            if (nativePlayerDisposed || !playing) return
+            val mp = activeMediaPlayer ?: return
+            if (isPreparedFlag) {
+                val durMs = runCatching { mp.duration }.getOrDefault(0)
+                if (durMs > 0) {
+                    val newDur = durMs / 1000.0
+                    if (durationSeconds <= 0.0 || kotlin.math.abs(newDur - durationSeconds) >= 0.5) {
+                        durationSeconds = newDur
+                        dispatchPlayerCallback { onDurationChanged?.invoke(newDur) }
+                    }
+                }
+                val posMs = runCatching { mp.currentPosition }.getOrDefault(-1)
+                if (posMs >= 0) {
+                    val posSec = posMs / 1000.0
+                    currentPositionSeconds = posSec
+                    dispatchPlayerCallback { onTimeUpdate?.invoke(posSec) }
+                }
+            }
+            if (!nativePlayerDisposed && playing) {
+                positionPollHandler?.postDelayed(this, 250L)
+            }
+        }
+    }
+
+    private fun startPositionPolling() {
+        val h = positionPollHandler ?: return
+        h.removeCallbacks(positionPollRunnable)
+        if (!nativePlayerDisposed && playing) {
+            h.postDelayed(positionPollRunnable, 250L)
+        }
+    }
+
+    private fun stopPositionPolling() {
+        positionPollHandler?.removeCallbacks(positionPollRunnable)
+    }
+
+    private fun dispatchPlayerCallback(block: () -> Unit) {
+        if (GenericUI.activeFactory != null &&
+            GenericUiThreading.isSplitThreadingEnabled &&
+            !GenericUiThreading.isOnLogicThread()
+        ) {
+            GenericUiThreading.runOnLogic(block)
+        } else {
+            block()
+        }
+    }
     private var bufferedRangesState: List<Pair<Double, Double>> = emptyList()
     private val audioTracks = mutableListOf<MediaTrackInfo>()
     private val subtitles = mutableListOf<SubtitleTrackInfo>()
     private var activeSubtitleTrackId: String? = null
     private var attachedAnalyzer: AudioAnalyzer? = null
     private var activeMediaPlayer: MediaPlayer? = null
+    private var activeProgressiveDataSource: AndroidProgressiveHttpMediaDataSource? = null
     private var visualizer: Visualizer? = null
+    private var textureView: TextureView? = null
+    private var retainedSurfaceTexture: SurfaceTexture? = null
+    private var videoSurface: Surface? = null
+    private var pendingSourceUrl: String = ""
+    private var videoWidthPx: Int = 0
+    private var videoHeightPx: Int = 0
+
+    fun hasRetainedSurfaceTexture(): Boolean =
+        retainedSurfaceTexture != null &&
+            !(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && retainedSurfaceTexture?.isReleased == true)
+
+    fun getTextureView(): TextureView? = textureView
+
+    private fun isSurfaceTextureUsable(st: SurfaceTexture?): Boolean =
+        st != null && !(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && st.isReleased)
 
     private var onTimeUpdate: ((Double) -> Unit)? = null
     private var onDurationChanged: ((Double) -> Unit)? = null
@@ -65,22 +145,171 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
     private var onTracksChanged: (() -> Unit)? = null
     private var onMediaReadyListener: (() -> Unit)? = null
 
-    override fun createDefaultAndroidView(context: Context): View? = VideoView(context)
+    override fun shouldApplyBaseBackgroundDrawable(): Boolean = false
+
+    private fun computeVideoBounds(innerW: Int, innerH: Int): Pair<Int, Int> {
+        if (innerW <= 0 || innerH <= 0) return 0 to 0
+        val vw = videoWidthPx
+        val vh = videoHeightPx
+        if (vw <= 0 || vh <= 0) {
+            return if (sourceUrl.isBlank()) (0 to 0) else (innerW to innerH)
+        }
+        return when (resizeMode) {
+            VideoResizeMode.STRETCH -> innerW to innerH
+            VideoResizeMode.FIT -> {
+                val scale = minOf(innerW.toFloat() / vw.toFloat(), innerH.toFloat() / vh.toFloat())
+                (vw * scale).roundToInt().coerceIn(0, innerW) to
+                    (vh * scale).roundToInt().coerceIn(0, innerH)
+            }
+            VideoResizeMode.FILL -> {
+                val scale = maxOf(innerW.toFloat() / vw.toFloat(), innerH.toFloat() / vh.toFloat())
+                (vw * scale).roundToInt().coerceAtLeast(innerW) to
+                    (vh * scale).roundToInt().coerceAtLeast(innerH)
+            }
+        }
+    }
+
+    override fun createDefaultAndroidView(context: Context): View? {
+        val tv = TextureView(context).apply {
+            isOpaque = false
+            visibility = if (sourceUrl.isBlank()) View.INVISIBLE else View.VISIBLE
+        }
+        val saved = retainedSurfaceTexture
+        if (isSurfaceTextureUsable(saved) && saved != null) {
+            runCatching {
+                if (tv.surfaceTexture !== saved) {
+                    tv.setSurfaceTexture(saved)
+                }
+            }
+        }
+        tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
+                val prev = retainedSurfaceTexture
+                if (isSurfaceTextureUsable(prev) && prev != null && prev !== st) {
+                    val restored = runCatching {
+                        tv.setSurfaceTexture(prev)
+                        true
+                    }.getOrDefault(false)
+                    if (restored) {
+                        if (videoSurface == null || videoSurface?.isValid != true) {
+                            runCatching { videoSurface?.release() }
+                            videoSurface = Surface(prev)
+                        }
+                        activeMediaPlayer?.let { mp ->
+                            runCatching { mp.setSurface(videoSurface) }
+                        }
+                    } else {
+                        retainedSurfaceTexture = st
+                        runCatching { videoSurface?.release() }
+                        videoSurface = Surface(st)
+                        activeMediaPlayer?.let { mp ->
+                            runCatching { mp.setSurface(videoSurface) }
+                        }
+                    }
+                } else {
+                    retainedSurfaceTexture = st
+                    if (videoSurface == null || videoSurface?.isValid != true) {
+                        runCatching { videoSurface?.release() }
+                        videoSurface = Surface(st)
+                    }
+                    activeMediaPlayer?.let { mp ->
+                        runCatching { mp.setSurface(videoSurface) }
+                    }
+                }
+                val urlToOpen = pendingSourceUrl.ifBlank { sourceUrl }
+                if (!nativePlayerDisposed &&
+                    urlToOpen.isNotBlank() &&
+                    !urlToOpen.startsWith("synth://") &&
+                    activeMediaPlayer == null &&
+                    !isPreparingFlag
+                ) {
+                    openMediaPlayerOnMainThread(tv.context, urlToOpen, sourceGeneration)
+                }
+            }
+
+            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {}
+
+            override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                if (nativePlayerDisposed || sourceUrl.isBlank()) {
+                    releaseMediaPlayerOnly()
+                    runCatching { videoSurface?.release() }
+                    videoSurface = null
+                    retainedSurfaceTexture = null
+                    return true
+                }
+                retainedSurfaceTexture = st
+                return false
+            }
+
+            override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+        }
+        textureView = tv
+        val container = object : FrameLayout(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val wMode = MeasureSpec.getMode(widthMeasureSpec)
+                val wSize = MeasureSpec.getSize(widthMeasureSpec)
+                val hMode = MeasureSpec.getMode(heightMeasureSpec)
+                val hSize = MeasureSpec.getSize(heightMeasureSpec)
+                val padH = paddingLeft + paddingRight
+                val padV = paddingTop + paddingBottom
+
+                val resolvedW = when (wMode) {
+                    MeasureSpec.EXACTLY -> wSize
+                    MeasureSpec.AT_MOST -> wSize
+                    else -> if (videoWidthPx > 0) videoWidthPx + padH else padH
+                }
+                val aspectH = if (videoWidthPx > 0 && videoHeightPx > 0) {
+                    ((resolvedW - padH).coerceAtLeast(0) * (videoHeightPx.toFloat() / videoWidthPx.toFloat())).roundToInt() + padV
+                } else {
+                    ((resolvedW - padH).coerceAtLeast(0) * (9f / 16f)).roundToInt() + padV
+                }
+                val resolvedH = when (hMode) {
+                    MeasureSpec.EXACTLY -> hSize
+                    MeasureSpec.AT_MOST -> aspectH.coerceAtMost(hSize)
+                    else -> aspectH
+                }
+
+                val innerW = (resolvedW - padH).coerceAtLeast(0)
+                val innerH = (resolvedH - padV).coerceAtLeast(0)
+                val (targetW, targetH) = computeVideoBounds(innerW, innerH)
+                tv.measure(
+                    MeasureSpec.makeMeasureSpec(targetW, MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(targetH, MeasureSpec.EXACTLY)
+                )
+                setMeasuredDimension(
+                    resolveSize(resolvedW, widthMeasureSpec),
+                    resolveSize(resolvedH, heightMeasureSpec)
+                )
+            }
+
+            override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+                val innerW = ((right - left) - paddingLeft - paddingRight).coerceAtLeast(0)
+                val innerH = ((bottom - top) - paddingTop - paddingBottom).coerceAtLeast(0)
+                val (targetW, targetH) = computeVideoBounds(innerW, innerH)
+                val childLeft = paddingLeft + ((innerW - targetW) / 2)
+                val childTop = paddingTop + ((innerH - targetH) / 2)
+                tv.layout(childLeft, childTop, childLeft + targetW, childTop + targetH)
+            }
+        }.apply {
+            setBackgroundColor(Color.BLACK)
+            clipChildren = true
+            clipToPadding = true
+            clipToOutline = true
+        }
+        container.addView(
+            tv,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER
+            )
+        )
+        return container
+    }
 
     init {
         nativeWidget.attributes["antialiasing"] = "true"
         nativeWidget.attributes["keepScreenOn"] = "true"
-    }
-
-    private fun unwrapActivity(context: Context?): Activity? {
-        var current: Context? = context
-        var depth = 0
-        while (current != null && depth < 16) {
-            if (current is Activity) return current
-            current = (current as? ContextWrapper)?.baseContext
-            depth++
-        }
-        return null
     }
 
     private fun syncWakeLockState() {
@@ -89,6 +318,8 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
         AndroidViewHandle.runOnMainThread {
             runCatching {
                 nativeWidget.androidView?.keepScreenOn = active
+                textureView?.keepScreenOn = active
+                activeMediaPlayer?.setScreenOnWhilePlaying(active)
             }
         }
     }
@@ -97,17 +328,28 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
         val player = mp ?: return
         val effectiveVol = if (muted) 0f else volume
         runCatching { player.setVolume(effectiveVol, effectiveVol) }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            runCatching {
-                val params = player.playbackParams ?: PlaybackParams()
-                params.speed = playbackSpeed
-                player.playbackParams = params
+        if (playing && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val isAlreadyPlaying = runCatching { player.isPlaying }.getOrDefault(false)
+            if (isAlreadyPlaying || playbackSpeed != 1f) {
+                runCatching {
+                    val params = player.playbackParams
+                    params.speed = playbackSpeed
+                    player.playbackParams = params
+                }
             }
         }
     }
 
     private fun attachVisualizerIfPossible() {
         val activeAnalyzer = attachedAnalyzer ?: run {
+            releaseVisualizer()
+            return
+        }
+        val ctx = textureView?.context ?: AndroidViewHandle.activeContext
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            ctx != null &&
+            ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
+        ) {
             releaseVisualizer()
             return
         }
@@ -158,153 +400,241 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
         visualizer = null
     }
 
-    private fun queryAndroidDecoderSupportLevel(mimeTypes: Set<String>): CodecSupportLevel {
-        return runCatching {
-            val codecInfos = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos ?: return CodecSupportLevel.UNSUPPORTED
-            var foundSoftware = false
-            for (info in codecInfos) {
-                if (info.isEncoder) continue
-                val supported = info.supportedTypes ?: continue
-                val matches = supported.any { supportedMime ->
-                    mimeTypes.any { targetMime -> supportedMime.equals(targetMime, ignoreCase = true) }
-                }
-                if (matches) {
-                    val isHardware = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        info.isHardwareAccelerated
-                    } else {
-                        val lowerName = info.name.lowercase()
-                        !lowerName.startsWith("omx.google.") &&
-                            !lowerName.startsWith("c2.android.") &&
-                            !lowerName.contains(".sw.")
-                    }
-                    if (isHardware) {
-                        return CodecSupportLevel.HARDWARE_ACCELERATED
-                    }
-                    foundSoftware = true
-                }
-            }
-            if (foundSoftware) CodecSupportLevel.SOFTWARE_ONLY else CodecSupportLevel.UNSUPPORTED
-        }.getOrDefault(CodecSupportLevel.UNSUPPORTED)
-    }
-
-    override fun isVideoCodecSupported(codec: VideoCodec): Boolean =
-        queryAndroidDecoderSupportLevel(codec.mimeTypes) != CodecSupportLevel.UNSUPPORTED
-
-    override fun isAudioCodecSupported(codec: AudioCodec): Boolean =
-        queryAndroidDecoderSupportLevel(codec.mimeTypes) != CodecSupportLevel.UNSUPPORTED
-
-    override fun getSupportedVideoCodecs(): Set<VideoCodec> =
-        VideoCodec.entries.filterTo(linkedSetOf()) { isVideoCodecSupported(it) }
-
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> =
-        AudioCodec.entries.filterTo(linkedSetOf()) { isAudioCodecSupported(it) }
-
-    override fun getMediaCapabilities(): MediaCapabilitiesReport {
-        val videoMap = linkedMapOf<VideoCodec, CodecSupportLevel>()
-        for (codec in VideoCodec.entries) {
-            val level = queryAndroidDecoderSupportLevel(codec.mimeTypes)
-            if (level != CodecSupportLevel.UNSUPPORTED) {
-                videoMap[codec] = level
+    private fun releaseMediaPlayerOnly() {
+        stopPositionPolling()
+        releaseVisualizer()
+        val oldDs = activeProgressiveDataSource
+        activeProgressiveDataSource = null
+        oldDs?.signalAbort()
+        val old = activeMediaPlayer
+        activeMediaPlayer = null
+        isPreparedFlag = false
+        isPreparingFlag = false
+        if (old != null) {
+            runCatching { old.setOnPreparedListener(null) }
+            runCatching { old.setOnCompletionListener(null) }
+            runCatching { old.setOnErrorListener(null) }
+            runCatching { old.setOnInfoListener(null) }
+            runCatching { old.setOnVideoSizeChangedListener(null) }
+            runCatching { old.reset() }
+            runCatching { old.release() }
+        }
+        if (oldDs != null) {
+            Thread { runCatching { oldDs.close() } }.apply {
+                isDaemon = true
+                start()
             }
         }
-        val audioMap = linkedMapOf<AudioCodec, CodecSupportLevel>()
-        for (codec in AudioCodec.entries) {
-            val level = queryAndroidDecoderSupportLevel(codec.mimeTypes)
-            if (level != CodecSupportLevel.UNSUPPORTED) {
-                audioMap[codec] = level
-            }
-        }
-        return MediaCapabilitiesReport(
-            videoCodecs = videoMap,
-            audioCodecs = audioMap,
-            containers = setOf(MediaContainer.MP4, MediaContainer.MKV, MediaContainer.WEBM, MediaContainer.HLS, MediaContainer.DASH),
-            supportsHdr10 = VideoCodec.HEVC in videoMap || VideoCodec.VP9 in videoMap || VideoCodec.AV1 in videoMap,
-            supportsHlg = VideoCodec.HEVC in videoMap || VideoCodec.VP9 in videoMap || VideoCodec.AV1 in videoMap,
-            supportsDolbyVision = queryAndroidDecoderSupportLevel(setOf("video/dolby-vision")) != CodecSupportLevel.UNSUPPORTED,
-            supportsSurround51 = AudioCodec.AC3 in audioMap || AudioCodec.EAC3 in audioMap || AudioCodec.AAC in audioMap,
-            supportsSurround71 = AudioCodec.EAC3 in audioMap || AudioCodec.TRUEHD in audioMap || AudioCodec.DTS_HD in audioMap,
-            supportsAudioTrackSelection = true,
-            supportsSubtitleTrackSelection = true,
-            hardwareAccelerationBackend = "Android MediaCodecList / VideoView"
-        )
     }
 
-    override fun supportsAudioTrackSelection(): Boolean = true
-    override fun supportsSubtitleTrackSelection(): Boolean = true
+    private fun seekMediaPlayerMs(mp: MediaPlayer, targetMs: Long) {
+        val clampedMs = targetMs.coerceAtLeast(0L)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            runCatching {
+                mp.seekTo(clampedMs, MediaPlayer.SEEK_CLOSEST_SYNC)
+            }.onFailure {
+                runCatching { mp.seekTo(clampedMs.toInt()) }
+            }
+        } else {
+            runCatching { mp.seekTo(clampedMs.toInt()) }
+        }
+    }
+
+    private fun openMediaPlayerOnMainThread(
+        context: Context,
+        url: String,
+        generation: Long,
+        forceProgressiveHttp: Boolean = false
+    ) {
+        if (nativePlayerDisposed || url.isBlank() || url.startsWith("synth://") || generation != sourceGeneration) {
+            return
+        }
+        val tv = textureView
+        if (videoSurface == null || videoSurface?.isValid != true) {
+            val st = retainedSurfaceTexture?.takeIf { isSurfaceTextureUsable(it) }
+                ?: tv?.surfaceTexture?.takeIf { isSurfaceTextureUsable(it) }
+            if (st == null) {
+                pendingSourceUrl = url
+                return
+            }
+            retainedSurfaceTexture = st
+            runCatching { videoSurface?.release() }
+            videoSurface = Surface(st)
+        }
+
+        releaseMediaPlayerOnly()
+        val mp = MediaPlayer()
+        activeMediaPlayer = mp
+        isPreparingFlag = true
+        pendingSourceUrl = ""
+        try {
+            val isHttp = url.startsWith("http://", ignoreCase = true) ||
+                url.startsWith("https://", ignoreCase = true)
+            if (isHttp && (forceProgressiveHttp || AndroidProgressiveHttpMediaDataSource.isLiveOrTranscodeHttpUrl(url))) {
+                val ds = AndroidProgressiveHttpMediaDataSource(context.cacheDir, url)
+                activeProgressiveDataSource = ds
+                mp.setDataSource(ds)
+            } else if (isHttp ||
+                url.startsWith("rtsp://", ignoreCase = true) ||
+                url.startsWith("/")
+            ) {
+                mp.setDataSource(url)
+            } else {
+                mp.setDataSource(context, Uri.parse(url))
+            }
+            mp.setSurface(videoSurface)
+            mp.setScreenOnWhilePlaying(keepScreenOnState && playing)
+            mp.setOnVideoSizeChangedListener { _, w, h ->
+                if (w > 0 && h > 0 && (w != videoWidthPx || h != videoHeightPx)) {
+                    videoWidthPx = w
+                    videoHeightPx = h
+                    AndroidViewHandle.runOnMainThread {
+                        nativeWidget.androidView?.requestLayout()
+                    }
+                }
+            }
+            mp.setOnPreparedListener { preparedMp ->
+                if (nativePlayerDisposed || generation != sourceGeneration || activeMediaPlayer !== preparedMp) {
+                    return@setOnPreparedListener
+                }
+                isPreparingFlag = false
+                isPreparedFlag = true
+                videoWidthPx = runCatching { preparedMp.videoWidth }.getOrDefault(0)
+                videoHeightPx = runCatching { preparedMp.videoHeight }.getOrDefault(0)
+                nativeWidget.androidView?.requestLayout()
+                val durMs = runCatching { preparedMp.duration }.getOrDefault(0)
+                if (durMs > 0 && !hasDurationOverride) {
+                    durationSeconds = durMs / 1000.0
+                    val reportedDur = durationSeconds
+                    dispatchPlayerCallback { onDurationChanged?.invoke(reportedDur) }
+                }
+                val targetMs = (currentPositionSeconds * 1000.0).roundToLong().coerceAtLeast(0L)
+                if (targetMs > 0L && activeProgressiveDataSource == null) {
+                    seekMediaPlayerMs(preparedMp, targetMs)
+                }
+                extractTrackInfo(preparedMp)
+                attachVisualizerIfPossible()
+                mediaReadyFlag = true
+                dispatchPlayerCallback { onMediaReadyListener?.invoke() }
+                if (playing) {
+                    runCatching { preparedMp.start() }
+                    applyVolumeAndSpeedToMediaPlayer(preparedMp)
+                    startPositionPolling()
+                } else {
+                    applyVolumeAndSpeedToMediaPlayer(preparedMp)
+                    if (runCatching { preparedMp.isPlaying }.getOrDefault(false)) {
+                        runCatching { preparedMp.pause() }
+                    }
+                    stopPositionPolling()
+                }
+            }
+            mp.setOnCompletionListener { completedMp ->
+                if (activeMediaPlayer !== completedMp) return@setOnCompletionListener
+                playing = false
+                stopPositionPolling()
+                syncWakeLockState()
+                dispatchPlayerCallback {
+                    onPlayingStateChanged?.invoke(false)
+                    onEnded?.invoke()
+                }
+            }
+            mp.setOnErrorListener { erroredMp, what, extra ->
+                if (activeMediaPlayer !== erroredMp) return@setOnErrorListener true
+                if (!forceProgressiveHttp &&
+                    activeProgressiveDataSource == null &&
+                    isHttp &&
+                    !nativePlayerDisposed &&
+                    generation == sourceGeneration
+                ) {
+                    openMediaPlayerOnMainThread(context, url, generation, forceProgressiveHttp = true)
+                    return@setOnErrorListener true
+                }
+                playing = false
+                isPreparedFlag = false
+                isPreparingFlag = false
+                stopPositionPolling()
+                syncWakeLockState()
+                dispatchPlayerCallback {
+                    onPlayingStateChanged?.invoke(false)
+                    onError?.invoke("Android TextureView MediaPlayer error ($what, $extra)")
+                }
+                true
+            }
+            mp.setOnInfoListener { _, what, _ ->
+                when (what) {
+                    MediaPlayer.MEDIA_INFO_BUFFERING_START -> {
+                        dispatchPlayerCallback {
+                            onBufferingChanged?.invoke(true)
+                            onBufferingStateChanged?.invoke(true)
+                        }
+                    }
+                    MediaPlayer.MEDIA_INFO_BUFFERING_END -> {
+                        dispatchPlayerCallback {
+                            onBufferingChanged?.invoke(false)
+                            onBufferingStateChanged?.invoke(false)
+                        }
+                    }
+                }
+                false
+            }
+            mp.prepareAsync()
+        } catch (t: Throwable) {
+            isPreparingFlag = false
+            isPreparedFlag = false
+            playing = false
+            activeProgressiveDataSource?.let { ds ->
+                activeProgressiveDataSource = null
+                ds.signalAbort()
+                Thread { runCatching { ds.close() } }.apply { isDaemon = true }.start()
+            }
+            if (activeMediaPlayer === mp) {
+                activeMediaPlayer = null
+            }
+            runCatching { mp.release() }
+            syncWakeLockState()
+            dispatchPlayerCallback {
+                onPlayingStateChanged?.invoke(false)
+                onError?.invoke("Android MediaPlayer failed to open source: ${t.message ?: t::class.simpleName}")
+            }
+        }
+    }
 
     override fun setSource(url: String, seekOffsetSeconds: Double, durationOverrideSeconds: Double?) {
+        val gen = ++sourceGeneration
         sourceUrl = url
+        pendingSourceUrl = url
         mediaReadyFlag = url.isNotBlank()
+        isPreparedFlag = false
+        isPreparingFlag = false
+        stopPositionPolling()
         currentPositionSeconds = seekOffsetSeconds.coerceAtLeast(0.0)
         nativeWidget.attributes["src"] = url
-        releaseVisualizer()
-        activeMediaPlayer = null
+        videoWidthPx = 0
+        videoHeightPx = 0
+        hasDurationOverride = durationOverrideSeconds != null
 
         if (durationOverrideSeconds != null) {
             durationSeconds = durationOverrideSeconds
-            onDurationChanged?.invoke(durationSeconds)
+            dispatchPlayerCallback { onDurationChanged?.invoke(durationSeconds) }
         }
 
-        val view = ensureAndroidView() as? VideoView
-        if (view != null && url.isNotBlank() && !url.startsWith("synth://")) {
-            AndroidViewHandle.runOnMainThread {
-                runCatching {
-                    view.setOnPreparedListener { mp ->
-                        activeMediaPlayer = mp
-                        val durMs = runCatching { mp.duration }.getOrDefault(0)
-                        if (durMs > 0 && durationOverrideSeconds == null) {
-                            durationSeconds = durMs / 1000.0
-                            onDurationChanged?.invoke(durationSeconds)
-                        }
-                        if (currentPositionSeconds > 0.0) {
-                            view.seekTo((currentPositionSeconds * 1000.0).toInt())
-                        }
-                        applyVolumeAndSpeedToMediaPlayer(mp)
-                        extractTrackInfo(mp)
-                        attachVisualizerIfPossible()
-                        mediaReadyFlag = true
-                        onMediaReadyListener?.invoke()
-                        if (playing) {
-                            view.start()
-                        }
-                    }
-                    view.setOnCompletionListener {
-                        playing = false
-                        syncWakeLockState()
-                        onPlayingStateChanged?.invoke(false)
-                        onEnded?.invoke()
-                    }
-                    view.setOnErrorListener { _, what, extra ->
-                        playing = false
-                        syncWakeLockState()
-                        onPlayingStateChanged?.invoke(false)
-                        onError?.invoke("Android VideoView error ($what, $extra)")
-                        true
-                    }
-                    view.setOnInfoListener { _, what, _ ->
-                        when (what) {
-                            MediaPlayer.MEDIA_INFO_BUFFERING_START -> {
-                                onBufferingChanged?.invoke(true)
-                                onBufferingStateChanged?.invoke(true)
-                            }
-                            MediaPlayer.MEDIA_INFO_BUFFERING_END -> {
-                                onBufferingChanged?.invoke(false)
-                                onBufferingStateChanged?.invoke(false)
-                            }
-                        }
-                        false
-                    }
-                    if (url.startsWith("/")) {
-                        view.setVideoPath(url)
-                    } else {
-                        view.setVideoURI(Uri.parse(url))
-                    }
-                }
+        AndroidViewHandle.runOnMainThread {
+            ensureAndroidView()
+            releaseMediaPlayerOnly()
+            val tv = textureView ?: return@runOnMainThread
+            runCatching {
+                tv.visibility = if (url.isBlank()) View.INVISIBLE else View.VISIBLE
+                nativeWidget.androidView?.requestLayout()
+            }
+            if (url.isNotBlank() && !url.startsWith("synth://")) {
+                openMediaPlayerOnMainThread(tv.context, url, gen)
+            } else {
+                pendingSourceUrl = ""
             }
         }
 
         if (mediaReadyFlag) {
-            onMediaReadyListener?.invoke()
+            dispatchPlayerCallback { onMediaReadyListener?.invoke() }
         }
         updateBufferedHorizon(currentPositionSeconds)
     }
@@ -342,7 +672,7 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
                 }
             }
             if (audioTracks.isNotEmpty() || subtitles.isNotEmpty()) {
-                onTracksChanged?.invoke()
+                dispatchPlayerCallback { onTracksChanged?.invoke() }
             }
         }
     }
@@ -351,12 +681,21 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
         playing = true
         AndroidViewHandle.runOnMainThread {
             runCatching {
-                (nativeWidget.androidView as? VideoView)?.start()
-                attachVisualizerIfPossible()
+                val tv = textureView
+                tv?.visibility = View.VISIBLE
+                val mp = activeMediaPlayer
+                if (isPreparedFlag && mp != null) {
+                    mp.start()
+                    applyVolumeAndSpeedToMediaPlayer(mp)
+                    attachVisualizerIfPossible()
+                    startPositionPolling()
+                } else if (sourceUrl.isNotBlank() && !sourceUrl.startsWith("synth://") && mp == null && !isPreparingFlag && tv != null) {
+                    openMediaPlayerOnMainThread(tv.context, sourceUrl, sourceGeneration)
+                }
             }
         }
         syncWakeLockState()
-        onPlayingStateChanged?.invoke(true)
+        dispatchPlayerCallback { onPlayingStateChanged?.invoke(true) }
         updateBufferedHorizon(currentPositionSeconds)
     }
 
@@ -364,11 +703,21 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
         playing = false
         AndroidViewHandle.runOnMainThread {
             runCatching {
-                (nativeWidget.androidView as? VideoView)?.pause()
+                stopPositionPolling()
+                val mp = activeMediaPlayer
+                if (mp != null && isPreparedFlag) {
+                    val posMs = runCatching { mp.currentPosition }.getOrDefault(-1)
+                    if (posMs >= 0) {
+                        currentPositionSeconds = posMs / 1000.0
+                    }
+                    if (runCatching { mp.isPlaying }.getOrDefault(false)) {
+                        mp.pause()
+                    }
+                }
             }
         }
         syncWakeLockState()
-        onPlayingStateChanged?.invoke(false)
+        dispatchPlayerCallback { onPlayingStateChanged?.invoke(false) }
     }
 
     override fun stop() {
@@ -376,22 +725,31 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
         currentPositionSeconds = 0.0
         AndroidViewHandle.runOnMainThread {
             runCatching {
-                (nativeWidget.androidView as? VideoView)?.apply {
-                    pause()
-                    seekTo(0)
+                stopPositionPolling()
+                val mp = activeMediaPlayer
+                if (mp != null && isPreparedFlag) {
+                    if (runCatching { mp.isPlaying }.getOrDefault(false)) {
+                        mp.pause()
+                    }
+                    seekMediaPlayerMs(mp, 0L)
                 }
             }
         }
         syncWakeLockState()
-        onPlayingStateChanged?.invoke(false)
-        onTimeUpdate?.invoke(0.0)
+        dispatchPlayerCallback {
+            onPlayingStateChanged?.invoke(false)
+            onTimeUpdate?.invoke(0.0)
+        }
     }
 
     override fun seekTo(seconds: Double) {
         currentPositionSeconds = seconds.coerceAtLeast(0.0)
         AndroidViewHandle.runOnMainThread {
             runCatching {
-                (nativeWidget.androidView as? VideoView)?.seekTo((currentPositionSeconds * 1000.0).toInt())
+                val mp = activeMediaPlayer
+                if (mp != null && isPreparedFlag) {
+                    seekMediaPlayerMs(mp, (currentPositionSeconds * 1000.0).roundToLong())
+                }
             }
         }
         onTimeUpdate?.invoke(currentPositionSeconds)
@@ -399,17 +757,21 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
     }
 
     override fun getCurrentTimeSeconds(): Double {
-        val nativePosMs = runCatching { (nativeWidget.androidView as? VideoView)?.currentPosition }.getOrNull()
-        if (nativePosMs != null && nativePosMs > 0) {
-            currentPositionSeconds = nativePosMs / 1000.0
+        if (isPreparedFlag) {
+            val nativePosMs = runCatching { activeMediaPlayer?.currentPosition }.getOrNull()
+            if (nativePosMs != null && nativePosMs >= 0) {
+                currentPositionSeconds = nativePosMs / 1000.0
+            }
         }
         return currentPositionSeconds
     }
 
     override fun getDurationSeconds(): Double {
-        val nativeDurMs = runCatching { (nativeWidget.androidView as? VideoView)?.duration }.getOrNull()
-        if (nativeDurMs != null && nativeDurMs > 0) {
-            durationSeconds = nativeDurMs / 1000.0
+        if (isPreparedFlag) {
+            val nativeDurMs = runCatching { activeMediaPlayer?.duration }.getOrNull()
+            if (nativeDurMs != null && nativeDurMs > 0) {
+                durationSeconds = nativeDurMs / 1000.0
+            }
         }
         return durationSeconds
     }
@@ -440,6 +802,11 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
     override fun setResizeMode(mode: VideoResizeMode) {
         this.resizeMode = mode
         nativeWidget.attributes["resizeMode"] = mode.name
+        AndroidViewHandle.runOnMainThread {
+            runCatching {
+                nativeWidget.androidView?.requestLayout()
+            }
+        }
     }
 
     override fun getResizeMode(): VideoResizeMode = resizeMode
@@ -481,27 +848,6 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
         }
         onTracksChanged?.invoke()
         return true
-    }
-
-    override fun supportsPictureInPicture(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
-        val ctx = AndroidViewHandle.activeContext ?: return true
-        return runCatching {
-            ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
-        }.getOrDefault(true)
-    }
-
-    override fun enterPictureInPicture(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
-        pipActive = true
-        val activity = unwrapActivity(AndroidViewHandle.activeContext) ?: return true
-        return runCatching {
-            activity.enterPictureInPictureMode(PictureInPictureParams.Builder().build())
-        }.getOrDefault(false)
-    }
-
-    override fun exitPictureInPicture() {
-        pipActive = false
     }
 
     override fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {
@@ -549,14 +895,26 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
     override fun dispose() {
         if (nativePlayerDisposed) return
         nativePlayerDisposed = true
+        sourceGeneration++
         playing = false
+        pendingSourceUrl = ""
+        isPreparedFlag = false
+        isPreparingFlag = false
+        stopPositionPolling()
         releaseVisualizer()
         AndroidViewHandle.runOnMainThread {
-            runCatching {
-                (nativeWidget.androidView as? VideoView)?.stopPlayback()
+            releaseMediaPlayerOnly()
+            val tv = textureView
+            val savedSt = retainedSurfaceTexture
+            textureView = null
+            runCatching { tv?.surfaceTextureListener = null }
+            runCatching { videoSurface?.release() }
+            videoSurface = null
+            if (savedSt != null && tv?.surfaceTexture !== savedSt) {
+                runCatching { savedSt.release() }
             }
+            retainedSurfaceTexture = null
         }
-        activeMediaPlayer = null
         syncWakeLockState()
         MediaScreenWakeController.releaseToken(screenWakeToken)
         super.dispose()
@@ -564,7 +922,7 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
 
     override fun setOnMediaReady(listener: (() -> Unit)?) {
         onMediaReadyListener = listener
-        if (mediaReadyFlag) listener?.invoke()
+        if (mediaReadyFlag) dispatchPlayerCallback { listener?.invoke() }
     }
 
     override fun isMediaReady(): Boolean = mediaReadyFlag
@@ -573,7 +931,8 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.widget.VideoView",
         val bufEnd = if (durationSeconds > 0.0) minOf(durationSeconds, currentSec + 15.0) else currentSec + 15.0
         if (bufEnd > 0.0) {
             bufferedRangesState = listOf(0.0 to bufEnd)
-            onBufferedRangesChanged?.invoke(bufferedRangesState)
+            val ranges = bufferedRangesState
+            dispatchPlayerCallback { onBufferedRangesChanged?.invoke(ranges) }
         }
     }
 }

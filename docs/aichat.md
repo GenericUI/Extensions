@@ -1,8 +1,8 @@
-# `:extensions:aichat` & `:extensions:aichat:dsl` — Multi-Provider AI Agent Studio Chat & Tool Orchestration
+# `:extensions:ui:aichat` & `:extensions:ui:aichat:dsl` — Multi-Provider AI Agent Studio Chat & Tool Orchestration
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:aichat` is a **Single Multiplatform Project** (`src/commonMain` across all 8 platform targets) built atop [`:extensions:codeeditor`](codeeditor.md) ($\rightarrow$ [`:extensions:canvas2d`](canvas2d.md)) and `:common`. It delivers a complete AI Studio chat interface (**`AiChatContainer`**), single-placement window `TitleBar` action button integration (**`bindHeaderActionsToTitleBar`**), streaming session state (**`AiChatSession`**), multi-provider backend clients (**`AiBackendType`**), reasoning effort selectors (**`ReasoningEffort`**), collapsible chain-of-thought accordions (**`AiChatReasoningAccordion`**), live tool-invocation cards (**`AiChatToolCallCard`**), and an automated multi-turn function/tool executor (**`AiToolExecutor`**).
+`:extensions:ui:aichat` is a **Single Consolidated KMP Project** (`src/commonMain` across all GenericUI targets) built atop [`:extensions:ui:codeeditor`](codeeditor.md) ($\rightarrow$ [`:extensions:graphics:canvas2d`](canvas2d.md)) and `:common`. It delivers a complete AI Studio chat interface (**`AiChatContainer`**), single-placement window `TitleBar` action button integration (**`bindHeaderActionsToTitleBar`**), streaming session state (**`AiChatSession`**), multi-provider backend clients (**`AiBackendType`**), reasoning effort selectors (**`ReasoningEffort`**), collapsible chain-of-thought accordions (**`AiChatReasoningAccordion`**), live tool-invocation cards (**`AiChatToolCallCard`**), and an automated multi-turn function/tool executor (**`AiToolExecutor`**).
 
 ---
 
@@ -62,7 +62,7 @@ hostingWindow?.let { win ->
 
 ## 3. Gradle Plugin Configuration
 
-Enabling `aiChat()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) automatically configures `:extensions:aichat`, `:extensions:codeeditor`, `:extensions:canvas2d`, and (when `dsl()` is active) `:extensions:aichat:dsl`:
+Enabling `aiChat()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) automatically configures `:extensions:ui:aichat`, `:extensions:ui:codeeditor`, `:extensions:graphics:canvas2d`, and (when `dsl()` is active) `:extensions:ui:aichat:dsl`:
 
 ```kotlin
 plugins {
@@ -74,8 +74,8 @@ genericui {
         allExceptSwing()
     }
     extensions {
-        dsl()    // Enables :extensions:dsl
-        aiChat() // Automatically includes :extensions:aichat, :extensions:codeeditor, :extensions:canvas2d, and :extensions:aichat:dsl
+        dsl()    // Enables :extensions:ui:dsl + :extensions:ui:aichat:dsl
+        aiChat() // Includes :extensions:ui:aichat and codeEditor()
     }
 }
 ```
@@ -95,7 +95,7 @@ genericui {
 | `AiChatMessageView` | `ext.aichat` | Renders a single `AiChatMessage` with role badge, markdown text, syntax-highlighted code blocks, `AiChatReasoningAccordion`, and `AiChatToolCallCard` items. |
 | `AiChatToolCallCard` | `ext.aichat` | Expandable card inspecting a tool call's name, status (`PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`), JSON arguments, execution duration, and JSON output. |
 | `AiChatReasoningAccordion` | `ext.aichat` | Collapsible chain-of-thought (`<think>`) accordion displaying live streaming reasoning tokens. |
-| `aiChat` / `aiChatContainer` | `ext.aichat.dsl` | Declarative DSL builders in `:extensions:aichat:dsl` configured via `AiChatDslConfigScope` (`backend`, `systemPrompt`, `welcomeMessage`, `reasoning`, `quickPrompt`, `tool`, `onPromptExecuted`). |
+| `aiChat` / `aiChatContainer` | `ext.aichat.dsl` | Declarative DSL builders in `:extensions:ui:aichat:dsl` configured via `AiChatDslConfigScope` (`backend`, `systemPrompt`, `welcomeMessage`, `reasoning`, `quickPrompt`, `tool`, `onPromptExecuted`). |
 | `aiChatMessageView` / `aiChatToolCallCard` / `aiChatReasoningAccordion` | `ext.aichat.dsl` | Granular DSL builders for individual AI chat subcomponents. |
 
 ---
@@ -177,7 +177,7 @@ fun createSceneAssistantChat(hostingWindow: Window? = null): AiChatContainer {
 
 ---
 
-## 6. Declarative `:extensions:aichat:dsl` Examples
+## 6. Declarative `:extensions:ui:aichat:dsl` Examples
 
 When `dsl()` and `aiChat()` are enabled, configure the entire AI provider, reasoning budget, quick prompt chips, and suspending tool handlers declaratively using `aiChat { ... }`:
 
@@ -244,10 +244,10 @@ val aiStudioDrawer = buildDiv(classes = "h-100") {
 ## 7. Related Extensions & Cross-References
 
 - **Related Extensions**:
-  - [`:extensions:codeeditor` (`codeeditor.md`)](codeeditor.md) — Powers syntax-highlighted code blocks and diffs inside `AiChatMessageView`.
-  - [`:extensions:canvas2d` (`canvas2d.md`)](canvas2d.md) — Transitive 2D rendering surface for code blocks inside chat messages.
-  - [`:extensions:threejs` (`threejs.md`)](threejs.md) — Frequently paired with `:extensions:aichat` to let AI tools manipulate 3D scenes inside `OverlayDockWorkspaceFragment`.
-  - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
+  - [`:extensions:ui:codeeditor` (`codeeditor.md`)](codeeditor.md) — Powers syntax-highlighted code blocks and diffs inside `AiChatMessageView`.
+  - [`:extensions:graphics:canvas2d` (`canvas2d.md`)](canvas2d.md) — Transitive 2D rendering surface for code blocks inside chat messages.
+  - [`:extensions:graphics:threejs` (`threejs.md`)](threejs.md) — Frequently paired with `:extensions:ui:aichat` to let AI tools manipulate 3D scenes inside `OverlayDockWorkspaceFragment`.
+  - [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
 - **Root & Backend Documentation**:
   - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Source Sets (`../../docs/sourcesets.md`)](../../docs/sourcesets.md) · [Backends (`../../docs/backends.md`)](../../docs/backends.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)
   - [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) · [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) · [Web Backend (`../../web/README.md`)](../../web/README.md)

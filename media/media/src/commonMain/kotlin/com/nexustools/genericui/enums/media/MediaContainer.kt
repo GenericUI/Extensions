@@ -1,7 +1,7 @@
 package com.nexustools.genericui.enums.media
 
 /**
- * Standardized media container formats reported by [com.nexustools.genericui.component.media.VideoPlayer.getMediaCapabilities].
+ * Standardized media container formats reported by [com.nexustools.genericui.ext.media.MediaExtension.getMediaCapabilities].
  */
 enum class MediaContainer(val wireName: String, val mimeTypes: List<String>, val extensions: List<String>) {
     MP4("mp4", listOf("video/mp4", "audio/mp4"), listOf("mp4", "m4v", "m4a")),

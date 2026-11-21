@@ -149,12 +149,6 @@ class WebAudioPlayerImpl : AudioPlayerNativeImpl {
         }
     }
 
-    override fun isAudioCodecSupported(codec: AudioCodec): Boolean =
-        codec.html5CanPlayProbes.any { WebBrowserDomBridge.mediaCanPlayType(audioElement, it) }
-
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> =
-        AudioCodec.entries.filterTo(linkedSetOf()) { isAudioCodecSupported(it) }
-
     override fun setSource(url: String, seekOffsetSeconds: Double) {
         currentTimeSec = seekOffsetSeconds.coerceAtLeast(0.0)
         mediaReadyFlag = false

@@ -4,7 +4,6 @@ import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import com.nexustools.genericui.nativeimpl.system.ScreenWakeLockNativeImpl
-import com.nexustools.genericui.enums.media.AudioCodec
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -52,7 +51,6 @@ class MediaScreenWakeLockTest {
             MediaScreenWakeController.setTokenActive(wakeToken, !isDisposed && keepScreenOnFlag && playingState)
         }
 
-        override fun getSupportedAudioCodecs(): Set<AudioCodec> = setOf(AudioCodec.AAC, AudioCodec.MP3)
         override fun setSource(url: String, seekOffsetSeconds: Double) {}
         override fun play() {
             playingState = true

@@ -9,13 +9,19 @@ import com.nexustools.genericui.enums.media.CodecSupportLevel
 import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
+import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
+import com.nexustools.genericui.ext.media.swing.SwingMediaExtensionProvider
+import com.nexustools.genericui.ext.media.vlc.VlcConfiguration
+import com.nexustools.genericui.ext.media.vlc.VlcPlatformCapabilities
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import uk.co.caprica.vlcj.factory.MediaPlayerFactory
 import uk.co.caprica.vlcj.media.MediaSlaveType
+import uk.co.caprica.vlcj.player.base.DeinterlaceMode
 import uk.co.caprica.vlcj.player.base.MediaPlayer
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
 import uk.co.caprica.vlcj.player.component.CallbackMediaPlayerComponent
+import uk.co.caprica.vlcj.player.component.MediaPlayerSpecs
 import java.awt.BorderLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -53,12 +59,34 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
     private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
     @Volatile
     private var nativePlayerDisposed: Boolean = false
+    override val isDisposed: Boolean
+        get() = nativePlayerDisposed
     private var mediaReadyFlag: Boolean = false
     private var onMediaReadyListener: (() -> Unit)? = null
+    private var lastAppliedAudioOutputModule: String = ""
+    private var lastAppliedAudioDeviceId: String = ""
 
-    private val vlcjComponent: CallbackMediaPlayerComponent? = runCatching {
-        CallbackMediaPlayerComponent()
-    }.getOrNull()
+    private val initialConfig: VlcConfiguration = MediaExtension.vlcConfiguration
+    private val vlcjFactory: MediaPlayerFactory? = SwingMediaExtensionProvider.createMediaPlayerFactorySafely(
+        VlcPlatformCapabilities.mergeLibVlcArgs(
+            baseArgs = listOf(
+                "--video-title=vlcj video output",
+                "--no-snapshot-preview",
+                "--quiet",
+                "--intf=dummy"
+            ),
+            config = initialConfig,
+            includeVideoOptions = true,
+            allowWindowVoutFlag = true
+        )
+    )
+    private val vlcjComponent: CallbackMediaPlayerComponent? = vlcjFactory?.let { factory ->
+        runCatching {
+            MediaPlayerSpecs.callbackMediaPlayerSpec()
+                .withFactory(factory)
+                .callbackMediaPlayer()
+        }.getOrNull()
+    }
 
     private val vlcjPlayer: MediaPlayer?
         get() = vlcjComponent?.mediaPlayer()
@@ -86,8 +114,10 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
     init {
         nativeWidget.putClientProperty("antialiasing", true)
         nativeWidget.putClientProperty("keepScreenOn", true)
+        SwingMediaExtensionProvider.registerVideoPlayer(this)
         if (vlcjComponent != null) {
             nativeWidget.add(vlcjComponent, BorderLayout.CENTER)
+            applyVlcConfiguration(initialConfig)
             vlcjComponent.mediaPlayer().events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
                 override fun playing(mediaPlayer: MediaPlayer) {
                     playingFallback = true
@@ -162,27 +192,22 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
         MediaScreenWakeController.setTokenActive(screenWakeToken, active)
     }
 
-    override fun getMediaCapabilities(): MediaCapabilitiesReport = MediaCapabilitiesReport(
-        videoCodecs = VideoCodec.entries.associateWith { CodecSupportLevel.HARDWARE_ACCELERATED },
-        audioCodecs = AudioCodec.entries.associateWith { CodecSupportLevel.HARDWARE_ACCELERATED },
-        containers = MediaContainer.entries.toSet(),
-        supportsHdr10 = true,
-        supportsDolbyVision = true,
-        supportsHlg = true,
-        supportsSurround51 = true,
-        supportsSurround71 = true,
-        supportsAudioTrackSelection = true,
-        supportsSubtitleTrackSelection = true,
-        hardwareAccelerationBackend = "libvlcj (${MediaPlayerFactory::class.java.packageName})"
-    )
-
-    override fun isVideoCodecSupported(codec: VideoCodec): Boolean = true
-    override fun isAudioCodecSupported(codec: AudioCodec): Boolean = true
-    override fun getSupportedVideoCodecs(): Set<VideoCodec> = VideoCodec.entries.toSet()
-    override fun getSupportedAudioCodecs(): Set<AudioCodec> = AudioCodec.entries.toSet()
-
-    override fun supportsAudioTrackSelection(): Boolean = true
-    override fun supportsSubtitleTrackSelection(): Boolean = true
+    internal fun applyVlcConfiguration(config: VlcConfiguration) {
+        if (nativePlayerDisposed) return
+        val player = vlcjPlayer ?: return
+        val (nextModule, nextDeviceId) = SwingMediaExtensionProvider.applyAudioConfiguration(
+            mediaPlayer = player,
+            config = config,
+            previousModule = lastAppliedAudioOutputModule,
+            previousDeviceId = lastAppliedAudioDeviceId
+        )
+        lastAppliedAudioOutputModule = nextModule
+        lastAppliedAudioDeviceId = nextDeviceId
+        val deinterlace = config.deinterlaceMode.vlcMode?.let { mode ->
+            runCatching { DeinterlaceMode.deinterlaceMode(mode) }.getOrNull()
+        }
+        runCatching { player.video().setDeinterlace(deinterlace) }
+    }
 
     override fun setSource(url: String, seekOffsetSeconds: Double, durationOverrideSeconds: Double?) {
         mediaReadyFlag = false
@@ -190,11 +215,14 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
         durationSecOverride = durationOverrideSeconds
 
-        val options = if (seekOffsetSeconds > 0.0) {
-            arrayOf(":start-time=$seekOffsetSeconds")
-        } else {
-            emptyArray()
-        }
+        val config = MediaExtension.vlcConfiguration
+        val options = VlcPlatformCapabilities.buildMediaOptions(
+            config = config,
+            seekOffsetSeconds = seekOffsetSeconds,
+            includeVideoOptions = true,
+            allowWindowVoutOption = true
+        ).toTypedArray()
+        applyVlcConfiguration(config)
         vlcjPlayer?.media()?.prepare(url, *options)
         if ((vlcjPlayer == null || durationOverrideSeconds != null) && url.isNotBlank()) {
             mediaReadyFlag = true
@@ -369,10 +397,6 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
         return true
     }
 
-    override fun supportsPictureInPicture(): Boolean = false
-    override fun enterPictureInPicture(): Boolean = false
-    override fun exitPictureInPicture() {}
-
     override fun attachAudioAnalyzer(analyzer: AudioAnalyzer?) {}
 
     override fun setOnTimeUpdate(listener: ((Double) -> Unit)?) { timeUpdateListener = listener }
@@ -429,9 +453,11 @@ class SwingVideoPlayerImpl : SwingBaseNativeImpl(
 
     override fun dispose() {
         nativePlayerDisposed = true
+        SwingMediaExtensionProvider.unregisterVideoPlayer(this)
         playingFallback = false
         MediaScreenWakeController.releaseToken(screenWakeToken)
-        vlcjComponent?.release()
+        runCatching { vlcjComponent?.release() }
+        runCatching { vlcjFactory?.release() }
         super.dispose()
     }
 }

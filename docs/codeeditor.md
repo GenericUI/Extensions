@@ -1,8 +1,8 @@
-# `:extensions:codeeditor` & `:extensions:codeeditor:dsl` — Multi-Language IDE Code Editor & Minimap
+# `:extensions:ui:codeeditor` & `:extensions:ui:codeeditor:dsl` — Multi-Language IDE Code Editor & Minimap
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:codeeditor` is a **Single Multiplatform Project** (`src/commonMain` across all 8 platform targets) built atop [`:extensions:canvas2d`](canvas2d.md) (`Canvas2DExtSurface`) and `:common`. It provides a hardware-accelerated IDE code editor (**`IdeCodeEditor`**) and synchronized overview minimap (**`CodeMinimap`**) with multi-language lexical syntax highlighting, gutter line numbers, interactive breakpoints, `{ ... }` code folding, compiler/linter diagnostic squiggle underlines, hover diagnostic popovers, find & replace, undo/redo history, and context-aware IntelliSense autocomplete.
+`:extensions:ui:codeeditor` is a **Single Consolidated KMP Project** (`src/commonMain` across all GenericUI targets) built atop [`:extensions:graphics:canvas2d`](canvas2d.md) (`Canvas2D`) and `:common`. It provides a hardware-accelerated IDE code editor (**`IdeCodeEditor`**) and synchronized overview minimap (**`CodeMinimap`**) with multi-language lexical syntax highlighting, gutter line numbers, interactive breakpoints, `{ ... }` code folding, compiler/linter diagnostic squiggle underlines, hover diagnostic popovers, find & replace, undo/redo history, and context-aware IntelliSense autocomplete.
 
 ---
 
@@ -14,7 +14,7 @@ flowchart LR
     Tokenizer["SyntaxTokenizer<br/>(Kotlin, JS, TS, GLSL, Python, JSON, HTML, CSS, Markdown)"]
     Editor["IdeCodeEditor<br/>(Gutter, Breakpoints, Folding, Diagnostics, Autocomplete)"]
     Minimap["CodeMinimap<br/>(Synchronized Bird's-Eye Viewport)"]
-    Canvas2D["Canvas2DExtSurface<br/>(:extensions:canvas2d VBlank Rendering)"]
+    Canvas2D["Canvas2D<br/>(:extensions:graphics:canvas2d VBlank Rendering)"]
 
     Doc --> Editor
     Tokenizer --> Editor
@@ -37,7 +37,7 @@ flowchart LR
 
 ## 2. Gradle Plugin Configuration
 
-Enabling `codeEditor()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) wires `:extensions:codeeditor`, `:extensions:canvas2d`, `:extensions:overlay`, `:extensions:imageprocessing`, `:extensions:gpu`, and (when `dsl()` is active) `:extensions:codeeditor:dsl`, and automatically registers all required providers at startup:
+Enabling `codeEditor()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) wires `:extensions:ui:codeeditor`, `:extensions:graphics:canvas2d`, `:extensions:ui:overlay`, `:extensions:graphics:imageprocessing`, `:extensions:graphics:gpu`, and (when `dsl()` is active) `:extensions:ui:codeeditor:dsl`:
 
 ```kotlin
 plugins {
@@ -49,8 +49,8 @@ genericui {
         allExceptSwing()
     }
     extensions {
-        dsl()        // Enables :extensions:dsl
-        codeEditor() // Automatically includes :extensions:codeeditor, :extensions:canvas2d, and :extensions:codeeditor:dsl
+        dsl()        // Enables :extensions:ui:dsl + :extensions:ui:codeeditor:dsl
+        codeEditor() // Includes :extensions:ui:codeeditor and canvas2d()
     }
 }
 ```
@@ -61,7 +61,7 @@ genericui {
 
 | Class / Interface / Enum | Package | Description & Key Members |
 | :--- | :--- | :--- |
-| `IdeCodeEditor` | `ext.codeeditor` | Full IDE code editor widget extending `Container`. Key members: `document: CodeDocumentBuffer`, `tokenizer: SyntaxTokenizer`, `theme: CodeEditorTheme`, `language: CodeLanguage`, `readOnly: Boolean`, `fontFamily: String`, `fontSizePx: Float`, `lineHeightPx: Float`, `gutterWidthPx: Float`, `breakpoints: MutableSet<Int>`, `completionProvider: CodeCompletionProvider?`, `editorCanvas: Canvas2DExtSurface`, `minimap: CodeMinimap`, `getText(): String`, `setText(text: String)`, `setDiagnostics(diagnostics: List<CodeDiagnostic>)`, `getDiagnostics()`, `scrollToLine(lineIndex)`, `find(query, ignoreCase): List<TextRange>`, `replaceNext(query, replacement, ignoreCase): Boolean`, `replaceAll(query, replacement, ignoreCase): Int`, `triggerAutocomplete()`, `acceptSelectedCompletion()`, `setOnTextChanged(listener)`, `setOnCursorChanged(listener)`. |
+| `IdeCodeEditor` | `ext.codeeditor` | Full IDE code editor widget extending `Container`. Key members: `document: CodeDocumentBuffer`, `tokenizer: SyntaxTokenizer`, `theme: CodeEditorTheme`, `language: CodeLanguage`, `readOnly: Boolean`, `fontFamily: String`, `fontSizePx: Float`, `lineHeightPx: Float`, `gutterWidthPx: Float`, `breakpoints: MutableSet<Int>`, `completionProvider: CodeCompletionProvider?`, `editorCanvas: Canvas2D`, `minimap: CodeMinimap`, `getText(): String`, `setText(text: String)`, `setDiagnostics(diagnostics: List<CodeDiagnostic>)`, `getDiagnostics()`, `scrollToLine(lineIndex)`, `find(query, ignoreCase): List<TextRange>`, `replaceNext(query, replacement, ignoreCase): Boolean`, `replaceAll(query, replacement, ignoreCase): Int`, `triggerAutocomplete()`, `acceptSelectedCompletion()`, `setOnTextChanged(listener)`, `setOnCursorChanged(listener)`. |
 | `CodeDocumentBuffer` | `ext.codeeditor` | Multi-line text buffer with undo/redo stack, bracket matching, and folding detection: `lineCount`, `primaryCursor: CursorPosition`, `selectionRange: TextRange?`, `tabSize: Int`, `getLine(index)`, `insertTextAtCursor(text)`, `insertNewLineWithAutoIndent()`, `deleteBackward()`, `deleteForward()`, `undo()`, `redo()`, `findMatchingBracket(cursor)`, `detectFoldingRegions(): List<CodeFoldingRegion>`, `findAll(query, ignoreCase)`. |
 | `CodeEditorTheme` | `ext.codeeditor` | Color scheme for editor surface, gutter, syntax tokens, and diagnostics. Built-in presets: `CodeEditorTheme.DARK_IDE` and `CodeEditorTheme.LIGHT_IDE`. |
 | `CodeLanguage` | `ext.codeeditor` | Enum: `KOTLIN`, `JAVASCRIPT`, `TYPESCRIPT`, `GLSL`, `PYTHON`, `JSON`, `HTML`, `CSS`, `MARKDOWN`, `PLAIN_TEXT`. |
@@ -71,7 +71,7 @@ genericui {
 | `CodeCompletionProvider` / `CompletionItem` / `CompletionItemKind` | `ext.codeeditor` | Functional interface `computeCompletions(document, cursor, prefix): List<CompletionItem>` with item kinds (`KEYWORD`, `FUNCTION`, `CLASS`, `PROPERTY`, `VARIABLE`, `SNIPPET`). |
 | `CodeMinimap` | `ext.codeeditor` | Synchronized bird's-eye overview widget rendering token bars, viewport slider, and diagnostic ticks (`onScrollToLineRequested`). |
 | `CursorPosition` / `TextRange` | `ext.codeeditor` | Zero-based `(line: Int, column: Int)` coordinate and normalized `[start .. end]` document span. |
-| `codeEditor` / `ideCodeEditor` / `codeMinimap` | `ext.codeeditor.dsl` | Declarative DSL builders in `:extensions:codeeditor:dsl`. |
+| `codeEditor` / `ideCodeEditor` / `codeMinimap` | `ext.codeeditor.dsl` | Declarative DSL builders in `:extensions:ui:codeeditor:dsl`. |
 
 ---
 
@@ -151,9 +151,9 @@ fun createKotlinIdeEditor(): IdeCodeEditor {
 
 ---
 
-## 5. Declarative `:extensions:codeeditor:dsl` Examples
+## 5. Declarative `:extensions:ui:codeeditor:dsl` Examples
 
-With `dsl()` and `codeEditor()` enabled, use `codeEditor { ... }` (or `ideCodeEditor { ... }`) and `codeMinimap { ... }` directly inside any [`:extensions:dsl`](dsl.md) container:
+With `dsl()` and `codeEditor()` enabled, use `codeEditor { ... }` (or `ideCodeEditor { ... }`) and `codeMinimap { ... }` directly inside any [`:extensions:ui:dsl`](dsl.md) container:
 
 ```kotlin
 import com.nexustools.genericui.ext.codeeditor.CodeEditorTheme
@@ -234,10 +234,10 @@ val shaderWorkbench = buildDiv(classes = "p-3") {
 ## 6. Related Extensions & Cross-References
 
 - **Related Extensions**:
-  - [`:extensions:canvas2d` (`canvas2d.md`)](canvas2d.md) — Provides the hardware-accelerated `Canvas2DExtSurface` powering `IdeCodeEditor` and `CodeMinimap`.
-  - [`:extensions:aichat` (`aichat.md`)](aichat.md) — Uses `:extensions:codeeditor` to render syntax-highlighted code blocks and diffs inside AI chat messages.
-  - [`:extensions:webview` (`webview.md`)](webview.md) — Combine `IdeCodeEditor` with `WebView` for live side-by-side HTML/CSS/JS preview.
-  - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
+  - [`:extensions:graphics:canvas2d` (`canvas2d.md`)](canvas2d.md) — Provides the hardware-accelerated `Canvas2D` surface powering `IdeCodeEditor` and `CodeMinimap`.
+  - [`:extensions:ui:aichat` (`aichat.md`)](aichat.md) — Uses `:extensions:ui:codeeditor` to render syntax-highlighted code blocks and diffs inside AI chat messages.
+  - [`:extensions:ui:webview` (`webview.md`)](webview.md) — Combine `IdeCodeEditor` with `WebView` for live side-by-side HTML/CSS/JS preview.
+  - [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
 - **Root & Backend Documentation**:
   - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Source Sets (`../../docs/sourcesets.md`)](../../docs/sourcesets.md) · [Backends (`../../docs/backends.md`)](../../docs/backends.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)
   - [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) · [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) · [Web Backend (`../../web/README.md`)](../../web/README.md)

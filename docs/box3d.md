@@ -1,8 +1,8 @@
-# `:extensions:box3d` & `:extensions:box3d:dsl` — 3D Rigid-Body Physics Engine & Automatic Three.js Transform Synchronizer
+# `:extensions:physics:box3d` & `:extensions:physics:box3d:dsl` — 3D Rigid-Body Physics Engine & Automatic Three.js Transform Synchronizer
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:box3d` is a **Single Multiplatform Project** (`src/commonMain` across all 8 platform targets) providing a full 3D rigid-body physics engine (**`World3D`**, **`RigidBody3D`**, **`Collider3D`**, 7 collision shape types, 5 3D joint constraints, **`CharacterController3D`**, 3D raycasting, and **`Box3DDebugRenderer`**) built directly atop [`:extensions:threejs`](threejs.md) and [`:extensions:canvas3d`](canvas3d.md). Every `RigidBody3D` can bind to a Three.js `Object3D` (`Mesh`, `Group`) so its 3D position and quaternion rotation are automatically synchronized on every simulation step.
+`:extensions:physics:box3d` is a **Single Consolidated KMP Project** (`src/commonMain` across all GenericUI targets) providing a full 3D rigid-body physics engine (**`World3D`**, **`RigidBody3D`**, **`Collider3D`**, 7 collision shape types, 5 3D joint constraints, **`CharacterController3D`**, 3D raycasting, and **`Box3DDebugRenderer`**) built directly atop [`:extensions:graphics:threejs`](threejs.md) and [`:extensions:graphics:canvas3d`](canvas3d.md). Every `RigidBody3D` can bind to a Three.js `Object3D` (`Mesh`, `Group`) so its 3D position and quaternion rotation are automatically synchronized on every simulation step.
 
 ---
 
@@ -26,7 +26,7 @@ flowchart LR
 
 ## 2. Gradle Plugin Configuration
 
-Enabling `box3d()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) automatically configures `:extensions:box3d`, `:extensions:threejs`, `:extensions:canvas3d`, `:extensions:overlay`, `:extensions:gpu`, and (when `dsl()` is active) `:extensions:box3d:dsl`, and automatically registers the underlying 3D/GPU providers at startup:
+Enabling `box3d()` in the [GenericUI Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md) automatically configures `:extensions:physics:box3d`, `:extensions:graphics:threejs`, `:extensions:graphics:canvas3d`, `:extensions:ui:overlay`, `:extensions:graphics:gpu`, and (when `dsl()` is active) `:extensions:physics:box3d:dsl`:
 
 ```kotlin
 plugins {
@@ -38,8 +38,8 @@ genericui {
         allExceptSwing()
     }
     extensions {
-        dsl()   // Enables :extensions:dsl
-        box3d() // Automatically includes :extensions:box3d, :extensions:threejs, :extensions:canvas3d, :extensions:gpu, and :extensions:box3d:dsl
+        dsl()   // Enables :extensions:ui:dsl + :extensions:physics:box3d:dsl
+        box3d() // Includes :extensions:physics:box3d, threeJs(), canvas3d(), gpu()
     }
 }
 ```
@@ -58,7 +58,7 @@ genericui {
 | `CharacterController3D` | `ext.box3d` | Kinematic capsule character controller (`radius`, `halfHeight`, `maxSlopeRadians`, `stepOffset`, `isGrounded: Boolean`, `move(body, desiredDisplacement, dt)`). |
 | `Box3DDebugRenderer` | `ext.box3d` | Synchronizes wireframe Three.js collider meshes in a `Scene` and binds VBlank simulation loops (`update()`, `bindToCanvas3D(camera, canvas3D, substeps)`). |
 | `Vec3` / `Quat3D` / `Mat33` / `Transform3D` / `AABB3D` / `Ray3D` | `ext.box3d` | 3D physics math primitives. |
-| `box3dDebugCanvas` / `world3D` | `ext.box3d.dsl` | Declarative DSL builders in `:extensions:box3d:dsl` (`Box3DWorldDslScope`: `rigidBody`, `dynamicRigidBody`, `staticRigidBody`, `kinematicRigidBody`; `Box3DRigidBodyDslScope`: `collider`, `boxCollider`, `sphereCollider`, `capsuleCollider`). |
+| `box3dDebugCanvas` / `world3D` | `ext.box3d.dsl` | Declarative DSL builders in `:extensions:physics:box3d:dsl` (`Box3DWorldDslScope`: `rigidBody`, `dynamicRigidBody`, `staticRigidBody`, `kinematicRigidBody`; `Box3DRigidBodyDslScope`: `collider`, `boxCollider`, `sphereCollider`, `capsuleCollider`). |
 
 ---
 
@@ -155,7 +155,7 @@ fun createPhysicsDrivenThreeJsScene(): Canvas3D {
 
 ---
 
-## 5. Declarative `:extensions:box3d:dsl` Examples
+## 5. Declarative `:extensions:physics:box3d:dsl` Examples
 
 With `dsl()` and `box3d()` enabled, use `box3dDebugCanvas { ... }` and `world3D { ... }` to declare 3D rigid bodies and colliders in-place:
 
@@ -219,11 +219,11 @@ val physics3DViewport = buildDiv(classes = "p-3") {
 ## 6. Related Extensions & Cross-References
 
 - **Related Extensions**:
-  - [`:extensions:threejs` (`threejs.md`)](threejs.md) — Provides `Scene`, `Object3D`, `Mesh`, `PerspectiveCamera`, and `WebGLRenderer` synchronized with `World3D`.
-  - [`:extensions:canvas3d` (`canvas3d.md`)](canvas3d.md) — Provides `Canvas3D` and `Canvas3DOverlayHost` viewports.
-  - [`:extensions:gpu` (`gpu.md`)](gpu.md) — Provides the underlying Vulkan 1.2+ and OpenGL ES 3.0+ GPU foundation.
-  - [`:extensions:box2d` (`box2d.md`)](box2d.md) — Sister 2D rigid-body physics engine.
-  - [`:extensions:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
+  - [`:extensions:graphics:threejs` (`threejs.md`)](threejs.md) — Provides `Scene`, `Object3D`, `Mesh`, `PerspectiveCamera`, and `WebGLRenderer` synchronized with `World3D`.
+  - [`:extensions:graphics:canvas3d` (`canvas3d.md`)](canvas3d.md) — Provides `Canvas3D` and `Canvas3DOverlayHost` viewports.
+  - [`:extensions:graphics:gpu` (`gpu.md`)](gpu.md) — Provides the underlying Vulkan 1.2+ and OpenGL ES 3.0+ GPU foundation.
+  - [`:extensions:physics:box2d` (`box2d.md`)](box2d.md) — Sister 2D rigid-body physics engine.
+  - [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
 - **Root & Backend Documentation**:
   - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Source Sets (`../../docs/sourcesets.md`)](../../docs/sourcesets.md) · [Backends (`../../docs/backends.md`)](../../docs/backends.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)
   - [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) · [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) · [Web Backend (`../../web/README.md`)](../../web/README.md)
