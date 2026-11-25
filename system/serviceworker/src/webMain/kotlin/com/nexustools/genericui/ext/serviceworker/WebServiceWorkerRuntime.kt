@@ -2,6 +2,7 @@ package com.nexustools.genericui.ext.serviceworker
 
 import com.nexustools.genericui.component.shell.ContextMenu
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.exception.SystemTrayUnsupportedException
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.web.WebServiceWorkerClientBridge
 import com.nexustools.genericui.web.WebWorkerGlobalBridge
@@ -15,9 +16,20 @@ import com.nexustools.genericui.web.WebWorkerGlobalBridge
  */
 internal class WebServiceWorkerRuntime : ServiceWorkerPlatformRuntime, ServiceWorkerRuntimeHost {
 
+    override val backendName: String = BackendTarget.Web.displayName
     override val isSupported: Boolean = true
-
-    override val isAutostartSupported: Boolean = false
+    override val supportsMultipleWindows: Boolean = false
+    override val supportsFragmentLaunch: Boolean
+        get() = if (WebWorkerGlobalBridge.isWorkerGlobalScope) {
+            WebServiceWorkerWindowBridge.canLaunchClientWindow()
+        } else {
+            incomingClientListener != null || WebServiceWorkerClientBridge.isServiceWorkerSupported
+        }
+    override val supportsDialogFragments: Boolean
+        get() = supportsFragmentLaunch
+    override val supportsSystemTray: Boolean = false
+    override val supportsOngoingNotification: Boolean = false
+    override val supportsAutostart: Boolean = false
 
     private var currentOptions: ServiceWorkerOptions = ServiceWorkerOptions()
     private var runningWorker: ServiceWorker? = null
@@ -131,7 +143,7 @@ internal class WebServiceWorkerRuntime : ServiceWorkerPlatformRuntime, ServiceWo
         icon: ResourceID?,
         actions: List<ServiceWorkerNotificationAction>
     ) {
-        // Ongoing foreground service notifications are Android-specific; no-op on Web.
+        throw ServiceWorkerOngoingNotificationUnsupportedException(BackendTarget.Web.displayName)
     }
 
     override fun updateTray(
@@ -140,16 +152,104 @@ internal class WebServiceWorkerRuntime : ServiceWorkerPlatformRuntime, ServiceWo
         tooltip: String?,
         badgeText: String?,
         menu: ContextMenu?,
-        onClick: (() -> Unit)?
+        onClick: (() -> Unit)?,
+        macosIconPathOrUrl: String?
     ) {
-        // Desktop tray icon is unsupported inside browser Service Workers; no-op on Web.
+        throw SystemTrayUnsupportedException(BackendTarget.Web.displayName)
     }
 
     override fun openMainWindow(route: String?) {
-        // Broadcast navigation request to clients if running inside worker global scope.
+        val env = ServiceWorkerEnvelope(
+            kind = ServiceWorkerEnvelope.KIND_MESSAGE,
+            typeId = ServiceWorkerEnvelope.CONTROL_OPEN_MAIN_WINDOW,
+            payloadJson = route.orEmpty()
+        )
+        if (WebWorkerGlobalBridge.isWorkerGlobalScope) {
+            val openUrl = if (route.isNullOrBlank()) "./" else "./?route=${encodePercentQuery(route)}"
+            if (!WebServiceWorkerWindowBridge.launchOrFocusClientWindow(
+                    launchControlWireText = ServiceWorkerFrameCodec.encodeWebText(env),
+                    openUrl = openUrl
+                )
+            ) {
+                throw ServiceWorkerFragmentLaunchUnsupportedException(
+                    fragmentId = "__main__",
+                    backendName = BackendTarget.Web.displayName,
+                    message = "Web ServiceWorker has no controllable client window or openWindow capability to open main window."
+                )
+            }
+            return
+        }
+        val listener = incomingClientListener
+            ?: throw ServiceWorkerFragmentLaunchUnsupportedException(
+                fragmentId = "__main__",
+                backendName = BackendTarget.Web.displayName,
+                message = "Web UI client listener is unavailable to open main window."
+            )
+        listener(env)
     }
 
-    override fun closeMainWindow() {}
+    override fun closeMainWindow() {
+        val env = ServiceWorkerEnvelope(
+            kind = ServiceWorkerEnvelope.KIND_MESSAGE,
+            typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_MAIN_WINDOW,
+            payloadJson = "null"
+        )
+        if (WebWorkerGlobalBridge.isWorkerGlobalScope) {
+            WebWorkerGlobalBridge.broadcastToClients(ServiceWorkerFrameCodec.encodeWebText(env))
+            return
+        }
+        incomingClientListener?.invoke(env)
+    }
+
+    override fun requestLaunchFragment(request: ServiceWorkerFragmentLaunchRequest) {
+        if (!supportsFragmentLaunch) {
+            throw ServiceWorkerFragmentLaunchUnsupportedException(
+                fragmentId = request.fragmentId,
+                backendName = BackendTarget.Web.displayName
+            )
+        }
+        val env = ServiceWorkerEnvelope(
+            kind = ServiceWorkerEnvelope.KIND_MESSAGE,
+            typeId = ServiceWorkerEnvelope.CONTROL_LAUNCH_FRAGMENT,
+            payloadJson = request.toControlPayloadJson(),
+            targetFragmentId = request.fragmentId
+        )
+        if (WebWorkerGlobalBridge.isWorkerGlobalScope) {
+            if (!WebServiceWorkerWindowBridge.launchOrFocusClientWindow(
+                    launchControlWireText = ServiceWorkerFrameCodec.encodeWebText(env),
+                    openUrl = buildLaunchUrl(request)
+                )
+            ) {
+                throw ServiceWorkerFragmentLaunchUnsupportedException(
+                    fragmentId = request.fragmentId,
+                    backendName = BackendTarget.Web.displayName,
+                    message = "Web ServiceWorker has no controllable WindowClient or openWindow() capability for fragment '${request.fragmentId}'."
+                )
+            }
+            return
+        }
+        val listener = incomingClientListener
+            ?: throw ServiceWorkerFragmentLaunchUnsupportedException(
+                fragmentId = request.fragmentId,
+                backendName = BackendTarget.Web.displayName,
+                message = "No active Web UI client channel is attached to launch fragment '${request.fragmentId}'."
+            )
+        listener(env)
+    }
+
+    override fun requestCloseFragment(fragmentId: String, instanceId: String?) {
+        val env = ServiceWorkerEnvelope(
+            kind = ServiceWorkerEnvelope.KIND_MESSAGE,
+            typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_FRAGMENT,
+            payloadJson = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
+            targetFragmentId = fragmentId
+        )
+        if (WebWorkerGlobalBridge.isWorkerGlobalScope) {
+            WebWorkerGlobalBridge.broadcastToClients(ServiceWorkerFrameCodec.encodeWebText(env))
+            return
+        }
+        incomingClientListener?.invoke(env)
+    }
 
     override fun stopSelf() {
         workerBridgeListener?.let { WebWorkerGlobalBridge.removeIncomingMessageHandler(it) }
@@ -163,7 +263,13 @@ internal class WebServiceWorkerRuntime : ServiceWorkerPlatformRuntime, ServiceWo
 
     override fun isAutostartEnabled(): Boolean = false
 
-    override fun setAutostartEnabled(enabled: Boolean): Boolean = false
+    override fun setAutostartEnabled(enabled: Boolean): Boolean {
+        throw ServiceWorkerAutostartUnsupportedException(BackendTarget.Web.displayName)
+    }
+
+    override fun setAutostartEnabled(options: ServiceWorkerOptions, enabled: Boolean): Boolean {
+        throw ServiceWorkerAutostartUnsupportedException(BackendTarget.Web.displayName)
+    }
 
     override suspend fun sendToClient(clientId: String, envelope: ServiceWorkerEnvelope): Boolean {
         if (WebWorkerGlobalBridge.isWorkerGlobalScope) {
@@ -223,5 +329,45 @@ internal class WebServiceWorkerRuntime : ServiceWorkerPlatformRuntime, ServiceWo
         }
         workerBridgeListener = handler
         WebWorkerGlobalBridge.addIncomingMessageHandler(handler)
+    }
+
+    private fun buildLaunchUrl(request: ServiceWorkerFragmentLaunchRequest): String {
+        val params = mutableListOf<String>()
+        if (request.fragmentId.isNotBlank()) {
+            params.add("fragment=${encodePercentQuery(request.fragmentId)}")
+        }
+        request.route?.takeIf { it.isNotBlank() }?.let { route ->
+            params.add("route=${encodePercentQuery(route)}")
+        }
+        params.add("openAdditionalWindow=${request.openAdditionalWindow}")
+        if (request.clearTask) {
+            params.add("clearTask=true")
+        }
+        val args = request.arguments
+        if (args != null && args.keys().isNotEmpty()) {
+            params.add("args=${encodePercentQuery(args.toBase64Url())}")
+        }
+        return if (params.isEmpty()) "./" else "./?${params.joinToString("&")}"
+    }
+
+    private fun encodePercentQuery(value: String): String {
+        val bytes = value.encodeToByteArray()
+        val sb = StringBuilder(bytes.size)
+        val hex = "0123456789ABCDEF"
+        for (b in bytes) {
+            val ch = b.toInt() and 0xFF
+            val isUnreserved = (ch in 'A'.code..'Z'.code) ||
+                (ch in 'a'.code..'z'.code) ||
+                (ch in '0'.code..'9'.code) ||
+                ch == '-'.code || ch == '_'.code || ch == '.'.code || ch == '~'.code
+            if (isUnreserved) {
+                sb.append(ch.toChar())
+            } else {
+                sb.append('%')
+                sb.append(hex[(ch ushr 4) and 0x0F])
+                sb.append(hex[ch and 0x0F])
+            }
+        }
+        return sb.toString()
     }
 }

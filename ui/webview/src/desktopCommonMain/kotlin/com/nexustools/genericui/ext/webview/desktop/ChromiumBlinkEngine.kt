@@ -2,7 +2,7 @@ package com.nexustools.genericui.ext.webview.desktop
 
 /**
  * Chromium Blink HTML/CSS document layout and rendering engine used by `:extensions:webview:desktop`
- * across `:windows`, `:macos`, `:gtk`, and `:qt`.
+ * across `:windows`, `:macos`, `:gtk`, and `:kde`.
  *
  * Parses HTML/CSS into a [ChromiumBlinkDomNode] tree and extracts inline and external `<script>`
  * blocks so they are compiled and executed by the `NJS` Native JIT runtime ([NjsDesktopWebRuntime]).

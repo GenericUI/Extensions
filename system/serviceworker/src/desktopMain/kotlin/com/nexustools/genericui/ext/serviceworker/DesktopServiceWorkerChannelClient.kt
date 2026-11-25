@@ -9,17 +9,20 @@ import kotlinx.coroutines.launch
 import kotlin.concurrent.Volatile
 
 /**
- * UI-client-side authenticated loopback TCP client connecting to [DesktopServiceWorkerHost].
+ * UI-client-side authenticated native IPC client connecting to [DesktopServiceWorkerHost].
  */
 internal class DesktopServiceWorkerChannelClient {
 
     private var scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
-    private var connection: DesktopTcpConnection? = null
+    private var connection: DesktopIpcConnection? = null
 
     @Volatile
     private var connected: Boolean = false
+
+    @Volatile
+    private var activeDescriptor: DesktopEndpointDescriptor? = null
 
     private var onEnvelopeListener: ((ServiceWorkerEnvelope) -> Unit)? = null
     private var onConnectionChanged: ((Boolean) -> Unit)? = null
@@ -33,6 +36,11 @@ internal class DesktopServiceWorkerChannelClient {
         onIncomingEnvelope: (ServiceWorkerEnvelope) -> Unit,
         onConnectionStateChanged: (Boolean) -> Unit
     ): Boolean {
+        if (isConnected && activeDescriptor == descriptor) {
+            onEnvelopeListener = onIncomingEnvelope
+            onConnectionChanged = onConnectionStateChanged
+            return true
+        }
         disconnect()
         onEnvelopeListener = onIncomingEnvelope
         onConnectionChanged = onConnectionStateChanged
@@ -40,7 +48,7 @@ internal class DesktopServiceWorkerChannelClient {
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         }
 
-        val conn = DesktopLoopbackTcpClient.connect(descriptor.port, timeoutMs = 4_000) ?: return false
+        val conn = DesktopIpcClient.connect(descriptor.transport, descriptor.address, timeoutMs = 4_000) ?: return false
         val authEnv = ServiceWorkerEnvelope(
             kind = ServiceWorkerEnvelope.KIND_AUTH,
             clientId = assignedClientId,
@@ -58,6 +66,7 @@ internal class DesktopServiceWorkerChannelClient {
         }
 
         assignedClientId = replyEnv.clientId.ifBlank { assignedClientId }
+        activeDescriptor = descriptor
         connection = conn
         connected = true
         onConnectionStateChanged(true)
@@ -76,6 +85,7 @@ internal class DesktopServiceWorkerChannelClient {
                 connected = false
                 if (connection === conn) {
                     connection = null
+                    activeDescriptor = null
                 }
                 conn.close()
                 onConnectionChanged?.invoke(false)
@@ -97,20 +107,22 @@ internal class DesktopServiceWorkerChannelClient {
 
     fun disconnect() {
         val conn = connection
+        val wasConnected = connected || conn != null
         connected = false
         connection = null
+        activeDescriptor = null
         if (conn != null && !conn.isClosed) {
-            runCatching {
-                conn.sendBody(
-                    ServiceWorkerFrameCodec.encodeBinaryBody(
-                        ServiceWorkerEnvelope(kind = ServiceWorkerEnvelope.KIND_BYE, clientId = assignedClientId)
-                    )
+            conn.sendBody(
+                ServiceWorkerFrameCodec.encodeBinaryBody(
+                    ServiceWorkerEnvelope(kind = ServiceWorkerEnvelope.KIND_BYE, clientId = assignedClientId)
                 )
-            }
-            runCatching { conn.close() }
+            )
+            conn.close()
         }
         scope.cancel()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        onConnectionChanged?.invoke(false)
+        if (wasConnected) {
+            onConnectionChanged?.invoke(false)
+        }
     }
 }

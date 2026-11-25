@@ -22,12 +22,7 @@ class StyledButtonAlienImpl(
     private var disabledVisuals: StyledVisualSpec? = null
 
     private fun syncCurrentVisuals() {
-        val current = resolveCurrentVisuals()
-        current.backgroundGradient?.let { node.backgroundGradient = it }
-        current.opacity?.let { node.opacity = it.coerceIn(0f, 1f) }
-        current.padding?.let { node.padding = it }
-        node.markLayoutDirty()
-        node.invalidateBounds()
+        AlienStyledVisualSyncUtil.applyVisualsToNode(node, resolveCurrentVisuals())
     }
 
     override fun setBaseVisuals(visuals: StyledVisualSpec) {
@@ -80,32 +75,22 @@ class StyledButtonAlienImpl(
         syncCurrentVisuals()
     }
 
-    override fun resolveCurrentVisuals(): StyledVisualSpec {
-        val computed = node.computedStyle
-        val computedBase = StyledVisualSpec.fromComponentAndComputed(node.inlineComponentStyle, computed)
-        var effective = computedBase.mergeWith(baseVisuals)
-
-        if (!isEnabled()) {
-            val computedDisabled = computed?.disabledStyle?.let { StyledVisualSpec.fromComputedStyle(it) }
-            effective = effective.mergeWith(computedDisabled).mergeWith(disabledVisuals)
-            return effective
-        }
-
-        if (isHoveredState()) {
-            val computedHover = computed?.hoverStyle?.let { StyledVisualSpec.fromComputedStyle(it) }
-            effective = effective.mergeWith(computedHover).mergeWith(hoverVisuals)
-        }
-
-        if (isFocusedState()) {
-            val computedFocus = computed?.focusStyle?.let { StyledVisualSpec.fromComputedStyle(it) }
-            effective = effective.mergeWith(computedFocus).mergeWith(focusVisuals)
-        }
-
-        if (isActivePressedState()) {
-            val computedActive = computed?.activeStyle?.let { StyledVisualSpec.fromComputedStyle(it) }
-            effective = effective.mergeWith(computedActive).mergeWith(activeVisuals)
-        }
-
-        return effective
+    override fun setEnabled(enabled: Boolean) {
+        super<ButtonAlienImpl>.setEnabled(enabled)
+        syncCurrentVisuals()
     }
+
+    override fun resolveCurrentVisuals(): StyledVisualSpec =
+        AlienStyledVisualSyncUtil.resolveInteractiveVisuals(
+            node = node,
+            baseVisuals = baseVisuals,
+            hoverVisuals = hoverVisuals,
+            focusVisuals = focusVisuals,
+            activeVisuals = activeVisuals,
+            disabledVisuals = disabledVisuals,
+            isEnabled = isEnabled(),
+            isHovered = isHoveredState(),
+            isFocused = isFocusedState(),
+            isActivePressed = isActivePressedState()
+        )
 }

@@ -4,6 +4,9 @@ import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.ext.overlay.OverlayHost
+import com.nexustools.genericui.ext.overlay.OverlayHostBox
+import com.nexustools.genericui.ext.overlay.OverlayStageProvider
 import com.nexustools.genericui.ext.pip.FragmentPipHelper
 import com.nexustools.genericui.ext.pip.FragmentPipRegistry
 import com.nexustools.genericui.ext.pip.PipAction
@@ -19,6 +22,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -78,6 +82,60 @@ class PipDslTest {
         installed.dispose()
         assertNull(fragment.pipHelper)
         window.close()
+    }
+
+    @Test
+    fun installStagePipHelperAutoWiresOverlayStageProvider() {
+        PipRegistry.registerBackendFactory { TestDslPipBackend() }
+
+        val stageFragment = FakeStageFragment()
+        val window = Window("Stage DSL Host", Size(960, 640))
+        window.setFragment(stageFragment)
+
+        val helper = stageFragment.installStagePipHelper()
+        assertSame(stageFragment.stageTargetComponent, helper.resolveEffectiveTarget())
+        assertTrue(helper.isEffectivelyPlaying())
+        assertEquals("Stage DSL Clip", helper.resolveEffectiveConfig().title)
+        assertEquals(21 to 9, helper.resolveEffectiveAspectRatio())
+
+        helper.resolveEffectivePlayPauseAction()?.invoke()
+        assertFalse(stageFragment.isStagePlaying)
+        assertTrue(helper.enterPip())
+        helper.dispatchCloseRequestedFromBackend()
+        assertFalse(stageFragment.isStagePlaying)
+        assertEquals(0, stageFragment.fullscreenToggleCount)
+
+        helper.dispose()
+        window.close()
+    }
+
+    private class FakeStageFragment : Fragment(), OverlayStageProvider {
+        private val targetNode = Container("stage-surface")
+        override val stageOverlayHost: OverlayHost = OverlayHostBox(content = targetNode)
+        override val stageTargetComponent: AbstractComponent
+            get() = targetNode
+        override var isStagePlaying: Boolean = true
+            private set
+        override val stageTitle: String = "Stage DSL Clip"
+        override val stageAspectRatio: Pair<Int, Int> = 21 to 9
+        var fullscreenToggleCount: Int = 0
+            private set
+
+        init {
+            addChild(stageOverlayHost as AbstractComponent)
+        }
+
+        override fun toggleStagePlayPause() {
+            isStagePlaying = !isStagePlaying
+        }
+
+        override fun pauseStagePlayback() {
+            isStagePlaying = false
+        }
+
+        override fun toggleStageFullscreen() {
+            fullscreenToggleCount++
+        }
     }
 
     private class TestDslPipBackend : PipBackend {

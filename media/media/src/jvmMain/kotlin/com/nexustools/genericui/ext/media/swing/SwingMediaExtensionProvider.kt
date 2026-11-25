@@ -14,13 +14,14 @@ import com.nexustools.genericui.swing.SwingAudioAnalyzerImpl
 import com.nexustools.genericui.swing.SwingAudioPlayerImpl
 import com.nexustools.genericui.swing.SwingMediaSessionManagerImpl
 import com.nexustools.genericui.swing.SwingScreenWakeLockImpl
-import com.nexustools.genericui.swing.SwingSeekBarImpl
 import com.nexustools.genericui.swing.SwingVideoPlayerImpl
 import com.nexustools.genericui.util.WeakReference
+import com.sun.jna.Function
 import com.sun.jna.Platform
 import uk.co.caprica.vlcj.factory.MediaPlayerFactory
 import uk.co.caprica.vlcj.player.base.AudioDevice
 import uk.co.caprica.vlcj.player.base.MediaPlayer
+import java.io.File
 
 /**
  * Wires JVM/Swing `libvlcj` (`uk.co.caprica.vlcj`) media playback into [MediaExtension].
@@ -128,7 +129,81 @@ object SwingMediaExtensionProvider {
         }
     }
 
+    private fun findSwingOpusFixPluginsDir(): File? {
+        val osFolder = when {
+            Platform.isMac() -> "macos"
+            Platform.isWindows() -> "windows"
+            Platform.isLinux() -> "linux"
+            else -> return null
+        }
+        val expectedFiles = when {
+            Platform.isMac() -> listOf("libgenericui_opus_fix_plugin.dylib")
+            Platform.isWindows() -> listOf("libgenericui_opus_fix_plugin.dll")
+            else -> listOf(
+                "libgenericui_opus_fix_x64_plugin.so",
+                "libgenericui_opus_fix_arm64_plugin.so",
+                "libgenericui_opus_fix_plugin.so"
+            )
+        }
+        val jarParent = runCatching {
+            File(SwingMediaExtensionProvider::class.java.protectionDomain.codeSource.location.toURI()).parentFile
+        }.getOrNull()
+        val userDir = System.getProperty("user.dir")?.trim()?.takeIf { it.isNotEmpty() }?.let(::File)
+        val envOverride = System.getenv("GENERICUI_VLC_OPUS_FIX_DIR")?.trim()?.takeIf { it.isNotEmpty() }?.let(::File)
+
+        val candidates = buildList {
+            if (envOverride != null) add(envOverride)
+            if (jarParent != null) {
+                add(File(jarParent, "opus_fix_plugins"))
+                add(File(jarParent, "../Frameworks/opus_fix_plugins"))
+                add(File(jarParent, "../generated/genericui/nativeBundle/vlc/$osFolder/opus_fix_plugins"))
+            }
+            if (userDir != null) {
+                add(File(userDir, "opus_fix_plugins"))
+                add(File(userDir, "build/generated/genericui/nativeBundle/vlc/$osFolder/opus_fix_plugins"))
+                add(File(userDir, "../build/generated/genericui/nativeBundle/vlc/$osFolder/opus_fix_plugins"))
+            }
+        }
+        return candidates.firstOrNull { dir ->
+            dir.isDirectory && expectedFiles.any { fileName -> File(dir, fileName).isFile }
+        }
+    }
+
+    private fun readNativeEnvVar(name: String): String? = runCatching {
+        val ptr = Function.getFunction(Platform.C_LIBRARY_NAME, "getenv")
+            .invokePointer(arrayOf<Any>(name))
+        ptr?.getString(0L)
+    }.getOrNull() ?: System.getenv(name)
+
+    private fun writeNativeEnvVar(name: String, value: String) {
+        runCatching {
+            if (Platform.isWindows()) {
+                Function.getFunction("kernel32", "SetEnvironmentVariableA")
+                    .invokeInt(arrayOf<Any>(name, value))
+                Function.getFunction("msvcrt", "_putenv")
+                    .invokeInt(arrayOf<Any>("$name=$value"))
+            } else {
+                Function.getFunction(Platform.C_LIBRARY_NAME, "setenv")
+                    .invokeInt(arrayOf<Any>(name, value, 1))
+            }
+        }
+    }
+
+    private fun ensureOpusFixPluginPathConfigured() {
+        val opusFixDir = findSwingOpusFixPluginsDir()?.absolutePath ?: return
+        val existing = readNativeEnvVar("VLC_PLUGIN_PATH")?.trim().orEmpty()
+        val existingEntries = existing.split(File.pathSeparatorChar).filter { it.isNotBlank() }
+        if (existingEntries.any { it == opusFixDir }) return
+        val nextValue = if (existing.isEmpty()) {
+            opusFixDir
+        } else {
+            "$opusFixDir${File.pathSeparator}$existing"
+        }
+        writeNativeEnvVar("VLC_PLUGIN_PATH", nextValue)
+    }
+
     internal fun createMediaPlayerFactorySafely(args: List<String>): MediaPlayerFactory? {
+        ensureOpusFixPluginPathConfigured()
         return try {
             MediaPlayerFactory(*args.toTypedArray())
         } catch (_: LinkageError) {
@@ -256,7 +331,6 @@ object SwingMediaExtensionProvider {
                 SwingAudioAnalyzerImpl().also { it.fftSize = fftSize }
             },
             mediaSessionManager = { SwingMediaSessionManagerImpl() },
-            seekBar = { SwingSeekBarImpl() },
             screenWakeLock = { SwingScreenWakeLockImpl() },
             vlcConfigHandler = vlcConfigHandler,
             codecSupportProvider = LibVlcCodecSupportProvider(

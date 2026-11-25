@@ -81,7 +81,7 @@ import kotlin.test.assertTrue
 class AlienExtensionTest {
 
     /**
-     * Minimal host OS [NativeFactory] representing a native system backend (e.g., Windows / Qt / GTK)
+     * Minimal host OS [NativeFactory] representing a native system backend (e.g., Windows / KDE / GTK)
      * whose native implementations are distinct from `*AlienImpl`.
      */
     private class MockHostOsNativeFactory : NativeFactory {
@@ -141,6 +141,9 @@ class AlienExtensionTest {
 
         override fun createStyledContainer(classPrefix: String, tagName: String) =
             delegate.createStyledContainer(classPrefix, tagName)
+
+        override fun createStyledComponent(classPrefix: String, tagName: String) =
+            delegate.createStyledComponent(classPrefix, tagName)
 
         override fun createButton(classPrefix: String): ButtonNativeImpl<*> =
             HostOsButtonImpl(classPrefix)
@@ -1049,5 +1052,99 @@ class AlienExtensionTest {
         labeledInput.label = null
         assertNull(impl.getLabel())
         session.forceFullRepaint(0f)
+    }
+
+    @Test
+    fun testStyledComponentCompositeSliderAndProximalRelativePositioningInAlien() {
+        val alienRoot = AlienContainer().apply {
+            widthPx = 640
+            heightPx = 480
+        }
+        val styledComp = com.nexustools.genericui.component.surface.StyledComponent("alien-chip")
+        styledComp.getStyle().apply {
+            setOpacity(0.8f)
+            setCursor(com.nexustools.genericui.enums.css.CssCursor.NONE)
+            setPointerEvents(com.nexustools.genericui.enums.css.CssPointerEvents.NONE)
+            setBackdropFilter(com.nexustools.genericui.style.css.CssFilter.blur(com.nexustools.genericui.style.css.CssLength.px(6f)))
+        }
+        val slider = com.nexustools.genericui.component.form.StyledSlider(value = 0.25, min = 0.0, max = 1.0)
+        alienRoot.addChild(styledComp)
+        alienRoot.addChild(slider)
+        alienRoot.ensureNativeImpl()
+
+        val compImpl = styledComp.nativeImpl as? com.nexustools.genericui.ext.alien.impl.AlienStyledComponentImpl
+        assertNotNull(compImpl)
+
+        compImpl.setStyledVisuals(
+            com.nexustools.genericui.style.css.StyledVisualSpec(
+                backgroundColor = RgbaColor(20, 30, 40),
+                borderRadiusPx = 6f
+            )
+        )
+        compImpl.setHoverVisuals(
+            com.nexustools.genericui.style.css.StyledVisualSpec(
+                backgroundColor = RgbaColor(60, 80, 100)
+            )
+        )
+        compImpl.setDisabledVisuals(
+            com.nexustools.genericui.style.css.StyledVisualSpec(
+                opacity = 0.4f
+            )
+        )
+
+        val resolvedBase = compImpl.node.resolveVisualStyle()
+        assertEquals(RgbaColor(20, 30, 40), resolvedBase.backgroundColor)
+        assertEquals(com.nexustools.genericui.enums.css.CssCursor.NONE, resolvedBase.cursor)
+        assertFalse(resolvedBase.pointerEventsEnabled)
+        assertNotNull(resolvedBase.backdropFilter)
+
+        compImpl.setHoveredState(true)
+        assertEquals(RgbaColor(60, 80, 100), compImpl.resolveCurrentVisuals().backgroundColor)
+        assertEquals(RgbaColor(60, 80, 100), AlienCssStyleResolver.resolve(compImpl.node).backgroundColor)
+        compImpl.node.resolveVisualStyle()
+        compImpl.node.transitionAnimator.step(200f)
+        assertEquals(RgbaColor(60, 80, 100), compImpl.node.resolveVisualStyle().backgroundColor)
+
+        compImpl.setEnabled(false)
+        assertEquals(0.4f, compImpl.resolveCurrentVisuals().opacity ?: 1f, 0.01f)
+        compImpl.node.resolveVisualStyle()
+        compImpl.node.transitionAnimator.step(200f)
+        assertEquals(0.4f, compImpl.node.resolveVisualStyle().opacity, 0.01f)
+
+        val sliderImpl = slider.nativeImpl as? StyledContainerAlienImpl
+        assertNotNull(sliderImpl)
+        assertEquals(3, sliderImpl.node.children.size)
+
+        // Verify proximal position: relative ancestor anchors position: absolute child instead of static intermediate
+        val relHost = Container("rel-host").apply {
+            getStyle().apply {
+                setPosition(com.nexustools.genericui.enums.css.CssPosition.RELATIVE)
+                setWidth(com.nexustools.genericui.style.css.CssLength.px(200f))
+                setHeight(com.nexustools.genericui.style.css.CssLength.px(100f))
+                setMarginLeft(com.nexustools.genericui.style.css.CssLength.px(50f))
+                setMarginTop(com.nexustools.genericui.style.css.CssLength.px(40f))
+            }
+        }
+        val staticWrapper = Container("static-wrap")
+        val absChild = com.nexustools.genericui.component.surface.StyledComponent("abs-child").apply {
+            getStyle().apply {
+                setPosition(com.nexustools.genericui.enums.css.CssPosition.ABSOLUTE)
+                setLeft(com.nexustools.genericui.style.css.CssLength.px(10f))
+                setRight(com.nexustools.genericui.style.css.CssLength.px(10f))
+                setTop(com.nexustools.genericui.style.css.CssLength.px(15f))
+                setHeight(com.nexustools.genericui.style.css.CssLength.px(20f))
+            }
+        }
+        staticWrapper.addChild(absChild)
+        relHost.addChild(staticWrapper)
+        alienRoot.addChild(relHost)
+        val session = assertNotNull(alienRoot.renderSession)
+        session.forceFullRepaint(0f)
+
+        val relNode = (relHost.nativeImpl as AlienImpl).node
+        val absNode = (absChild.nativeImpl as AlienImpl).node
+        assertEquals(relNode.bounds.x + 10, absNode.bounds.x)
+        assertEquals(relNode.bounds.y + 15, absNode.bounds.y)
+        assertEquals((relNode.bounds.width - 20).coerceAtLeast(1), absNode.bounds.width)
     }
 }

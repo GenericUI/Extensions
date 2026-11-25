@@ -1,18 +1,18 @@
 package com.nexustools.genericui.ext.media.overlay
 
+import com.nexustools.genericui.component.composite.Composite
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.LayerConstraint
 import com.nexustools.genericui.component.media.ExpandingVolumeSlider
 import com.nexustools.genericui.component.media.SeekBar
+import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.Disposable
-import com.nexustools.genericui.enums.css.CssPointerEvents
 import com.nexustools.genericui.ext.overlay.OverlayActions
 import com.nexustools.genericui.ext.overlay.OverlayElement
 import com.nexustools.genericui.ext.overlay.OverlayState
 import com.nexustools.genericui.ext.overlay.OverlayTimeFormatter
 import com.nexustools.genericui.ext.overlay.YoutubePlayerOverlay
-import com.nexustools.genericui.style.color.RgbaColor
-import com.nexustools.genericui.style.css.CssLength
 import kotlin.math.roundToInt
 
 /**
@@ -21,18 +21,20 @@ import kotlin.math.roundToInt
  * directly into a [YoutubePlayerOverlay]'s `timelineContainer` and `leftAccessoryContainer`.
  *
  * Keeps `tooltipText` `null` on all media controls by default and automatically stays synchronized
- * with [YoutubePlayerOverlay.state] updates via a passive [OverlayElement] listener.
+ * with [YoutubePlayerOverlay.state] updates via a passive [OverlayElement] listener. Visual
+ * layout and theme colors come purely from `media/style.scss` and consumer-compiled `theme.scss`.
  */
 class YoutubeMediaOverlayHelper(
     val overlay: YoutubePlayerOverlay,
     val includeVolumeSlider: Boolean = true,
-    accentColor: RgbaColor = DEFAULT_ACCENT_COLOR,
     expandedVolumeWidthPx: Int = 92
 ) : Disposable {
 
     private var disposedState: Boolean = false
     private var isInternalSync: Boolean = false
     private var currentDurationSec: Double = overlay.state.durationSec.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+    private var lastSyncedVolumePercent: Int = Int.MIN_VALUE
+    private var lastSyncedMuted: Boolean? = null
 
     override val isDisposed: Boolean
         get() = disposedState
@@ -44,15 +46,6 @@ class YoutubeMediaOverlayHelper(
         step = 0.25
     ).apply {
         addClass("youtube-media-overlay-seekbar")
-        trackHeightPx = 4f
-        thumbRadiusPx = 6f
-        this.accentColor = accentColor
-        bufferedColor = RgbaColor(255, 255, 255, 92)
-        trackColor = RgbaColor(255, 255, 255, 52)
-        thumbColor = RgbaColor.WHITE
-        getStyle().apply {
-            setWidth(CssLength.percent(100f))
-        }
     }
 
     val volumeSlider: ExpandingVolumeSlider? = if (includeVolumeSlider) {
@@ -60,9 +53,7 @@ class YoutubeMediaOverlayHelper(
             value = overlay.state.volumePercent.toDouble(),
             muted = overlay.state.isMuted,
             expandedSliderWidthPx = expandedVolumeWidthPx
-        ).apply {
-            slider.accentColor = accentColor
-        }
+        )
     } else {
         null
     }
@@ -70,13 +61,6 @@ class YoutubeMediaOverlayHelper(
     private val stateSyncElement: OverlayElement = object : OverlayElement(
         component = Container("genericui-media-overlay-sync-bridge").apply {
             isVisible = false
-            widthPx = 0
-            heightPx = 0
-            getStyle().apply {
-                setWidth(CssLength.ZERO)
-                setHeight(CssLength.ZERO)
-                setPointerEvents(CssPointerEvents.NONE)
-            }
         },
         constraint = LayerConstraint.float(zIndex = -1, passThroughPointerEvents = true),
         elementId = "youtube-media-overlay-helper-sync"
@@ -87,6 +71,10 @@ class YoutubeMediaOverlayHelper(
     }
 
     init {
+        isolateSubtree(seekBar)
+        volumeSlider?.let { vol ->
+            isolateSubtree(vol)
+        }
         overlay.timelineContainer.addChild(seekBar)
         volumeSlider?.let { overlay.leftAccessoryContainer.addChild(it) }
 
@@ -157,6 +145,19 @@ class YoutubeMediaOverlayHelper(
         syncState(overlay.state)
     }
 
+    private fun isolateSubtree(component: AbstractComponent) {
+        overlay.inputRouter.isolateInteractiveComponent(component)
+        if (component is Composite) {
+            for (child in component.internalCompositeChildren()) {
+                isolateSubtree(child)
+            }
+        } else if (component is AbstractContainer) {
+            for (child in component.children) {
+                isolateSubtree(child)
+            }
+        }
+    }
+
     fun syncState(state: OverlayState) {
         if (disposedState) return
         val dur = if (state.durationSec.isFinite() && state.durationSec > 0.0) state.durationSec else 0.0
@@ -180,7 +181,9 @@ class YoutubeMediaOverlayHelper(
                 )
             }
             volumeSlider?.let { vol ->
-                if (!vol.slider.isScrubbing) {
+                if (!vol.isScrubbing && (state.volumePercent != lastSyncedVolumePercent || state.isMuted != lastSyncedMuted)) {
+                    lastSyncedVolumePercent = state.volumePercent
+                    lastSyncedMuted = state.isMuted
                     vol.updateVolumeState(state.volumePercent.toDouble(), state.isMuted)
                 }
             }
@@ -191,17 +194,15 @@ class YoutubeMediaOverlayHelper(
 
     fun updateVolumeState(volumePercent: Int, muted: Boolean) {
         if (disposedState) return
+        if (volumePercent == lastSyncedVolumePercent && muted == lastSyncedMuted) return
+        lastSyncedVolumePercent = volumePercent
+        lastSyncedMuted = muted
         isInternalSync = true
         try {
             volumeSlider?.updateVolumeState(volumePercent.toDouble(), muted)
         } finally {
             isInternalSync = false
         }
-    }
-
-    fun setAccentColor(color: RgbaColor) {
-        seekBar.accentColor = color
-        volumeSlider?.slider?.accentColor = color
     }
 
     override fun dispose() {
@@ -213,9 +214,5 @@ class YoutubeMediaOverlayHelper(
             overlay.leftAccessoryContainer.removeChild(vol)
             vol.dispose()
         }
-    }
-
-    companion object {
-        val DEFAULT_ACCENT_COLOR: RgbaColor = RgbaColor(255, 126, 150, 255)
     }
 }

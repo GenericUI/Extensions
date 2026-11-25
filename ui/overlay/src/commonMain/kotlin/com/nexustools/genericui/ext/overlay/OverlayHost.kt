@@ -18,12 +18,30 @@ interface OverlayHost {
             overlay = value
         }
     val overlayRoot: LayeredContainer
+    val persistentOverlayRoot: LayeredContainer?
+        get() = null
     var state: OverlayState
     var actions: OverlayActions
     var isInPictureInPictureMode: Boolean
 
     var themeColorHex: String?
         get() = OverlayExtension.defaultThemeColorHex
+        set(_) {}
+
+    var windowTitleBarEnabled: Boolean
+        get() = false
+        set(_) {}
+
+    var windowTitleBarConfig: OverlayWindowTitleBarConfig
+        get() = OverlayWindowTitleBarConfig(enabled = windowTitleBarEnabled)
+        set(_) {}
+
+    var windowDragEnabled: Boolean
+        get() = false
+        set(_) {}
+
+    var onWindowDragMove: (() -> Unit)?
+        get() = null
         set(_) {}
 
     fun attachOverlay(overlay: AbstractOverlay)

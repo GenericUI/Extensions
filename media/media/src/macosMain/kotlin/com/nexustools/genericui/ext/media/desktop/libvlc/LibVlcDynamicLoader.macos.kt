@@ -74,8 +74,34 @@ actual object LibVlcDynamicLoader {
         return false
     }
 
+    private fun findOpusFixPluginsDir(): String? {
+        val exeDir = queryExecutableDir()
+        val envOpusFixDir = getenv("GENERICUI_VLC_OPUS_FIX_DIR")?.toKString()?.trim()?.trimEnd('/')
+        val existingPluginPath = getenv("VLC_PLUGIN_PATH")?.toKString().orEmpty()
+        val candidates = buildList {
+            if (!envOpusFixDir.isNullOrBlank()) {
+                add(envOpusFixDir)
+            }
+            if (!exeDir.isNullOrBlank()) {
+                add("$exeDir/opus_fix_plugins")
+                add("$exeDir/../Frameworks/opus_fix_plugins")
+                add("$exeDir/../../../generated/genericui/nativeBundle/vlc/macos/opus_fix_plugins")
+            }
+            for (entry in existingPluginPath.split(':')) {
+                val trimmed = entry.trim().trimEnd('/')
+                if (trimmed.isNotEmpty()) {
+                    add(trimmed)
+                }
+            }
+        }.distinct()
+        return candidates.firstOrNull { dir ->
+            access("$dir/libgenericui_opus_fix_plugin.dylib", F_OK) == 0
+        }
+    }
+
     actual fun openLibVlc(): COpaquePointer? {
         val flags = RTLD_LAZY or RTLD_GLOBAL
+        val opusFixDir = findOpusFixPluginsDir()
         for (path in buildCandidatePaths()) {
             val dir = path.substringBeforeLast('/', "")
             if (dir.isNotEmpty()) {
@@ -87,8 +113,18 @@ actual object LibVlcDynamicLoader {
                 )
                 val validPluginsDir = candidatePluginDirs.firstOrNull { access(it, F_OK) == 0 && hasAnyDylibPlugin(it) }
                     ?: candidatePluginDirs.firstOrNull { access(it, F_OK) == 0 }
-                if (validPluginsDir != null) {
-                    setenv("VLC_PLUGIN_PATH", validPluginsDir, 1)
+                val hasOpusFixInPluginsDir = validPluginsDir != null &&
+                    access("$validPluginsDir/libgenericui_opus_fix_plugin.dylib", F_OK) == 0
+                val pluginPathEntries = buildList {
+                    if (opusFixDir != null && !hasOpusFixInPluginsDir && opusFixDir != validPluginsDir) {
+                        add(opusFixDir)
+                    }
+                    if (validPluginsDir != null) {
+                        add(validPluginsDir)
+                    }
+                }
+                if (pluginPathEntries.isNotEmpty()) {
+                    setenv("VLC_PLUGIN_PATH", pluginPathEntries.joinToString(":"), 1)
                 }
                 for (coreName in listOf("libvlccore.dylib", "libvlccore.9.dylib")) {
                     val corePath = "$dir/$coreName"
@@ -97,6 +133,12 @@ actual object LibVlcDynamicLoader {
                             break
                         }
                     }
+                }
+            } else if (opusFixDir != null) {
+                val existing = getenv("VLC_PLUGIN_PATH")?.toKString()?.trim().orEmpty()
+                if (opusFixDir !in existing.split(':')) {
+                    val updated = if (existing.isEmpty()) opusFixDir else "$opusFixDir:$existing"
+                    setenv("VLC_PLUGIN_PATH", updated, 1)
                 }
             }
             val handle = dlopen(path, flags)

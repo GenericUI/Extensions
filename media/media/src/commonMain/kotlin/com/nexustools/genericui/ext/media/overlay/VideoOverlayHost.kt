@@ -20,6 +20,9 @@ open class VideoOverlayHost(
         host = this
     )
 
+    internal var fullscreenStateOverride: (() -> Boolean)? = null
+    internal var onToggleFullscreenOverride: (() -> Unit)? = null
+
     init {
         htmlTag = "genericui:video-overlay-host"
         addClass("genericui-video-overlay-host")

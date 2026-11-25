@@ -1,0 +1,17 @@
+// Consumer Theme Template Stylesheet (`theme.scss`) for `:extensions:ui:codeeditor`.
+// NEVER compiled inside `:extensions:ui:codeeditor` itself; packaged raw in module resources and
+// compiled solely into consumer apps against active theme tokens.
+
+$primary: #3b82f6 !default;
+$accent: #60a5fa !default;
+$border: #334155 !default;
+
+.ide-code-editor {
+    border-color: $border;
+}
+
+.ide-code-editor:focus,
+.ide-code-editor:focus-visible {
+    border-color: $accent;
+    outline: 2px solid rgba($primary, 0.35);
+}

@@ -110,7 +110,12 @@ class VideoPlayerOverlayBinder(
                     syncStateFromPlayer()
                 },
                 onToggleFullscreen = {
-                    videoPlayer.toggleFullscreen()
+                    val customToggle = (host as? VideoOverlayHost)?.onToggleFullscreenOverride
+                    if (customToggle != null) {
+                        customToggle.invoke()
+                    } else {
+                        videoPlayer.toggleFullscreen()
+                    }
                     syncStateFromPlayer()
                 }
             )
@@ -148,7 +153,8 @@ class VideoPlayerOverlayBinder(
             val volPercent = (videoPlayer.volume * 100f).roundToInt().coerceIn(0, 200)
             val muted = videoPlayer.isMuted
             val speed = (videoPlayer.playbackSpeed * 100f).roundToInt() / 100.0
-            val fullscreen = videoPlayer.isFullscreen()
+            val fullscreen = (host as? VideoOverlayHost)?.fullscreenStateOverride?.invoke()
+                ?: videoPlayer.isFullscreen()
             val pip = host.isInPictureInPictureMode
             val audioItems = videoPlayer.getAudioTracks().map { track ->
                 OverlayTrackItem(

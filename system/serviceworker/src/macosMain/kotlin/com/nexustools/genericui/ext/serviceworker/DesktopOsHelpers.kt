@@ -1,14 +1,29 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class, kotlin.uuid.ExperimentalUuidApi::class)
+@file:OptIn(
+    kotlinx.cinterop.ExperimentalForeignApi::class,
+    kotlin.uuid.ExperimentalUuidApi::class,
+    kotlin.concurrent.atomics.ExperimentalAtomicApi::class
+)
 
 package com.nexustools.genericui.ext.serviceworker
 
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
+import kotlinx.cinterop.toKString
 import kotlinx.cinterop.usePinned
 import platform.Foundation.NSBundle
+import platform.Foundation.NSCondition
+import platform.Foundation.NSDate
+import platform.Foundation.NSFileHandle
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSLock
 import platform.Foundation.NSTask
 import platform.Foundation.NSURL
+import platform.Foundation.dateWithTimeIntervalSinceNow
+import platform.Foundation.fileHandleWithNullDevice
+import platform.posix.FD_CLOEXEC
+import platform.posix.F_GETFD
 import platform.posix.F_OK
+import platform.posix.F_SETFD
 import platform.posix.LOCK_EX
 import platform.posix.LOCK_NB
 import platform.posix.O_CREAT
@@ -17,10 +32,12 @@ import platform.posix.SEEK_END
 import platform.posix.SEEK_SET
 import platform.posix.S_IRUSR
 import platform.posix.S_IWUSR
+import platform.posix.X_OK
 import platform.posix.access
 import platform.posix.chmod
 import platform.posix.close
 import platform.posix.fclose
+import platform.posix.fcntl
 import platform.posix.flock
 import platform.posix.fopen
 import platform.posix.fread
@@ -29,18 +46,19 @@ import platform.posix.ftell
 import platform.posix.fwrite
 import platform.posix.getenv
 import platform.posix.getpid
+import platform.posix.getuid
 import platform.posix.mkdir
 import platform.posix.open
 import platform.posix.rename
 import platform.posix.unlink
 import platform.posix.usleep
-import kotlinx.cinterop.toKString
+import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.uuid.Uuid
 
 internal actual object DesktopOsHelpers {
 
-    private var heldLockFd: Int = -1
-    private var heldLockKey: String? = null
+    private val lockMutex = NSLock()
+    private val heldLockFds = linkedMapOf<String, Int>()
 
     actual fun currentExecutablePath(): String? =
         NSBundle.mainBundle.executablePath
@@ -125,46 +143,87 @@ internal actual object DesktopOsHelpers {
         unlink(path) == 0
 
     actual fun acquireSingleInstanceLock(lockKey: String, lockFilePath: String): Boolean {
-        if (heldLockFd >= 0 && heldLockKey == lockKey) {
-            return false
+        lockMutex.lock()
+        try {
+            if (heldLockFds.containsKey(lockKey)) {
+                return false
+            }
+            val parent = lockFilePath.substringBeforeLast('/', "")
+            if (parent.isNotEmpty()) {
+                ensureDirectoryExists(parent)
+            }
+            val fd = open(lockFilePath, O_CREAT or O_RDWR, S_IRUSR or S_IWUSR)
+            if (fd < 0) return false
+            setCloseOnExec(fd)
+            if (flock(fd, LOCK_EX or LOCK_NB) != 0) {
+                close(fd)
+                return false
+            }
+            heldLockFds[lockKey] = fd
+            return true
+        } finally {
+            lockMutex.unlock()
         }
-        val parent = lockFilePath.substringBeforeLast('/', "")
-        if (parent.isNotEmpty()) {
-            ensureDirectoryExists(parent)
-        }
-        val fd = open(lockFilePath, O_CREAT or O_RDWR, S_IRUSR or S_IWUSR)
-        if (fd < 0) return false
-        if (flock(fd, LOCK_EX or LOCK_NB) != 0) {
-            close(fd)
-            return false
-        }
-        heldLockFd = fd
-        heldLockKey = lockKey
-        return true
     }
 
-    actual fun releaseSingleInstanceLock() {
-        val fd = heldLockFd
-        heldLockFd = -1
-        heldLockKey = null
+    actual fun releaseSingleInstanceLock(lockKey: String) {
+        lockMutex.lock()
+        val fd = try {
+            heldLockFds.remove(lockKey) ?: -1
+        } finally {
+            lockMutex.unlock()
+        }
         if (fd >= 0) {
             close(fd)
         }
+    }
+
+    actual fun releaseSingleInstanceLock() {
+        val fdsToClose: List<Int>
+        lockMutex.lock()
+        try {
+            fdsToClose = heldLockFds.values.toList()
+            heldLockFds.clear()
+        } finally {
+            lockMutex.unlock()
+        }
+        for (fd in fdsToClose) {
+            if (fd >= 0) {
+                close(fd)
+            }
+        }
+    }
+
+    actual fun registerShutdownHook(hook: () -> Unit) {
+        // Kernel automatically closes open FDs and releases flock locks upon process exit.
     }
 
     actual fun spawnDetachedProcess(
         executablePath: String,
         args: List<String>,
         workingDir: String?
-    ): Boolean = runCatching {
+    ): Boolean {
         val task = NSTask()
         task.executableURL = NSURL.fileURLWithPath(executablePath)
         task.arguments = args
         if (!workingDir.isNullOrBlank()) {
             task.currentDirectoryURL = NSURL.fileURLWithPath(workingDir)
         }
-        task.launchAndReturnError(null)
-    }.getOrDefault(false)
+        task.standardInput = NSFileHandle.fileHandleWithNullDevice
+        task.standardOutput = NSFileHandle.fileHandleWithNullDevice
+        task.standardError = NSFileHandle.fileHandleWithNullDevice
+        return task.launchAndReturnError(null)
+    }
+
+    private fun setCloseOnExec(fd: Int) {
+        if (fd < 0) return
+        val flags = fcntl(fd, F_GETFD)
+        if (flags >= 0) {
+            fcntl(fd, F_SETFD, flags or FD_CLOEXEC)
+        } else {
+            fcntl(fd, F_SETFD, FD_CLOEXEC)
+        }
+    }
 
     actual fun isAutostartEnabled(appId: String, appName: String): Boolean =
         access(launchAgentPlistPath(appId), F_OK) == 0
@@ -177,16 +236,50 @@ internal actual object DesktopOsHelpers {
         enabled: Boolean
     ): Boolean {
         val path = launchAgentPlistPath(appId)
+        val label = "${sanitizeId(appId)}.serviceworker"
+        val uid = getuid()
         if (!enabled) {
+            runLaunchctl(listOf("bootout", "gui/$uid/$label"))
             unlink(path)
             return true
         }
+        val plist = buildLaunchAgentPlistXmlForTest(
+            appId = appId,
+            targetExecutablePath = targetExecutablePath,
+            args = args
+        )
+        if (!atomicWriteTextFile(path, plist, ownerOnlyPermissions = true)) {
+            return false
+        }
+        runLaunchctl(listOf("bootstrap", "gui/$uid", path))
+        return true
+    }
+
+    actual fun tryWakeRegisteredBackgroundService(appId: String): Boolean {
+        val path = launchAgentPlistPath(appId)
+        if (access(path, F_OK) != 0) {
+            return false
+        }
+        val uid = getuid()
+        val label = "${sanitizeId(appId)}.serviceworker"
+        if (runLaunchctl(listOf("kickstart", "gui/$uid/$label")) == 0) {
+            return true
+        }
+        runLaunchctl(listOf("bootstrap", "gui/$uid", path))
+        return runLaunchctl(listOf("kickstart", "gui/$uid/$label")) == 0
+    }
+
+    internal fun buildLaunchAgentPlistXmlForTest(
+        appId: String,
+        targetExecutablePath: String,
+        args: List<String>
+    ): String {
         val label = "${sanitizeId(appId)}.serviceworker"
         val argXml = buildList {
             add(targetExecutablePath)
             addAll(args)
         }.joinToString("\n        ") { "<string>${escapeXml(it)}</string>" }
-        val plist = """<?xml version="1.0" encoding="UTF-8"?>
+        return """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -196,12 +289,56 @@ internal actual object DesktopOsHelpers {
     <array>
         $argXml
     </array>
+    <key>MachServices</key>
+    <dict>
+        <key>${escapeXml(label)}</key>
+        <true/>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
 </dict>
 </plist>
 """
-        return atomicWriteTextFile(path, plist, ownerOnlyPermissions = true)
+    }
+
+    private fun runLaunchctl(args: List<String>, timeoutMs: Long = 2_000L): Int {
+        val task = NSTask()
+        task.executableURL = NSURL.fileURLWithPath("/bin/launchctl")
+        task.arguments = args
+        task.standardInput = NSFileHandle.fileHandleWithNullDevice
+        task.standardOutput = NSFileHandle.fileHandleWithNullDevice
+        task.standardError = NSFileHandle.fileHandleWithNullDevice
+
+        val condition = NSCondition()
+        val finished = AtomicBoolean(false)
+        task.terminationHandler = { _ ->
+            finished.store(true)
+            condition.lock()
+            try {
+                condition.broadcast()
+            } finally {
+                condition.unlock()
+            }
+        }
+        if (!task.launchAndReturnError(null)) {
+            return -1
+        }
+        val deadline = NSDate.dateWithTimeIntervalSinceNow(timeoutMs.toDouble() / 1000.0)
+        condition.lock()
+        try {
+            while (!finished.load() && task.isRunning()) {
+                if (!condition.waitUntilDate(deadline)) {
+                    break
+                }
+            }
+        } finally {
+            condition.unlock()
+        }
+        if (task.isRunning()) {
+            task.terminate()
+            return -1
+        }
+        return task.terminationStatus
     }
 
     actual fun generateRandomHexToken(byteCount: Int): String {
@@ -231,7 +368,56 @@ internal actual object DesktopOsHelpers {
         val self = currentExecutablePath() ?: return null
         val dir = self.substringBeforeLast('/', "")
         if (dir.isEmpty()) return null
-        return "$dir/$siblingBaseName" to emptyList()
+
+        val directCandidate = "$dir/$siblingBaseName"
+        if (access(directCandidate, X_OK) == 0) {
+            return directCandidate to emptyList()
+        }
+
+        // Main bundle (Contents/MacOS/<main>) locating helper bundle under Contents/Helpers/*.app/Contents/MacOS/<sibling>
+        val parentDir = dir.substringBeforeLast('/', "")
+        if (dir.endsWith("/MacOS") && parentDir.endsWith("/Contents")) {
+            findExecutableInHelperBundles("$parentDir/Helpers", siblingBaseName)?.let { helperExe ->
+                return helperExe to emptyList()
+            }
+        }
+
+        // Helper bundle (Contents/Helpers/<AppName> Service Worker.app/Contents/MacOS/<worker>)
+        // locating outer Contents/MacOS/<sibling>
+        val helperAppDir = parentDir.substringBeforeLast('/', "")
+        val helpersContainerDir = helperAppDir.substringBeforeLast('/', "")
+        if (dir.endsWith("/MacOS") &&
+            parentDir.endsWith("/Contents") &&
+            helpersContainerDir.endsWith("/Contents/Helpers")
+        ) {
+            val outerContentsDir = helpersContainerDir.substringBeforeLast('/', "")
+            val outerMainCandidate = "$outerContentsDir/MacOS/$siblingBaseName"
+            if (access(outerMainCandidate, X_OK) == 0) {
+                return outerMainCandidate to emptyList()
+            }
+        }
+
+        return directCandidate to emptyList()
+    }
+
+    private fun findExecutableInHelperBundles(helpersDir: String, siblingBaseName: String): String? {
+        val rawNames = NSFileManager.defaultManager.contentsOfDirectoryAtPath(helpersDir, error = null)
+            ?: return null
+        val helperBundles = rawNames.mapNotNull { it as? String }
+            .filter { it.endsWith(".app") }
+            .sortedWith(
+                compareBy<String>(
+                    { !it.endsWith(" Service Worker.app") && it != "$siblingBaseName.app" },
+                    { it }
+                )
+            )
+        for (bundleName in helperBundles) {
+            val candidate = "$helpersDir/$bundleName/Contents/MacOS/$siblingBaseName"
+            if (access(candidate, X_OK) == 0) {
+                return candidate
+            }
+        }
+        return null
     }
 
     private fun launchAgentPlistPath(appId: String): String {

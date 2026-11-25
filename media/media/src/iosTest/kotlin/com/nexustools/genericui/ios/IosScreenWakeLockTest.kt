@@ -1,25 +1,34 @@
 package com.nexustools.genericui.ios
 
+import com.nexustools.genericui.component.composite.Composite
+import com.nexustools.genericui.component.form.StyledSlider
 import com.nexustools.genericui.component.media.AudioPlayer
 import com.nexustools.genericui.component.media.SeekBar
 import com.nexustools.genericui.component.media.VideoPlayer
 import com.nexustools.genericui.component.system.MediaSessionManager
 import com.nexustools.genericui.component.system.MediaSessionMetadata
+import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
-import platform.UIKit.UISlider
+import platform.UIKit.UIView
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class IosScreenWakeLockTest {
 
+    private var previousFactory: NativeFactory? = null
+
     @BeforeTest
     fun setUp() {
+        previousFactory = GenericUI.activeFactory
+        GenericUI.initialize(IosNativeFactory())
         MediaScreenWakeController.releaseAll()
         IosMediaProvider.install(BackendTarget.IPadOS)
     }
@@ -27,6 +36,7 @@ class IosScreenWakeLockTest {
     @AfterTest
     fun tearDown() {
         MediaScreenWakeController.releaseAll()
+        GenericUI.activeFactory = previousFactory
     }
 
     @Test
@@ -40,9 +50,13 @@ class IosScreenWakeLockTest {
         val seekBar = SeekBar()
         val sessionManager = MediaSessionManager()
 
-        assertIs<UikitViewHandle>(video.nativeImpl.nativeWidget)
-        assertIs<UikitViewHandle>(seekBar.nativeImpl.nativeWidget)
-        assertIs<UISlider>((seekBar.nativeImpl.nativeWidget as UikitViewHandle).uiView)
+        assertIs<StyledSlider>(seekBar)
+        assertIs<Composite>(seekBar)
+        val videoNative = assertNotNull(video.ensureNativeImpl())
+        val seekBarNative = assertNotNull(seekBar.ensureNativeImpl())
+        assertIs<UikitViewHandle>(videoNative.nativeWidget)
+        assertIs<UikitViewHandle>(seekBarNative.nativeWidget)
+        assertIs<UIView>((seekBarNative.nativeWidget as UikitViewHandle).uiView)
 
         var playedCount = 0
         sessionManager.setTransportCallbacks(onPlay = { playedCount++ })

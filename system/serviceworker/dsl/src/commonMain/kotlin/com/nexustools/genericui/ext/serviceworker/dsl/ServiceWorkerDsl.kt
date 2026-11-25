@@ -2,12 +2,14 @@
 
 package com.nexustools.genericui.ext.serviceworker.dsl
 
+import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.shell.ContextMenu
 import com.nexustools.genericui.component.shell.MenuItem
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.ext.serviceworker.ServiceWorker
 import com.nexustools.genericui.ext.serviceworker.ServiceWorkerChannel
 import com.nexustools.genericui.ext.serviceworker.ServiceWorkerClient
+import com.nexustools.genericui.ext.serviceworker.ServiceWorkerFragmentBinding
 import com.nexustools.genericui.ext.serviceworker.ServiceWorkerNotificationAction
 import com.nexustools.genericui.ext.serviceworker.ServiceWorkerReply
 import com.nexustools.genericui.resources.ResourceID
@@ -30,6 +32,20 @@ inline fun <reified T : Any> ServiceWorkerChannel.onMessage(
 inline fun <reified T : Any> ServiceWorkerChannel.onRequest(
     noinline handler: suspend (request: T, reply: ServiceWorkerReply) -> Unit
 ): Disposable = onRequest(T::class, handler)
+
+/**
+ * Creates or reuses a [ServiceWorkerFragmentBinding] scoped to this [Fragment], runs [block] so
+ * all message/request handlers are registered first, and automatically starts channel connection
+ * and lifecycle mount/unmount synchronization.
+ */
+fun Fragment.bindServiceWorker(
+    block: ServiceWorkerFragmentBinding.() -> Unit
+): ServiceWorkerFragmentBinding {
+    val binding = ServiceWorkerFragmentBinding.getOrCreate(this)
+    binding.apply(block)
+    binding.start()
+    return binding
+}
 
 /**
  * Builds and attaches a desktop tray [ContextMenu] onto this [ServiceWorker] in-place.

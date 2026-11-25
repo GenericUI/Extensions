@@ -43,14 +43,7 @@ class AlienUnderlayExtensionSlotNode(
 
     init {
         node.wrappedUnderlayNativeImpl = wrappedNativeImpl
-        if (wrappedNativeImpl.componentClassPrefix == "seek-bar") {
-            node.tagName = "genericui:seekbar"
-            node.intrinsicWidth = 240f
-            node.intrinsicHeight = 20f
-            node.underlayLayerMode = AlienExtensionLayerMode.DRAW_OVER
-        } else {
-            node.underlayLayerMode = resolveInitialLayerMode(layerMode)
-        }
+        node.underlayLayerMode = resolveInitialLayerMode(layerMode)
 
         val initialBounds = wrappedNativeImpl.getBounds()
         if (initialBounds.width > 0 && initialBounds.height > 0) {

@@ -12,6 +12,7 @@ import com.nexustools.genericui.ext.overlay.OverlayActions
 import com.nexustools.genericui.ext.overlay.OverlayElement
 import com.nexustools.genericui.ext.overlay.OverlayHost
 import com.nexustools.genericui.ext.overlay.OverlayState
+import com.nexustools.genericui.ext.overlay.OverlayWindowTitleBarConfig
 
 /**
  * Builds a standalone pure, background-free [Overlay] container.
@@ -23,6 +24,8 @@ fun buildOverlay(
     state: OverlayState = OverlayState(),
     actions: OverlayActions = OverlayActions(),
     themeColorHex: String? = null,
+    windowTitleBarEnabled: Boolean = false,
+    windowTitleBarConfig: OverlayWindowTitleBarConfig? = null,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker Overlay.() -> Unit)? = null
@@ -32,6 +35,13 @@ fun buildOverlay(
     instance.updateActions(actions)
     if (themeColorHex != null) {
         instance.themeColorHex = themeColorHex
+    }
+    if (windowTitleBarConfig != null) {
+        instance.windowTitleBarConfig = windowTitleBarConfig.copy(
+            enabled = windowTitleBarConfig.enabled || windowTitleBarEnabled
+        )
+    } else if (windowTitleBarEnabled) {
+        instance.windowTitleBarEnabled = true
     }
     if (!classes.isNullOrBlank()) {
         instance.addClass(classes)
@@ -55,6 +65,8 @@ fun AbstractContainer.overlay(
     state: OverlayState = OverlayState(),
     actions: OverlayActions = OverlayActions(),
     themeColorHex: String? = null,
+    windowTitleBarEnabled: Boolean = false,
+    windowTitleBarConfig: OverlayWindowTitleBarConfig? = null,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker Overlay.() -> Unit)? = null
@@ -66,6 +78,8 @@ fun AbstractContainer.overlay(
         state = state,
         actions = actions,
         themeColorHex = themeColorHex,
+        windowTitleBarEnabled = windowTitleBarEnabled,
+        windowTitleBarConfig = windowTitleBarConfig,
         id = id,
         classes = classes,
         block = block
@@ -82,11 +96,20 @@ fun OverlayHost.attachPureOverlay(
     classPrefix: String = "gui-overlay",
     autoHideSpec: AutoHideSpec = AutoHideSpec(),
     themeColorHex: String? = null,
+    windowTitleBarEnabled: Boolean = false,
+    windowTitleBarConfig: OverlayWindowTitleBarConfig? = null,
     block: (@GenericUiDslMarker Overlay.() -> Unit)? = null
 ): Overlay {
     val instance = Overlay(tagName = tagName, classPrefix = classPrefix, autoHideSpec = autoHideSpec)
     if (themeColorHex != null) {
         instance.themeColorHex = themeColorHex
+    }
+    if (windowTitleBarConfig != null) {
+        instance.windowTitleBarConfig = windowTitleBarConfig.copy(
+            enabled = windowTitleBarConfig.enabled || windowTitleBarEnabled
+        )
+    } else if (windowTitleBarEnabled) {
+        instance.windowTitleBarEnabled = true
     }
     attachOverlay(instance)
     if (block != null) {

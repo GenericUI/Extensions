@@ -76,9 +76,7 @@ class WebMediaCodecSupportProvider : CachingMediaCodecSupportProvider() {
                     "video/x-matroska; codecs=\"vp8\"",
                     "video/x-matroska"
                 )
-            ) ||
-            MediaContainer.MP4 in containerSet ||
-            MediaContainer.WEBM in containerSet
+            )
         ) {
             containerSet.add(MediaContainer.MKV)
         }

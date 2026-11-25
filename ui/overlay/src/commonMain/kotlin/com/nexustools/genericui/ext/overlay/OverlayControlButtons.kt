@@ -8,15 +8,8 @@ import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
-import com.nexustools.genericui.enums.css.CssBorderStyle
-import com.nexustools.genericui.enums.css.CssDisplay
-import com.nexustools.genericui.enums.css.CssPointerEvents
-import com.nexustools.genericui.enums.css.CssWhiteSpace
 import com.nexustools.genericui.style.color.RgbaColor
-import com.nexustools.genericui.style.css.CssCornerRadii
-import com.nexustools.genericui.style.css.CssEdgeLengths
 import com.nexustools.genericui.style.css.CssFilter
-import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Factory helpers for standard overlay transport buttons, pill containers, time readouts,
@@ -198,6 +191,7 @@ object OverlayControlButtons {
         backdropFilter: CssFilter? = null,
         id: String? = null
     ): StyledContainer = StyledContainer(classPrefix = "player-controls-pill").apply {
+        OverlayExtension.ensureStyleSheetRegistered()
         addClass("player-controls-pill")
         if (!id.isNullOrBlank()) {
             this.id = id
@@ -208,17 +202,9 @@ object OverlayControlButtons {
         setDisplay(DisplayMode.FLEX)
         flexDirection = FlexDirection.ROW
         alignItems = AlignItems.CENTER
-        heightPx = 40
-        this.backgroundColor = backgroundColor
-        setBorder(1, borderColor, CssBorderStyle.SOLID, radiusPx = 20)
         if (backdropFilter != null) {
-            this.backdropFilter = backdropFilter
-        }
-        getStyle().apply {
-            setDisplay(CssDisplay.FLEX)
-            setHeight(CssLength.px(40))
-            setPadding(CssEdgeLengths.px(3, 4))
-            setBorderRadius(CssCornerRadii.px(20))
+            addClass("player-btn-frosted")
+            setAttribute("data-frosted", "true")
         }
     }
 
@@ -229,15 +215,10 @@ object OverlayControlButtons {
         backdropFilter: CssFilter? = null,
         id: String? = null
     ): StyledContainer {
+        OverlayExtension.ensureStyleSheetRegistered()
         val label = Text(initialText).apply {
             addClass("small player-time-label")
             setAttribute("data-overlay-role", "time-readout")
-            textColor = OverlayControlButton.DEFAULT_FOREGROUND_COLOR
-            getStyle().apply {
-                setColor(OverlayControlButton.DEFAULT_FOREGROUND_COLOR)
-                setWhiteSpace(CssWhiteSpace.NOWRAP)
-                setFlexShrink(0f)
-            }
         }
         return StyledContainer(classPrefix = "player-time-pill").apply {
             addClass("player-time-pill")
@@ -248,17 +229,9 @@ object OverlayControlButtons {
             setDisplay(DisplayMode.FLEX)
             flexDirection = FlexDirection.ROW
             alignItems = AlignItems.CENTER
-            heightPx = 40
-            this.backgroundColor = backgroundColor
-            setBorder(1, borderColor, CssBorderStyle.SOLID, radiusPx = 20)
             if (backdropFilter != null) {
-                this.backdropFilter = backdropFilter
-            }
-            getStyle().apply {
-                setDisplay(CssDisplay.FLEX)
-                setHeight(CssLength.px(40))
-                setPadding(CssEdgeLengths.px(0, 14))
-                setBorderRadius(CssCornerRadii.px(20))
+                addClass("player-btn-frosted")
+                setAttribute("data-frosted", "true")
             }
             addChild(label)
         }
@@ -270,15 +243,12 @@ object OverlayControlButtons {
         textColor: RgbaColor = RgbaColor.WHITE,
         id: String? = null
     ): StyledButton = StyledButton(text, BootstrapType.NONE, BootstrapSize.SM, outline = true).apply {
+        OverlayExtension.ensureStyleSheetRegistered()
         addClass("px-2 py-0 fw-bold overlay-active-feature-badge")
         if (!id.isNullOrBlank()) {
             this.id = id
         }
         setAttribute("data-overlay-role", "outlined-feature-badge")
-        backgroundColor = RgbaColor.TRANSPARENT
-        this.textColor = textColor
-        setBorder(1, borderColor, CssBorderStyle.SOLID, radiusPx = 6)
-        getStyle().setPointerEvents(CssPointerEvents.NONE)
     }
 
     private fun createSimpleButton(

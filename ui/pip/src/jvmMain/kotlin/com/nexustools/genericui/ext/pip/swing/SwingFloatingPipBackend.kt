@@ -2,14 +2,14 @@ package com.nexustools.genericui.ext.pip.swing
 
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.layout.Container
-import com.nexustools.genericui.component.layout.LayerConstraint
-import com.nexustools.genericui.component.layout.LayeredContainer
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.window.WindowState
 import com.nexustools.genericui.ext.overlay.OverlayHost
+import com.nexustools.genericui.ext.overlay.OverlayHostBox
+import com.nexustools.genericui.ext.overlay.OverlayStageProvider
 import com.nexustools.genericui.ext.pip.ComponentReparentSlot
 import com.nexustools.genericui.ext.pip.FragmentPipHelper
 import com.nexustools.genericui.ext.pip.PiPCompatible
@@ -18,12 +18,11 @@ import com.nexustools.genericui.ext.pip.PipCapabilities
 import com.nexustools.genericui.ext.pip.PipComponentClassifier
 import com.nexustools.genericui.ext.pip.PipContentType
 import com.nexustools.genericui.ext.pip.PipControlOverlay
+import com.nexustools.genericui.ext.pip.PipExtension
 import com.nexustools.genericui.ext.pip.PipSessionConfig
 import com.nexustools.genericui.ext.pip.PipTargetBoundsTracker
 import com.nexustools.genericui.ext.pip.PipWindowTransitionAnimator
 import com.nexustools.genericui.geometry.Size
-import com.nexustools.genericui.style.color.RgbaColor
-import com.nexustools.genericui.style.css.CssLength
 import com.nexustools.genericui.swing.SwingWindowImpl
 import com.nexustools.genericui.window.IWindow
 import java.awt.GraphicsEnvironment
@@ -69,6 +68,7 @@ class SwingFloatingPipBackend : PipBackend {
     private var pipWindow: Window? = null
     private var pendingClosingWindow: Window? = null
     private var controlOverlay: PipControlOverlay? = null
+    private var overlayHost: OverlayHostBox? = null
     private var pipContentHost: Container? = null
     private var activeTargetRef: AbstractComponent? = null
     private var autoEnteredOnMinimize: Boolean = false
@@ -78,6 +78,9 @@ class SwingFloatingPipBackend : PipBackend {
 
     val activeControlOverlay: PipControlOverlay?
         get() = controlOverlay
+
+    val activeOverlayHost: OverlayHostBox?
+        get() = overlayHost
 
     override fun supportsComponent(component: AbstractComponent): Boolean =
         hasPipCompatibleAnnotation(component) ||
@@ -131,6 +134,7 @@ class SwingFloatingPipBackend : PipBackend {
             setOverlayTitle(config.title)
             updateActions(helper.resolveEffectiveActions())
         }
+        overlayHost?.windowTitleBar?.syncFromWindow(pipWindow)
     }
 
     override fun enterPip(): Boolean {
@@ -162,28 +166,41 @@ class SwingFloatingPipBackend : PipBackend {
             windowBounds = startRect
         }
 
-        val rootLayer = LayeredContainer("genericui:pip-root", "pip-window-root").apply {
-            style.width = CssLength.percent(100f)
-            style.height = CssLength.percent(100f)
-            style.backgroundColor = RgbaColor.BLACK
-        }
         val contentHost = Container("genericui:pip-content", "pip-content-slot").apply {
-            style.width = CssLength.percent(100f)
-            style.height = CssLength.percent(100f)
-            style.backgroundColor = RgbaColor.BLACK
+            addClass("pip-content-slot")
         }
         val overlay = PipControlOverlay(
             onRestoreRequested = { restoreOwnerAndExitPip() },
             onCloseRequested = { handleCloseRequested() },
-            onDragMoveRequested = { createdWindow.startSystemMove() },
-            actions = helper.resolveEffectiveActions()
+            onDragMoveRequested = {
+                if (!createdWindow.isDisposed && createdWindow.isWindowShown) {
+                    createdWindow.startSystemMove()
+                }
+            },
+            actions = helper.resolveEffectiveActions(),
+            onPlayPauseRequested = { helper.resolveEffectivePlayPauseAction()?.invoke() },
+            onDoubleClickRequested = {
+                helper.resolveEffectiveDoubleClickAction()?.invoke() ?: restoreOwnerAndExitPip()
+            }
         ).apply {
             setOverlayTitle(config.title)
         }
+        val hostBox = OverlayHostBox(
+            content = contentHost,
+            initialOverlay = overlay
+        ).apply {
+            id = "pip-overlay-host"
+            addClass("pip-overlay-host")
+            setAttribute("borderRadiusPx", "0")
+            windowTitleBarConfig = overlay.windowTitleBarConfig.copy(
+                enabled = true,
+                title = config.title.ifBlank { null }
+            )
+            applyStyleSheet(PipExtension.composeEffectiveStyleSheet())
+        }
 
-        rootLayer.addLayer(contentHost, LayerConstraint.fill(zIndex = 0))
-        rootLayer.addLayer(overlay, LayerConstraint.fill(zIndex = 1))
-        createdWindow.setContent(rootLayer)
+        createdWindow.setContent(hostBox)
+        hostBox.windowTitleBar.syncFromWindow(createdWindow)
         createdWindow.setOnWindowCloseRequested {
             handleCloseRequested()
             false
@@ -193,9 +210,8 @@ class SwingFloatingPipBackend : PipBackend {
             createdWindow.close()
             return false
         }
-        if (target is OverlayHost) {
-            target.setPictureInPictureMode(true)
-        }
+        val stageHost = (target as? OverlayHost) ?: (hostFragment as? OverlayStageProvider)?.stageOverlayHost
+        stageHost?.setPictureInPictureMode(true)
 
         val factory = resolveHostFactory()
         createdWindow.show(factory)
@@ -214,6 +230,7 @@ class SwingFloatingPipBackend : PipBackend {
 
         pipWindow = createdWindow
         controlOverlay = overlay
+        overlayHost = hostBox
         pipContentHost = contentHost
         activeTargetRef = target
         inPipModeState = true
@@ -251,21 +268,23 @@ class SwingFloatingPipBackend : PipBackend {
         val closingWindow = pipWindow
         val currentBounds = closingWindow?.windowBounds
         val closingOverlay = controlOverlay
+        val closingHost = overlayHost
         val target = activeTargetRef
 
         reparentSlot.restore()
-        if (target is OverlayHost) {
-            target.setPictureInPictureMode(false)
-        }
+        val stageHost = (target as? OverlayHost) ?: (hostFragment as? OverlayStageProvider)?.stageOverlayHost
+        stageHost?.setPictureInPictureMode(false)
 
         pipWindow = null
         controlOverlay = null
+        overlayHost = null
         pipContentHost = null
         activeTargetRef = null
         inPipModeState = false
         autoEnteredOnMinimize = false
 
         closingOverlay?.dispose()
+        closingHost?.dispose()
 
         val config = hostHelper?.resolveEffectiveConfig() ?: PipSessionConfig()
         hostHelper?.dispatchPipModeChangedFromBackend(false)

@@ -8,7 +8,12 @@ import com.nexustools.genericui.enums.system.BackendTarget
  */
 internal interface ServiceWorkerPlatformRuntime {
     val isSupported: Boolean
-    val isAutostartSupported: Boolean
+    val supportsMultipleWindows: Boolean
+    val supportsFragmentLaunch: Boolean
+    val supportsDialogFragments: Boolean
+    val supportsSystemTray: Boolean
+    val supportsOngoingNotification: Boolean
+    val supportsAutostart: Boolean
 
     fun configure(options: ServiceWorkerOptions)
 
@@ -52,6 +57,8 @@ internal interface ServiceWorkerPlatformRuntime {
     fun openMainWindowFromHost(options: ServiceWorkerOptions, route: String?) {}
 
     fun closeMainWindowFromHost(options: ServiceWorkerOptions) {}
+
+    fun onMainAppShutdown() {}
 
     fun currentBackendTarget(): BackendTarget? = null
 

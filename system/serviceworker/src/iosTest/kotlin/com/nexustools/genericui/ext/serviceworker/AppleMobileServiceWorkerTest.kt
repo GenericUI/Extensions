@@ -4,6 +4,7 @@ import kotlin.coroutines.Continuation
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
@@ -18,10 +19,17 @@ class AppleMobileServiceWorkerTest {
     @Test
     fun iosNeverInstantiatesOrSimulatesServiceWorkerAndExposesUnsupportedCapabilities() {
         assertFalse(ServiceWorkerExtension.isSupported)
-        assertFalse(ServiceWorkerExtension.isAutostartSupported)
+        assertFalse(ServiceWorkerExtension.supportsMultipleWindows)
+        assertFalse(ServiceWorkerExtension.supportsFragmentLaunch)
+        assertFalse(ServiceWorkerExtension.supportsDialogFragments)
+        assertFalse(ServiceWorkerExtension.supportsSystemTray)
+        assertFalse(ServiceWorkerExtension.supportsOngoingNotification)
+        assertFalse(ServiceWorkerExtension.supportsAutostart)
         assertFalse(ServiceWorkerExtension.channel.isConnected)
         assertFalse(ServiceWorkerExtension.isAutostartEnabled())
-        assertFalse(ServiceWorkerExtension.setAutostartEnabled(true))
+        assertFailsWith<ServiceWorkerAutostartUnsupportedException> {
+            ServiceWorkerExtension.setAutostartEnabled(true)
+        }
         assertNull(ServiceWorkerExtension.activeWorker())
 
         var factoryInvoked = false
@@ -30,7 +38,9 @@ class AppleMobileServiceWorkerTest {
             NeverInstantiatedWorker()
         }
         assertFalse(ServiceWorkerExtension.hasRegisteredWorkerFactory())
-        assertFalse(ServiceWorkerExtension.ensureStarted())
+        assertFailsWith<ServiceWorkerUnsupportedException> {
+            ServiceWorkerExtension.ensureStarted()
+        }
         assertFalse(factoryInvoked)
         assertTrue(ServiceWorkerExtension.prepareDesktopMainLaunch(emptyArray()))
 
@@ -43,7 +53,7 @@ class AppleMobileServiceWorkerTest {
                 sendFailure = result.exceptionOrNull()
             }
         )
-        assertIs<UnsupportedOperationException>(sendFailure)
+        assertIs<ServiceWorkerUnsupportedException>(sendFailure)
 
         var requestOutcome: Result<String>? = null
         val reqBlock: suspend () -> Result<String> = {
@@ -55,6 +65,6 @@ class AppleMobileServiceWorkerTest {
             }
         )
         assertTrue(requestOutcome?.isFailure == true)
-        assertIs<UnsupportedOperationException>(requestOutcome?.exceptionOrNull())
+        assertIs<ServiceWorkerUnsupportedException>(requestOutcome?.exceptionOrNull())
     }
 }

@@ -1,0 +1,23 @@
+// Consumer Theme Template Stylesheet (`theme.scss`) for `:extensions:ui:pip`.
+// NEVER compiled inside `:extensions:ui:pip` itself; packaged raw in module resources and
+// compiled solely into consumer apps against active theme tokens.
+
+$primary: #3b82f6 !default;
+$accent: #60a5fa !default;
+$surface: #0f172a !default;
+$text: #f8fafc !default;
+$on-primary: #ffffff !default;
+
+.pip-chrome-btn:hover:not(:disabled) {
+    background-color: rgba($accent, 0.30);
+    color: $on-primary;
+}
+
+.pip-chrome-btn:focus-visible:not(:disabled) {
+    outline: 2px solid rgba($accent, 0.55);
+}
+
+.pip-chrome-btn:active:not(:disabled) {
+    background-color: rgba($primary, 0.42);
+    color: $on-primary;
+}

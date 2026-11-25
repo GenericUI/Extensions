@@ -7,53 +7,39 @@ import com.nexustools.genericui.component.layout.LayerConstraint
 import com.nexustools.genericui.component.layout.Spacer
 import com.nexustools.genericui.component.layout.StyledContainer
 import com.nexustools.genericui.component.layout.VStack
-import com.nexustools.genericui.component.surface.TextBubble
-import com.nexustools.genericui.component.surface.TextBubblePointerSide
 import com.nexustools.genericui.component.typography.Text
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.BootstrapHeight
-import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.bootstrap.BootstrapWidth
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
 import com.nexustools.genericui.enums.bootstrap.JustifyContent
 import com.nexustools.genericui.enums.bootstrap.SpacingScale
-import com.nexustools.genericui.enums.css.CssBorderStyle
-import com.nexustools.genericui.enums.css.CssCursor
-import com.nexustools.genericui.enums.css.CssDisplay
-import com.nexustools.genericui.enums.css.CssPointerEvents
-import com.nexustools.genericui.enums.css.CssPosition
 import com.nexustools.genericui.style.color.RgbaColor
-import com.nexustools.genericui.style.css.CssCornerRadii
-import com.nexustools.genericui.style.css.CssEdgeLengths
 import com.nexustools.genericui.style.css.CssFilter
 import com.nexustools.genericui.style.css.CssLength
-import com.nexustools.genericui.style.css.CssShadow
-import com.nexustools.genericui.style.css.CssShadowList
-import com.nexustools.genericui.style.transition.CssTimingFunction
-import com.nexustools.genericui.style.transition.CssTransform2D
-import com.nexustools.genericui.style.transition.CssTransitionSpec
 import kotlin.math.roundToInt
 
 /**
- * YouTube-style 3-zone player/stage overlay built atop [AbstractOverlay].
+ * YouTube-style 3-zone player/stage overlay built atop [FadingOverlay].
  *
  * Structure:
- * - [hudControlsContainer] (`zIndex = 10`, `data-overlay-role = "controls-layer"`): driven by
- *   [autoHideController] while keeping the outer [YoutubePlayerOverlay] hit-testable so pointer
- *   movement or taps wake the HUD cleanly. Contains [topBar], [centerZone], and [bottomBar].
- * - [subtitleBanner] (`zIndex = 15`, `LayerAlignment.BOTTOM_CENTER`, `passThroughPointerEvents = true`,
- *   `data-overlay-role = "caption-banner"`): mounted outside [hudControlsContainer] so captions remain
- *   visible even when HUD controls auto-hide.
+ * - Unified `.overlay-fading-root` (`this`): embeds [windowTitleBar] (`zIndex = 25`) and
+ *   [hudControlsContainer] (`zIndex = 10`, `data-overlay-role = "controls-layer"` containing
+ *   [topBar], [centerZone], and [bottomBar]), fading atomically together when `"hidden"` is
+ *   toggled by [autoHideController] (zero $\alpha^2$ double fade and zero sticky titlebar).
+ * - Persistent stage layers ([subtitleBanner] `zIndex = 15`, [loadingSpinner] `zIndex = 18`):
+ *   mounted via [addPersistentElement] into `OverlayHostBox.persistentOverlayRoot` at `opacity = 1`
+ *   so captions and buffering indicators remain visible even while the HUD fades out.
  * - Registered popovers (`zIndex = 30`): managed via [registerPopoverLayer], [setPopoverOpen], and
  *   [closeAllPopovers], automatically pinning/unpinning [autoHideController].
  */
 open class YoutubePlayerOverlay(
     val config: YoutubeOverlayConfig = YoutubeOverlayConfig(),
     tagName: String = "genericui:youtube-overlay",
-    classPrefix: String = "gui-overlay player-overlay"
-) : AbstractOverlay(
+    classPrefix: String = "gui-overlay overlay-fading-root player-overlay"
+) : FadingOverlay(
     tagName = tagName,
     classPrefix = classPrefix,
     autoHideSpec = config.autoHideSpec
@@ -82,52 +68,44 @@ open class YoutubePlayerOverlay(
     private var cursorVisibilityInitialized: Boolean = false
     private var suppressCursorHideOnce: Boolean = false
     private var lastSyncedState: OverlayState = OverlayState()
+    private var dispatchingFullscreenToggle: Boolean = false
+    private var handlingFullscreenButtonEvent: Boolean = false
 
     val isAnyPopoverOpen: Boolean
         get() = openPopoverIds.isNotEmpty() || registeredPopovers.values.any { it.isVisible }
 
     // -------------------------------------------------------------------------
-    // Persistent Caption Layer (zIndex = 15, independent of HUD auto-hide)
+    // Persistent Layers (zIndex = 15 / 18 in OverlayHostBox.persistentOverlayRoot)
     // -------------------------------------------------------------------------
 
-    val subtitleBanner: TextBubble = TextBubble(
-        text = "",
-        pointerSide = TextBubblePointerSide.NONE
+    val subtitleBannerLabel: Text = Text("").apply {
+        id = "subtitle-banner-label"
+        addClass("subtitle-banner-label text-center fw-semibold")
+    }
+
+    val subtitleBanner: StyledContainer = StyledContainer(
+        classPrefix = "subtitle-banner"
     ).apply {
         id = "subtitle-banner"
         addClass("subtitle-banner text-center fw-semibold")
         setAttribute("data-overlay-role", "caption-banner")
-        backgroundColor = RgbaColor(0, 0, 0, 184)
-        textColor = RgbaColor.WHITE
-        setBorder(0, RgbaColor.TRANSPARENT, CssBorderStyle.NONE, radiusPx = 8)
-        getStyle().apply {
-            setBackgroundColor(RgbaColor(0, 0, 0, 184))
-            setColor(RgbaColor.WHITE)
-            setPadding(CssEdgeLengths.px(4, 12))
-            setBorderRadius(CssCornerRadii.px(8))
-            setPointerEvents(CssPointerEvents.NONE)
-            setMaxWidth(CssLength.calcPercentPx(100f, -32f))
-        }
+        addChild(subtitleBannerLabel)
         isVisible = false
     }
 
     // -------------------------------------------------------------------------
-    // Auto-Hiding 3-Zone HUD Layer (zIndex = 10)
+    // Auto-Hiding 3-Zone HUD Layer (zIndex = 10 inside unified fading root)
     // -------------------------------------------------------------------------
 
     val hudControlsContainer: StyledContainer = StyledContainer(
         classPrefix = "player-overlay-controls-layer"
     ).apply {
         id = "player-overlay-controls-layer"
-        addClass("player-overlay-controls-layer hud-visible")
+        addClass("player-overlay-controls-layer")
         setAttribute("data-overlay-role", "controls-layer")
         setDisplay(DisplayMode.FLEX)
         flexDirection = FlexDirection.COLUMN
         justifyContent = JustifyContent.BETWEEN
-        backgroundColor = RgbaColor.TRANSPARENT
-        borderWidthPx = 0f
-        borderRadiusPx = 0f
-        opacity = 1.0f
         getBootstrap().apply {
             padding = SpacingScale.S0
             width = BootstrapWidth.W_100
@@ -135,27 +113,6 @@ open class YoutubePlayerOverlay(
             display = DisplayMode.FLEX
             flexDirection = FlexDirection.COLUMN
             justifyContent = JustifyContent.BETWEEN
-        }
-        getStyle().apply {
-            setDisplay(CssDisplay.FLEX)
-            setFlexDirection(FlexDirection.COLUMN)
-            setJustifyContent(JustifyContent.BETWEEN)
-            setWidth(CssLength.percent(100))
-            setHeight(CssLength.percent(100))
-            setPadding(CssEdgeLengths.px(0, 0))
-            setBorderRadius(CssCornerRadii.px(0))
-            setBackgroundColor(RgbaColor.TRANSPARENT)
-            setOpacity(1.0f)
-            setPointerEvents(CssPointerEvents.AUTO)
-            setTransitions(
-                listOf(
-                    CssTransitionSpec(
-                        property = "opacity",
-                        durationMs = config.autoHideSpec.fadeOutMs.toFloat().coerceAtLeast(0f),
-                        timingFunction = CssTimingFunction.EASE_IN_OUT
-                    )
-                )
-            )
         }
     }
 
@@ -165,36 +122,22 @@ open class YoutubePlayerOverlay(
 
     val titleLabel: Text = Text(DEFAULT_TITLE).apply {
         id = "now-playing-show"
-        addClass("fw-semibold text-truncate")
-        textColor = RgbaColor.WHITE
-        getStyle().apply {
-            setColor(RgbaColor.WHITE)
-            setTextShadow(CssShadowList.of(CssShadow.px(0f, 1f, blurRadius = 4f, color = RgbaColor(0, 0, 0, 0.85f))))
-        }
+        addClass("player-title-label fw-semibold text-truncate")
     }
 
     val subtitleLabel: Text = Text("").apply {
         id = "now-playing-episode"
-        addClass("small text-white-50 text-truncate")
-        textColor = RgbaColor(255, 255, 255, 204)
-        getStyle().apply {
-            setColor(RgbaColor(255, 255, 255, 204))
-            setTextShadow(CssShadowList.of(CssShadow.px(0f, 1f, blurRadius = 4f, color = RgbaColor(0, 0, 0, 0.85f))))
-        }
+        addClass("player-subtitle-label small text-white-50 text-truncate")
     }
 
     val statusLabel: Text = Text("").apply {
         id = "now-playing-status"
-        addClass("small text-info")
+        addClass("small text-info player-status-label")
         isVisible = false
     }
 
     val titleStack: VStack = VStack(gapPx = 2).apply {
         addClass("now-playing-info")
-        getStyle().apply {
-            setFlex(0f, 1f, CssLength.AUTO)
-            setMinWidth(CssLength.px(0))
-        }
         addChild(titleLabel)
         addChild(subtitleLabel)
         addChild(statusLabel)
@@ -203,13 +146,11 @@ open class YoutubePlayerOverlay(
     val topBadgesContainer: HStack = HStack(gapPx = 6).apply {
         addClass("player-overlay-top-badges")
         alignItems = AlignItems.CENTER
-        getStyle().setFlexShrink(0f)
     }
 
     val topRightActionsRow: HStack = HStack(gapPx = 8).apply {
         addClass("player-overlay-top-actions")
         alignItems = AlignItems.CENTER
-        getStyle().setFlexShrink(0f)
     }
 
     val topBar: StyledContainer = StyledContainer(
@@ -221,17 +162,7 @@ open class YoutubePlayerOverlay(
         flexDirection = FlexDirection.ROW
         alignItems = AlignItems.CENTER
         justifyContent = JustifyContent.BETWEEN
-        backgroundColor = RgbaColor.TRANSPARENT
-        setBackground(config.topScrimGradient)
-        borderWidthPx = 0f
-        borderRadiusPx = 0f
         isVisible = config.showTopBar
-        getStyle().apply {
-            setBackgroundColor(RgbaColor.TRANSPARENT)
-            setDisplay(CssDisplay.FLEX)
-            setFlex(0f, 0f, CssLength.AUTO)
-            setPadding(CssEdgeLengths.px(6, 8))
-        }
         addChild(titleStack)
         addChild(topBadgesContainer)
         addChild(Spacer(widthPx = 8, weight = 1f))
@@ -242,7 +173,7 @@ open class YoutubePlayerOverlay(
     // 2. Center Zone
     // -------------------------------------------------------------------------
 
-    val loadingSpinner: Spinner = Spinner(type = BootstrapType.LIGHT).apply {
+    val loadingSpinner: Spinner = Spinner().apply {
         id = "player-spinner"
         addClass("player-spinner")
         isVisible = false
@@ -323,28 +254,25 @@ open class YoutubePlayerOverlay(
         setAttribute("data-overlay-role", "center-zone")
         alignItems = AlignItems.CENTER
         justifyContent = JustifyContent.CENTER
-        getStyle().setFlex(1f, 1f, CssLength.AUTO)
         addChild(centerTransportRow)
-        addChild(loadingSpinner)
     }
 
     // -------------------------------------------------------------------------
     // 3. Bottom Bar
     // -------------------------------------------------------------------------
 
-    val seekHoverBubble: TextBubble = TextBubble(
-        text = "0:00",
-        pointerSide = TextBubblePointerSide.BOTTOM,
-        pointerOffset = 0.5f
+    val seekHoverLabel: Text = Text("0:00").apply {
+        id = "seek-hover-label"
+        addClass("seek-hover-label small fw-semibold")
+    }
+
+    val seekHoverBubble: StyledContainer = StyledContainer(
+        classPrefix = "seek-hover-bubble"
     ).apply {
         id = "seek-hover-bubble"
-        addClass("seek-hover-bubble")
+        addClass("seek-hover-bubble seek-hover-bubble-above")
         setAttribute("data-overlay-role", "hover-bubble")
-        getStyle().apply {
-            setPosition(CssPosition.ABSOLUTE)
-            setBottom(CssLength.px(68))
-            setTransform(CssTransform2D(translateX = -50f, translateXIsPercent = true))
-        }
+        addChild(seekHoverLabel)
         isVisible = false
     }
 
@@ -356,18 +284,7 @@ open class YoutubePlayerOverlay(
         setAttribute("data-overlay-role", "seek-container")
         setDisplay(DisplayMode.FLEX)
         flexDirection = FlexDirection.COLUMN
-        backgroundColor = RgbaColor.TRANSPARENT
-        borderWidthPx = 0f
-        borderRadiusPx = 0f
         getBootstrap().width = BootstrapWidth.W_100
-        getStyle().apply {
-            setDisplay(CssDisplay.FLEX)
-            setFlexDirection(FlexDirection.COLUMN)
-            setWidth(CssLength.percent(100))
-            setPadding(CssEdgeLengths.px(0, 0))
-            setBackgroundColor(RgbaColor.TRANSPARENT)
-            setFlex(0f, 0f, CssLength.AUTO)
-        }
     }
 
     private val timelineSpacer: Spacer = Spacer.vertical(6)
@@ -424,13 +341,11 @@ open class YoutubePlayerOverlay(
     val leftAccessoryContainer: HStack = HStack(gapPx = 8).apply {
         addClass("player-left-accessories")
         alignItems = AlignItems.CENTER
-        getStyle().setFlexShrink(0f)
     }
 
     val timeAccessoryContainer: HStack = HStack(gapPx = 6).apply {
         addClass("player-time-accessories")
         alignItems = AlignItems.CENTER
-        getStyle().setFlexShrink(0f)
     }
 
     val timePillContainer: StyledContainer = OverlayControlButtons.createTimePill(
@@ -448,7 +363,6 @@ open class YoutubePlayerOverlay(
         addClass("player-controls-left")
         setAttribute("data-overlay-role", "controls-left")
         alignItems = AlignItems.CENTER
-        getStyle().setFlexShrink(0f)
         addChild(previousButton)
         addChild(playPauseButton)
         addChild(stopButton)
@@ -462,13 +376,11 @@ open class YoutubePlayerOverlay(
     val rightBadgesContainer: HStack = HStack(gapPx = 6).apply {
         addClass("player-right-badges")
         alignItems = AlignItems.CENTER
-        getStyle().setFlexShrink(0f)
     }
 
     val rightPillAccessoryRow: HStack = HStack(gapPx = 4).apply {
         addClass("player-right-pill-accessories")
         alignItems = AlignItems.CENTER
-        getStyle().setFlexShrink(0f)
     }
 
     val fullscreenButton: OverlayFullscreenButton = OverlayControlButtons.fullscreenToggle(
@@ -492,7 +404,6 @@ open class YoutubePlayerOverlay(
         addClass("player-controls-right")
         setAttribute("data-overlay-role", "controls-right")
         alignItems = AlignItems.CENTER
-        getStyle().setFlexShrink(0f)
         addChild(rightBadgesContainer)
         addChild(rightControlsPill)
     }
@@ -501,7 +412,6 @@ open class YoutubePlayerOverlay(
         addClass("player-controls-row")
         setAttribute("data-overlay-role", "controls-row")
         alignItems = AlignItems.CENTER
-        getStyle().setFlex(0f, 0f, CssLength.AUTO)
         addChild(leftControlsRow)
         addChild(Spacer(widthPx = 8, weight = 1f).apply { addClass("ms-auto") })
         addChild(rightControlsRow)
@@ -514,16 +424,6 @@ open class YoutubePlayerOverlay(
         setAttribute("data-overlay-role", "bottom-bar")
         setDisplay(DisplayMode.FLEX)
         flexDirection = FlexDirection.COLUMN
-        backgroundColor = RgbaColor.TRANSPARENT
-        setBackground(config.bottomScrimGradient)
-        borderWidthPx = 0f
-        borderRadiusPx = 0f
-        getStyle().apply {
-            setBackgroundColor(RgbaColor.TRANSPARENT)
-            setDisplay(CssDisplay.FLEX)
-            setFlex(0f, 0f, CssLength.AUTO)
-            setPadding(CssEdgeLengths.px(6, 8))
-        }
     }
 
     init {
@@ -541,6 +441,7 @@ open class YoutubePlayerOverlay(
             )
         }
 
+        updateActions(OverlayActions(onToggleFullscreen = { requestFullscreenToggle() }))
         wireDefaultTransportListeners()
         setTimelinePlacement(config.timelinePlacement)
 
@@ -548,7 +449,19 @@ open class YoutubePlayerOverlay(
         hudControlsContainer.addChild(centerZone)
         hudControlsContainer.addChild(bottomBar)
 
-        autoHideController.targetComponent = hudControlsContainer
+        inputRouter.bindStageSurface(
+            component = hudControlsContainer,
+            stateProvider = { state },
+            actionsProvider = { actions }
+        )
+        inputRouter.bindStageSurface(
+            component = centerZone,
+            stateProvider = { state },
+            actionsProvider = { actions }
+        )
+        isolateInteractiveBuiltInControls()
+
+        autoHideController.targetComponent = this
         autoHideController.onVisibilityChanged = { visible, _ ->
             syncHudVisibilityVisuals(visible)
         }
@@ -572,7 +485,7 @@ open class YoutubePlayerOverlay(
                 elementId = "controls-layer"
             )
         )
-        addElement(
+        addPersistentElement(
             OverlayElement(
                 component = subtitleBanner,
                 constraint = LayerConstraint.float(
@@ -583,6 +496,17 @@ open class YoutubePlayerOverlay(
                     passThroughPointerEvents = true
                 ),
                 elementId = "subtitle-banner"
+            )
+        )
+        addPersistentElement(
+            OverlayElement(
+                component = loadingSpinner,
+                constraint = LayerConstraint.float(
+                    alignment = LayerAlignment.CENTER,
+                    zIndex = 18,
+                    passThroughPointerEvents = true
+                ),
+                elementId = "loading-spinner"
             )
         )
         lastSyncedState = state
@@ -649,11 +573,73 @@ open class YoutubePlayerOverlay(
         centerFastForwardButton.onClick = handleFastForward
 
         fullscreenButton.onFullscreenToggle = { nextFs ->
+            if (!handlingFullscreenButtonEvent) {
+                handlingFullscreenButtonEvent = true
+                val wasDispatching = dispatchingFullscreenToggle
+                dispatchingFullscreenToggle = true
+                try {
+                    autoHideController.notifyUserActivity()
+                    applyFullscreenVisuals(nextFs)
+                    updateState(state.copy(isFullscreen = nextFs))
+                    lastSyncedState = lastSyncedState.copy(isFullscreen = nextFs)
+                    onFullscreenToggle?.invoke(nextFs)
+                    if (!wasDispatching) {
+                        actions.onToggleFullscreen?.invoke()
+                    }
+                } finally {
+                    dispatchingFullscreenToggle = wasDispatching
+                    handlingFullscreenButtonEvent = false
+                }
+            }
+        }
+    }
+
+    private fun isolateInteractiveBuiltInControls() {
+        listOf(
+            previousButton,
+            centerPreviousButton,
+            playPauseButton,
+            centerPlayPauseButton,
+            stopButton,
+            centerStopButton,
+            rewindButton,
+            centerRewindButton,
+            fastForwardButton,
+            centerFastForwardButton,
+            nextButton,
+            centerNextButton,
+            fullscreenButton,
+            timelineContainer,
+            leftAccessoryContainer,
+            topRightActionsRow,
+            rightPillAccessoryRow
+        ).forEach { inputRouter.isolateInteractiveComponent(it) }
+    }
+
+    override fun updateActions(newActions: OverlayActions) {
+        val effective = if (newActions.onToggleFullscreen == null) {
+            newActions.copy(onToggleFullscreen = { requestFullscreenToggle() })
+        } else {
+            newActions
+        }
+        super.updateActions(effective)
+    }
+
+    fun requestFullscreenToggle() {
+        if (dispatchingFullscreenToggle) return
+        val nextFs = !state.isFullscreen
+        dispatchingFullscreenToggle = true
+        try {
             autoHideController.notifyUserActivity()
             applyFullscreenVisuals(nextFs)
+            updateState(state.copy(isFullscreen = nextFs))
             lastSyncedState = lastSyncedState.copy(isFullscreen = nextFs)
-            actions.onToggleFullscreen?.invoke()
             onFullscreenToggle?.invoke(nextFs)
+            if (!handlingFullscreenButtonEvent) {
+                actions.onToggleFullscreen?.invoke()
+            }
+        } finally {
+            dispatchingFullscreenToggle = false
         }
     }
 
@@ -668,6 +654,9 @@ open class YoutubePlayerOverlay(
         suppressCursorHideOnce = !hideCursor
         try {
             autoHideController.hideOverlay(instant = instant)
+            if (!hideCursor) {
+                addClass(AutoHideController.KEEP_CURSOR_CLASS)
+            }
         } finally {
             suppressCursorHideOnce = false
         }
@@ -684,13 +673,15 @@ open class YoutubePlayerOverlay(
         bottomBar.addChild(seekHoverBubble)
         when (placement) {
             YoutubeTimelinePlacement.ABOVE_CONTROLS -> {
-                seekHoverBubble.getStyle().setBottom(CssLength.px(68))
+                seekHoverBubble.removeClass("seek-hover-bubble-below")
+                seekHoverBubble.addClass("seek-hover-bubble-above")
                 bottomBar.addChild(timelineContainer)
                 bottomBar.addChild(timelineSpacer)
                 bottomBar.addChild(controlsRow)
             }
             YoutubeTimelinePlacement.BELOW_CONTROLS -> {
-                seekHoverBubble.getStyle().setBottom(CssLength.px(34))
+                seekHoverBubble.removeClass("seek-hover-bubble-above")
+                seekHoverBubble.addClass("seek-hover-bubble-below")
                 bottomBar.addChild(controlsRow)
                 bottomBar.addChild(timelineSpacer)
                 bottomBar.addChild(timelineContainer)
@@ -702,15 +693,10 @@ open class YoutubePlayerOverlay(
         val clampedFraction = fraction.coerceIn(0.0, 1.0)
         val pctTenths = (clampedFraction * 1000.0).roundToInt().coerceIn(20, 980)
         val pct = pctTenths / 10f
-        if (seekHoverBubble.text != label) {
-            seekHoverBubble.text = label
+        if (seekHoverLabel.text != label) {
+            seekHoverLabel.text = label
         }
-        seekHoverBubble.getStyle().apply {
-            setPosition(CssPosition.ABSOLUTE)
-            setLeft(CssLength.percent(pct))
-            setBottom(CssLength.px(if (timelinePlacement == YoutubeTimelinePlacement.BELOW_CONTROLS) 34 else 68))
-            setTransform(CssTransform2D(translateX = -50f, translateXIsPercent = true))
-        }
+        seekHoverBubble.getStyle().setLeft(CssLength.percent(pct))
         seekHoverBubble.setAttribute("layerLeftPercent", "${pctTenths / 10}.${pctTenths % 10}")
         if (!seekHoverBubble.isVisible) {
             seekHoverBubble.isVisible = true
@@ -757,8 +743,8 @@ open class YoutubePlayerOverlay(
 
     fun setSubtitleCueText(cueText: String?) {
         val cleaned = cueText?.trim().orEmpty()
-        if (subtitleBanner.text != cleaned) {
-            subtitleBanner.text = cleaned
+        if (subtitleBannerLabel.text != cleaned) {
+            subtitleBannerLabel.text = cleaned
         }
         val shouldShow = cleaned.isNotBlank()
         if (subtitleBanner.isVisible != shouldShow) {
@@ -773,10 +759,12 @@ open class YoutubePlayerOverlay(
     }
 
     fun addTopRightAction(component: AbstractComponent) {
+        inputRouter.isolateInteractiveComponent(component)
         topRightActionsRow.addChild(component)
     }
 
     fun addRightPillButton(button: AbstractComponent) {
+        inputRouter.isolateInteractiveComponent(button)
         rightPillAccessoryRow.addChild(button)
     }
 
@@ -829,6 +817,7 @@ open class YoutubePlayerOverlay(
             openPopoverIds.remove(normalizedId)
         }
         registeredPopovers[normalizedId] = component
+        inputRouter.isolateInteractiveComponent(component)
         component.isVisible = initiallyOpen
         val previousOutsideDismiss = component.onPopupOutsideClickDismiss
         component.hookMouseWhenPopupVisible = true
@@ -971,15 +960,21 @@ open class YoutubePlayerOverlay(
         }
     }
 
+    override fun syncTopBarWindowTitleBarOffset() {
+        val offsetPx = windowTitleBar.effectiveHeightPx
+        val targetMargin = if (offsetPx > 0) CssLength.px(offsetPx) else CssLength.ZERO
+        if (topBar.getStyle().marginTop != targetMargin) {
+            topBar.getStyle().setMarginTop(targetMargin)
+        }
+        topBar.setAttribute("data-titlebar-offset-px", offsetPx.toString())
+        super.syncTopBarWindowTitleBarOffset()
+    }
+
     private fun syncHudVisibilityVisuals(visible: Boolean) {
         setAttribute("hudVisible", visible.toString())
         if (visible) {
-            hudControlsContainer.removeClass("hud-hidden")
-            hudControlsContainer.addClass("hud-visible")
             applyCursorVisibility(true)
         } else {
-            hudControlsContainer.removeClass("hud-visible")
-            hudControlsContainer.addClass("hud-hidden")
             hideTimelineHover()
             if (autoHideController.isInPictureInPictureMode) {
                 closeAllPopovers()
@@ -989,7 +984,7 @@ open class YoutubePlayerOverlay(
                 autoHideController.spec.hideCursorWhenOverlayHidden
             applyCursorVisibility(!shouldHideCursor)
         }
-        val shouldShowSub = subtitleBanner.text.isNotBlank()
+        val shouldShowSub = subtitleBannerLabel.text.isNotBlank()
         if (subtitleBanner.isVisible != shouldShowSub) {
             subtitleBanner.isVisible = shouldShowSub
         }
@@ -999,17 +994,13 @@ open class YoutubePlayerOverlay(
         if (cursorVisibilityInitialized && isCursorVisible == visible) return
         cursorVisibilityInitialized = true
         isCursorVisible = visible
-        val cssCursor = if (visible) CssCursor.DEFAULT else CssCursor.NONE
-        val cursorStr = if (visible) "default" else "none"
         if (visible) {
             removeClass("hud-cursor-hidden")
-            hudControlsContainer.removeClass("hud-cursor-hidden")
+            removeClass(AutoHideController.KEEP_CURSOR_CLASS)
         } else {
             addClass("hud-cursor-hidden")
-            hudControlsContainer.addClass("hud-cursor-hidden")
+            removeClass(AutoHideController.KEEP_CURSOR_CLASS)
         }
-        getStyle().setCursor(cssCursor)
-        cursor = cursorStr
         onCursorVisibilityChanged?.invoke(visible)
     }
 

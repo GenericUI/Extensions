@@ -1,9 +1,13 @@
 package com.nexustools.genericui.ext.overlay
 
+import com.nexustools.genericui.animation.Animator
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.LayerAlignment
+import com.nexustools.genericui.component.layout.LayerConstraint
+import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.UiTimerScheduler
 import com.nexustools.genericui.enums.css.CssBorderStyle
+import com.nexustools.genericui.enums.css.CssCursor
 import com.nexustools.genericui.enums.css.CssPointerEvents
 import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.ext.overlay.res.R
@@ -26,11 +30,13 @@ class YoutubeOverlayAndIconsTest {
 
     @BeforeTest
     fun setUp() {
+        Animator.cancelAllAnimations()
         UiTimerScheduler.clearAllTimers()
     }
 
     @AfterTest
     fun tearDown() {
+        Animator.cancelAllAnimations()
         UiTimerScheduler.clearAllTimers()
     }
 
@@ -95,6 +101,7 @@ class YoutubeOverlayAndIconsTest {
 
     @Test
     fun testOverlayControlButtonsZeroDefaultTooltipsAndVariants() {
+        val sheet = OverlayExtension.defaultStyleSheet()
         val frostedFilter = CssFilter(blur = CssLength.px(16f), saturate = 1.2f)
         val buttons = listOf(
             OverlayControlButtons.play(),
@@ -110,56 +117,70 @@ class YoutubeOverlayAndIconsTest {
             OverlayControlButtons.fullscreenToggle()
         )
         for (btn in buttons) {
+            btn.applyStyleSheet(sheet)
             assertNull(btn.tooltipText, "Overlay button must never define a default tooltipText")
-            assertEquals(40, btn.widthPx)
-            assertEquals(40, btn.heightPx)
+            assertTrue(btn.hasClass("player-btn"))
+            assertTrue(btn.hasClass("player-circle-btn"))
+            assertNull(btn.style.width)
+            assertNull(btn.style.backgroundColor)
+            assertEquals("40px", btn.computedStyle?.width)
+            assertEquals("40px", btn.computedStyle?.height)
         }
 
         val centerPrimary = OverlayControlButton(
             iconType = OverlayIconType.PLAY,
             variant = OverlayButtonVariant.CENTER_PRIMARY,
             backdropFilter = frostedFilter
-        )
+        ).apply { applyStyleSheet(sheet) }
         assertNull(centerPrimary.tooltipText)
-        assertEquals(64, centerPrimary.widthPx)
-        assertEquals(64, centerPrimary.heightPx)
+        assertTrue(centerPrimary.hasClass("player-btn-center-primary"))
+        assertTrue(centerPrimary.hasClass("player-btn-frosted"))
+        assertTrue(centerPrimary.isFrosted)
+        assertEquals("64px", centerPrimary.computedStyle?.width)
+        assertEquals("64px", centerPrimary.computedStyle?.height)
         assertEquals("primary-center-action", centerPrimary.getAttribute("data-overlay-role"))
-        assertEquals(frostedFilter, centerPrimary.backdropFilter)
-        assertEquals(RgbaColor(20, 24, 32, 97), centerPrimary.backgroundColor)
-        assertEquals(RgbaColor(255, 255, 255, 56), centerPrimary.borderColor)
+        assertEquals(frostedFilter, centerPrimary.computedStyle?.backdropFilter)
+        assertEquals(RgbaColor(20, 24, 32, 97), centerPrimary.computedStyle?.backgroundColor)
+        assertEquals(RgbaColor(255, 255, 255, 56), centerPrimary.computedStyle?.borderColor)
 
         val centerSecondary = OverlayControlButton(
             iconType = OverlayIconType.REWIND,
             variant = OverlayButtonVariant.CENTER_SECONDARY
-        )
+        ).apply { applyStyleSheet(sheet) }
         assertNull(centerSecondary.tooltipText)
-        assertEquals(56, centerSecondary.widthPx)
-        assertEquals(56, centerSecondary.heightPx)
-        assertNull(centerSecondary.backdropFilter)
+        assertTrue(centerSecondary.hasClass("player-btn-center-secondary"))
+        assertFalse(centerSecondary.isFrosted)
+        assertEquals("56px", centerSecondary.computedStyle?.width)
+        assertEquals("56px", centerSecondary.computedStyle?.height)
+        assertNull(centerSecondary.computedStyle?.backdropFilter)
 
         val innerPillBtn = OverlayControlButton(
             iconType = OverlayIconType.NEXT,
             variant = OverlayButtonVariant.INNER_PILL,
             tooltipText = "Explicit Tooltip"
-        )
+        ).apply { applyStyleSheet(sheet) }
         assertEquals("Explicit Tooltip", innerPillBtn.tooltipText)
-        assertEquals(32, innerPillBtn.widthPx)
-        assertEquals(32, innerPillBtn.heightPx)
-        assertEquals(0f, innerPillBtn.borderWidthPx)
-        assertEquals(CssBorderStyle.NONE, innerPillBtn.borderStyle)
-        assertEquals(RgbaColor.TRANSPARENT, innerPillBtn.backgroundColor)
+        assertTrue(innerPillBtn.hasClass("player-pill-inner-btn"))
+        assertEquals("32px", innerPillBtn.computedStyle?.width)
+        assertEquals("32px", innerPillBtn.computedStyle?.height)
+        assertEquals(0f, innerPillBtn.computedStyle?.borderWidthPx)
+        assertEquals("none", innerPillBtn.computedStyle?.borderStyle)
+        assertEquals(RgbaColor.TRANSPARENT, innerPillBtn.computedStyle?.backgroundColor)
 
-        val controlsPill = OverlayControlButtons.createControlsPill()
+        val controlsPill = OverlayControlButtons.createControlsPill().apply { applyStyleSheet(sheet) }
         assertEquals("controls-right", controlsPill.getAttribute("data-overlay-role"))
-        assertEquals(40, controlsPill.heightPx)
+        assertTrue(controlsPill.hasClass("player-controls-pill"))
+        assertEquals("40px", controlsPill.computedStyle?.height)
 
-        val timePill = OverlayControlButtons.createTimePill("1:23 / 4:56")
+        val timePill = OverlayControlButtons.createTimePill("1:23 / 4:56").apply { applyStyleSheet(sheet) }
         assertEquals("time-readout", timePill.getAttribute("data-overlay-role"))
-        assertEquals(40, timePill.heightPx)
+        assertTrue(timePill.hasClass("player-time-pill"))
+        assertEquals("40px", timePill.computedStyle?.height)
 
-        val badge4k = OverlayControlButtons.createOutlinedBadge("4K", id = "badge-4k")
+        val badge4k = OverlayControlButtons.createOutlinedBadge("4K", id = "badge-4k").apply { applyStyleSheet(sheet) }
         assertNull(badge4k.tooltipText)
         assertEquals("4K", badge4k.text)
+        assertTrue(badge4k.hasClass("overlay-active-feature-badge"))
         assertEquals("outlined-feature-badge", badge4k.getAttribute("data-overlay-role"))
     }
 
@@ -209,6 +230,12 @@ class YoutubeOverlayAndIconsTest {
                 showFastForward = true
             )
         )
+        val host = OverlayHostBox(
+            content = Container("player-stage"),
+            initialOverlay = overlay
+        )
+        val sheet = OverlayExtension.defaultStyleSheet()
+        host.applyStyleSheet(sheet)
         val cursorEvents = mutableListOf<Boolean>()
         overlay.onCursorVisibilityChanged = { cursorEvents.add(it) }
 
@@ -233,11 +260,13 @@ class YoutubeOverlayAndIconsTest {
 
         // Layer structure
         val hudConstraint = overlay.getLayerConstraint(overlay.hudControlsContainer)
-        val subConstraint = overlay.getLayerConstraint(overlay.subtitleBanner)
+        val subConstraint = overlay.getEffectiveLayerConstraint(overlay.subtitleBanner)
         assertEquals(10, hudConstraint?.zIndex)
         assertEquals(15, subConstraint?.zIndex)
         assertEquals(LayerAlignment.BOTTOM_CENTER, subConstraint?.alignment)
         assertTrue(subConstraint?.passThroughPointerEvents == true)
+        assertSame(host.persistentOverlayRoot, overlay.subtitleBanner.parent)
+        assertSame(host.persistentOverlayRoot, overlay.loadingSpinner.parent)
         assertEquals("controls-layer", overlay.hudControlsContainer.getAttribute("data-overlay-role"))
         assertEquals("caption-banner", overlay.subtitleBanner.getAttribute("data-overlay-role"))
         assertEquals("top-bar", overlay.topBar.getAttribute("data-overlay-role"))
@@ -248,31 +277,40 @@ class YoutubeOverlayAndIconsTest {
         assertEquals("controls-left", overlay.leftControlsRow.getAttribute("data-overlay-role"))
         assertEquals("controls-right", overlay.rightControlsRow.getAttribute("data-overlay-role"))
         assertEquals("time-readout", overlay.timePillContainer.getAttribute("data-overlay-role"))
-        assertSame(overlay.hudControlsContainer, overlay.autoHideController.targetComponent)
+        assertSame(overlay, overlay.autoHideController.targetComponent)
+        assertTrue(overlay.hasClass("overlay-fading-root"))
 
-        // Persistent captions survive HUD auto-hide while outer overlay stays hit-testable and cursor hides
+        // Persistent captions survive HUD auto-hide in persistentOverlayRoot while fading overlay uses .hidden
         overlay.setSubtitleCueText("Subtitles stay visible")
         assertTrue(overlay.subtitleBanner.isVisible)
-        assertEquals("Subtitles stay visible", overlay.subtitleBanner.text)
+        assertEquals("Subtitles stay visible", overlay.subtitleBannerLabel.text)
+        assertEquals("caption-banner", overlay.subtitleBanner.getAttribute("data-overlay-role"))
+        assertNull(overlay.subtitleBanner.style.backgroundColor)
+        assertEquals(RgbaColor(0, 0, 0, 148), overlay.subtitleBanner.computedStyle?.backgroundColor)
+        assertEquals(CssFilter.blur(CssLength.px(12f)), overlay.subtitleBanner.computedStyle?.backdropFilter)
+        assertEquals(8f, overlay.subtitleBanner.computedStyle?.borderRadiusPx)
+        assertEquals(false, overlay.subtitleBanner.computedStyle?.pointerEventsEnabled)
 
         overlay.hideHud(instant = true)
         assertFalse(overlay.isHudVisible)
-        assertEquals(0.0f, overlay.hudControlsContainer.opacity)
-        assertEquals(CssPointerEvents.NONE, overlay.hudControlsContainer.style.pointerEvents)
-        assertEquals(1.0f, overlay.opacity)
-        assertTrue(overlay.pointerEventsEnabled)
+        assertTrue(overlay.hasClass(AutoHideController.HIDDEN_CLASS))
+        assertTrue(overlay.hasClass(AutoHideController.INSTANT_FADE_CLASS))
+        assertEquals(0.0f, overlay.computedStyle?.opacity ?: -1f, 0.001f)
+        assertEquals(false, overlay.computedStyle?.pointerEventsEnabled)
+        assertEquals("none", overlay.computedStyle?.cursor)
+        assertFalse(host.persistentOverlayRoot.hasClass(AutoHideController.HIDDEN_CLASS))
+        assertEquals(1.0f, host.persistentOverlayRoot.computedStyle?.opacity ?: -1f, 0.001f)
         assertTrue(overlay.subtitleBanner.isVisible)
         assertFalse(overlay.isCursorVisible)
-        assertEquals("none", overlay.cursor)
         assertTrue(overlay.hasClass("hud-cursor-hidden"))
         assertEquals(listOf(false), cursorEvents)
 
         overlay.notifyUserActivity()
         assertTrue(overlay.isHudVisible)
-        assertEquals(1.0f, overlay.hudControlsContainer.opacity)
-        assertEquals(CssPointerEvents.AUTO, overlay.hudControlsContainer.style.pointerEvents)
+        assertFalse(overlay.hasClass(AutoHideController.HIDDEN_CLASS))
+        assertEquals(1.0f, overlay.computedStyle?.opacity ?: -1f, 0.001f)
+        assertEquals(true, overlay.computedStyle?.pointerEventsEnabled)
         assertTrue(overlay.isCursorVisible)
-        assertEquals("default", overlay.cursor)
         assertFalse(overlay.hasClass("hud-cursor-hidden"))
         assertEquals(listOf(false, true), cursorEvents)
 
@@ -299,11 +337,18 @@ class YoutubeOverlayAndIconsTest {
         // Hover bubble clamping [2%..98%]
         overlay.showTimelineHover(0.0, "0:00")
         assertTrue(overlay.seekHoverBubble.isVisible)
-        assertEquals("0:00", overlay.seekHoverBubble.text)
+        assertEquals("0:00", overlay.seekHoverLabel.text)
+        assertEquals("hover-bubble", overlay.seekHoverBubble.getAttribute("data-overlay-role"))
+        assertNull(overlay.seekHoverBubble.style.backgroundColor)
+        assertEquals(RgbaColor(15, 18, 26, 171), overlay.seekHoverBubble.computedStyle?.backgroundColor)
+        assertEquals(CssFilter.blur(CssLength.px(10f)), overlay.seekHoverBubble.computedStyle?.backdropFilter)
+        assertEquals(1f, overlay.seekHoverBubble.computedStyle?.borderWidthPx)
+        assertEquals(8f, overlay.seekHoverBubble.computedStyle?.borderRadiusPx)
+        assertEquals(false, overlay.seekHoverBubble.computedStyle?.pointerEventsEnabled)
         assertEquals("2.0", overlay.seekHoverBubble.getAttribute("layerLeftPercent"))
 
         overlay.showTimelineHover(1.0, "10:00")
-        assertEquals("10:00", overlay.seekHoverBubble.text)
+        assertEquals("10:00", overlay.seekHoverLabel.text)
         assertEquals("98.0", overlay.seekHoverBubble.getAttribute("layerLeftPercent"))
 
         overlay.showTimelineHover(0.5, "5:00")
@@ -346,14 +391,16 @@ class YoutubeOverlayAndIconsTest {
         assertEquals(R.drawable.ic_pause, overlay.playPauseButton.iconRes)
         assertEquals(R.drawable.ic_fullscreen_exit, overlay.fullscreenButton.iconRes)
         assertEquals("1:05 / 10:00", overlay.timeReadoutLabel.text)
-        assertEquals("Updated cue", overlay.subtitleBanner.text)
+        assertEquals("Updated cue", overlay.subtitleBannerLabel.text)
 
-        overlay.dispose()
+        host.dispose()
     }
 
     @Test
     fun testHybridOverlayDifferenceControllerSmallMobilePortraitVsMediumLarge() {
         val overlay = YoutubePlayerOverlay()
+        val sheet = OverlayExtension.defaultStyleSheet()
+        overlay.applyStyleSheet(sheet)
         val modeHistory = mutableListOf<HybridOverlayLayoutMode>()
         val controller = HybridOverlayDifferenceController(
             overlay = overlay,
@@ -367,7 +414,8 @@ class YoutubeOverlayAndIconsTest {
         assertEquals(YoutubeTimelinePlacement.ABOVE_CONTROLS, overlay.timelinePlacement)
         assertTrue(overlay.playPauseButton.isVisible)
         assertFalse(overlay.centerTransportRow.isVisible)
-        assertNull(overlay.centerPlayPauseButton.backdropFilter)
+        assertFalse(overlay.centerPlayPauseButton.isFrosted)
+        assertNull(overlay.centerPlayPauseButton.computedStyle?.backdropFilter)
 
         // Switch to SMALL_MOBILE_PORTRAIT on mobile portrait
         controller.updateForSize(
@@ -383,9 +431,9 @@ class YoutubeOverlayAndIconsTest {
         assertTrue(overlay.centerRewindButton.isVisible)
         assertTrue(overlay.centerPlayPauseButton.isVisible)
         assertTrue(overlay.centerFastForwardButton.isVisible)
-        assertEquals(56, overlay.centerRewindButton.widthPx)
-        assertEquals(64, overlay.centerPlayPauseButton.widthPx)
-        assertEquals(56, overlay.centerFastForwardButton.widthPx)
+        assertEquals("56px", overlay.centerRewindButton.computedStyle?.width)
+        assertEquals("64px", overlay.centerPlayPauseButton.computedStyle?.width)
+        assertEquals("56px", overlay.centerFastForwardButton.computedStyle?.width)
 
         val expectedBackdrop = CssFilter(blur = CssLength.px(16f), saturate = 1.2f)
         val expectedFill = RgbaColor(20, 24, 32, 97)
@@ -395,9 +443,11 @@ class YoutubeOverlayAndIconsTest {
             overlay.centerPlayPauseButton,
             overlay.centerFastForwardButton
         )) {
-            assertEquals(expectedBackdrop, centerBtn.backdropFilter)
-            assertEquals(expectedFill, centerBtn.backgroundColor)
-            assertEquals(expectedBorder, centerBtn.borderColor)
+            assertTrue(centerBtn.isFrosted)
+            assertTrue(centerBtn.hasClass("player-btn-frosted"))
+            assertEquals(expectedBackdrop, centerBtn.computedStyle?.backdropFilter)
+            assertEquals(expectedFill, centerBtn.computedStyle?.backgroundColor)
+            assertEquals(expectedBorder, centerBtn.computedStyle?.borderTopColor)
         }
         assertFalse(overlay.playPauseButton.isVisible, "Duplicate bottom play/pause should hide in compact mode")
         assertFalse(overlay.rewindButton.isVisible)
@@ -409,9 +459,12 @@ class YoutubeOverlayAndIconsTest {
         assertEquals(YoutubeTimelinePlacement.ABOVE_CONTROLS, overlay.timelinePlacement)
         assertTrue(overlay.playPauseButton.isVisible)
         assertFalse(overlay.centerTransportRow.isVisible)
-        assertNull(overlay.centerRewindButton.backdropFilter)
-        assertNull(overlay.centerPlayPauseButton.backdropFilter)
-        assertNull(overlay.centerFastForwardButton.backdropFilter)
+        assertFalse(overlay.centerRewindButton.isFrosted)
+        assertFalse(overlay.centerPlayPauseButton.isFrosted)
+        assertFalse(overlay.centerFastForwardButton.isFrosted)
+        assertNull(overlay.centerRewindButton.computedStyle?.backdropFilter)
+        assertNull(overlay.centerPlayPauseButton.computedStyle?.backdropFilter)
+        assertNull(overlay.centerFastForwardButton.computedStyle?.backdropFilter)
         assertEquals(
             listOf(
                 HybridOverlayLayoutMode.MEDIUM_LARGE,
@@ -427,5 +480,95 @@ class YoutubeOverlayAndIconsTest {
         assertEquals(YoutubeTimelinePlacement.BELOW_CONTROLS, overlay.timelinePlacement)
 
         overlay.dispose()
+    }
+
+    @Test
+    fun testOverlayFullscreenButton4ArrowSwitchingDrivenByOverlayStateAndWindowFullscreenCallbacks() {
+        val enterSvg = Resources.getDrawable(R.drawable.ic_fullscreen_enter)?.svgSource.orEmpty()
+        val exitSvg = Resources.getDrawable(R.drawable.ic_fullscreen_exit)?.svgSource.orEmpty()
+        assertTrue(enterSvg.contains("M4 4H9.5"), "ic_fullscreen_enter must depict 4 outward diagonal corner arrows")
+        assertTrue(exitSvg.contains("M3.5 4.9L4.9 3.5"), "ic_fullscreen_exit must depict 4 inward diagonal corner arrows")
+
+        val sheet = OverlayExtension.defaultStyleSheet()
+        val customBtnToggles = mutableListOf<Boolean>()
+        val customFullscreenBtn = OverlayFullscreenButton(
+            isFullscreen = false,
+            variant = OverlayButtonVariant.CIRCLE_PILL
+        ) { next ->
+            customBtnToggles.add(next)
+        }.apply {
+            addClass("app-custom-fullscreen-btn")
+        }
+
+        val customOverlay = object : AbstractOverlay(tagName = "custom-fullscreen-overlay") {}
+        customOverlay.addElement(customFullscreenBtn, LayerConstraint.float(alignment = LayerAlignment.BOTTOM_END))
+
+        val ytOverlay = YoutubePlayerOverlay()
+        val host = OverlayHostBox(
+            content = Container("video-stage").apply {
+                widthPx = 1280
+                heightPx = 720
+            },
+            initialOverlay = customOverlay
+        )
+        host.applyStyleSheet(sheet)
+
+        assertTrue(customFullscreenBtn.hasClass("gui-overlay-control-btn"))
+        assertTrue(customFullscreenBtn.hasClass("app-custom-fullscreen-btn"))
+        assertEquals("40px", customFullscreenBtn.computedStyle?.width)
+        assertEquals("40px", customFullscreenBtn.computedStyle?.height)
+        assertEquals(R.drawable.ic_fullscreen_enter, customFullscreenBtn.iconRes)
+        assertEquals(OverlayIconType.FULLSCREEN_ENTER, customFullscreenBtn.iconType)
+        assertEquals("false", customFullscreenBtn.getAttribute("data-fullscreen"))
+        assertEquals("false", customFullscreenBtn.getAttribute("aria-pressed"))
+
+        // Overlay state updates switch every descendant OverlayFullscreenButton without invoking onFullscreenToggle
+        customOverlay.updateState(OverlayState(isFullscreen = true))
+        assertTrue(customFullscreenBtn.isFullscreen)
+        assertEquals(R.drawable.ic_fullscreen_exit, customFullscreenBtn.iconRes)
+        assertEquals(OverlayIconType.FULLSCREEN_EXIT, customFullscreenBtn.iconType)
+        assertEquals("true", customFullscreenBtn.getAttribute("data-fullscreen"))
+        assertEquals("true", customFullscreenBtn.getAttribute("aria-pressed"))
+        assertTrue(customBtnToggles.isEmpty())
+
+        customOverlay.updateState(OverlayState(isFullscreen = false))
+        assertFalse(customFullscreenBtn.isFullscreen)
+        assertEquals(R.drawable.ic_fullscreen_enter, customFullscreenBtn.iconRes)
+        assertEquals(OverlayIconType.FULLSCREEN_ENTER, customFullscreenBtn.iconType)
+        assertTrue(customBtnToggles.isEmpty())
+
+        // Attached Window fullscreen transitions drive AbstractOverlay.syncFullscreenButtons via onFullscreenChanged
+        val window = Window("Fullscreen Sync Window")
+        window.setContent(host)
+        window.setFullscreen(true)
+        assertTrue(customOverlay.state.isFullscreen)
+        assertTrue(customFullscreenBtn.isFullscreen)
+        assertEquals(R.drawable.ic_fullscreen_exit, customFullscreenBtn.iconRes)
+        assertTrue(customBtnToggles.isEmpty())
+
+        window.setFullscreen(false)
+        assertFalse(customOverlay.state.isFullscreen)
+        assertFalse(customFullscreenBtn.isFullscreen)
+        assertEquals(R.drawable.ic_fullscreen_enter, customFullscreenBtn.iconRes)
+        assertTrue(customBtnToggles.isEmpty())
+
+        // Attaching YoutubePlayerOverlay while window is already fullscreen syncs its fullscreenButton immediately
+        val ytToggles = mutableListOf<Boolean>()
+        ytOverlay.onFullscreenToggle = { ytToggles.add(it) }
+        window.setFullscreen(true)
+        host.attachOverlay(ytOverlay)
+        assertTrue(ytOverlay.state.isFullscreen)
+        assertTrue(ytOverlay.fullscreenButton.isFullscreen)
+        assertEquals(R.drawable.ic_fullscreen_exit, ytOverlay.fullscreenButton.iconRes)
+        assertTrue(ytToggles.isEmpty())
+
+        window.setFullscreen(false)
+        assertFalse(ytOverlay.state.isFullscreen)
+        assertFalse(ytOverlay.fullscreenButton.isFullscreen)
+        assertEquals(R.drawable.ic_fullscreen_enter, ytOverlay.fullscreenButton.iconRes)
+        assertTrue(ytToggles.isEmpty())
+
+        window.dispose()
+        host.dispose()
     }
 }

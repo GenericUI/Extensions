@@ -5,7 +5,7 @@ import com.nexustools.genericui.core.Disposable
 /**
  * Simple idempotent [Disposable] invoking [onDisposeAction] once when disposed.
  */
-internal class ServiceWorkerDisposableHandle(
+class ServiceWorkerDisposableHandle internal constructor(
     private val onDisposeAction: () -> Unit
 ) : Disposable {
     override var isDisposed: Boolean = false

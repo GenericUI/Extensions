@@ -20,7 +20,7 @@ flowchart TD
     Session["MediaControlsSession (bound optionally to IWindow)<br/>(:extensions:media:mediacontrols + :dsl)"]
     Win["mingwMain (WindowsMediaControlsImpl: ITaskbarList3 Thumbnail Buttons + SMTC + WM_APPCOMMAND & WH_KEYBOARD_LL)"]
     Mac["macosMain (MacosMediaControlsImpl: MPRemoteCommandCenter + MPNowPlayingInfoCenter + NSSystemDefined Keys)"]
-    Linux["linuxMain (GtkMediaControlsImpl & QtMediaControlsImpl: XF86Audio* Keys + D-Bus MPRIS2)"]
+    Linux["linuxMain (GtkMediaControlsImpl & KdeMediaControlsImpl: XF86Audio* Keys + D-Bus MPRIS2)"]
     Swing["jvmMain (SwingMediaControlsImpl: AWT KeyEventDispatcher Multimedia Key Hooks)"]
     Web["webMain (WebMediaControlsImpl: navigator.mediaSession + DOM Media Key Events)"]
     Android["androidMain (AndroidMediaControlsImpl: MediaSession + MediaMetadata + PlaybackState + Hardware Media Keys)"]
@@ -39,7 +39,7 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | **Windows (`:windows`)** | `mingwMain` | **Windows Taskbar Hover Preview Toolbar (`ITaskbarList3`)**: Attaches `ThumbBarAddButtons` / `ThumbBarUpdateButtons` + Windows System Media Transport Controls (SMTC) | Hooks `WM_APPCOMMAND` and low-level `WH_KEYBOARD_LL` (`VK_MEDIA_*`) |
 | **macOS (`:macos`)** | `macosMain` | **macOS Control Center, Now Playing & Touch Bar**: `MPRemoteCommandCenter` & `MPNowPlayingInfoCenter` | Installs `NSEvent` `NSSystemDefined` (`subtype == 8`) physical media key monitor |
-| **Linux GTK4 & Qt6 (`:gtk`, `:qt`)** | `linuxMain` | D-Bus `org.mpris.MediaPlayer2` transport & metadata bridge | Hooks `XF86Audio*` / `Qt::Key_Media*` multimedia keys |
+| **Linux GTK4 & KDE (`:gtk`, `:kde`)** | `linuxMain` | D-Bus `org.mpris.MediaPlayer2` transport & metadata bridge | Hooks `XF86Audio*` / KDE multimedia keys |
 | **Desktop JVM (`:swing`)** | `jvmMain` | Desktop multimedia session state tracking | AWT `KeyboardFocusManager` `KeyEventDispatcher` multimedia key hooks |
 | **Android (`:android`)** | `androidMain` | `android.media.session.MediaSession`, `MediaMetadata`, & `PlaybackState` (`supportsSystemTransportControls = true`) | Dispatches hardware / Bluetooth `KeyEvent` media buttons (`supportsKeyboardMediaKeyHook = true`) |
 | **iOS & iPadOS (`:ios`)** | `iosMain` | Apple `MPNowPlayingInfoCenter`, `MPRemoteCommandCenter`, & `AVAudioSession` (`supportsSystemTransportControls = true`) | Handles Lock Screen, Control Center, and accessory remote command events (`supportsKeyboardMediaKeyHook = true`) |

@@ -13,6 +13,7 @@ import com.nexustools.genericui.ext.overlay.OverlayHost
 import com.nexustools.genericui.ext.overlay.OverlayIconType
 import com.nexustools.genericui.ext.overlay.OverlayPlayPauseButton
 import com.nexustools.genericui.ext.overlay.OverlayState
+import com.nexustools.genericui.ext.overlay.OverlayWindowTitleBarConfig
 import com.nexustools.genericui.ext.overlay.YoutubeOverlayConfig
 import com.nexustools.genericui.ext.overlay.YoutubePlayerOverlay
 import com.nexustools.genericui.style.color.RgbaColor
@@ -26,6 +27,8 @@ fun buildYoutubePlayerOverlay(
     state: OverlayState = OverlayState(),
     actions: OverlayActions = OverlayActions(),
     themeColorHex: String? = null,
+    windowTitleBarEnabled: Boolean = false,
+    windowTitleBarConfig: OverlayWindowTitleBarConfig? = null,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker YoutubePlayerOverlay.() -> Unit)? = null
@@ -35,6 +38,13 @@ fun buildYoutubePlayerOverlay(
     instance.updateActions(actions)
     if (themeColorHex != null) {
         instance.themeColorHex = themeColorHex
+    }
+    if (windowTitleBarConfig != null) {
+        instance.windowTitleBarConfig = windowTitleBarConfig.copy(
+            enabled = windowTitleBarConfig.enabled || windowTitleBarEnabled
+        )
+    } else if (windowTitleBarEnabled) {
+        instance.windowTitleBarEnabled = true
     }
     if (!classes.isNullOrBlank()) {
         instance.addClass(classes)
@@ -56,6 +66,8 @@ fun AbstractContainer.youtubePlayerOverlay(
     state: OverlayState = OverlayState(),
     actions: OverlayActions = OverlayActions(),
     themeColorHex: String? = null,
+    windowTitleBarEnabled: Boolean = false,
+    windowTitleBarConfig: OverlayWindowTitleBarConfig? = null,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker YoutubePlayerOverlay.() -> Unit)? = null
@@ -65,6 +77,8 @@ fun AbstractContainer.youtubePlayerOverlay(
         state = state,
         actions = actions,
         themeColorHex = themeColorHex,
+        windowTitleBarEnabled = windowTitleBarEnabled,
+        windowTitleBarConfig = windowTitleBarConfig,
         id = id,
         classes = classes,
         block = block
@@ -79,6 +93,8 @@ fun AbstractContainer.youtubePlayerOverlay(
 fun OverlayHost.attachYoutubePlayerOverlay(
     config: YoutubeOverlayConfig = YoutubeOverlayConfig(),
     themeColorHex: String? = null,
+    windowTitleBarEnabled: Boolean = false,
+    windowTitleBarConfig: OverlayWindowTitleBarConfig? = null,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker YoutubePlayerOverlay.() -> Unit)? = null
@@ -94,6 +110,13 @@ fun OverlayHost.attachYoutubePlayerOverlay(
         instance.id = id
     }
     attachOverlay(instance)
+    if (windowTitleBarConfig != null) {
+        instance.windowTitleBarConfig = windowTitleBarConfig.copy(
+            enabled = windowTitleBarConfig.enabled || windowTitleBarEnabled
+        )
+    } else if (windowTitleBarEnabled) {
+        instance.windowTitleBarEnabled = true
+    }
     if (block != null) {
         instance.block()
     }

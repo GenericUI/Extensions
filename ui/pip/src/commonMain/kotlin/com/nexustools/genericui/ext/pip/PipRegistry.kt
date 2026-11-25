@@ -41,6 +41,7 @@ object PipRegistry {
     }
 
     private fun ensureBootstrappedIfNeeded() {
+        PipExtension.ensureStyleSheetRegistered()
         if (factory == null && !bootstrapAttempted) {
             bootstrapAttempted = true
             PlatformPipBootstrap.ensureDefaultRegistered()

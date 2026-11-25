@@ -117,9 +117,9 @@ class AiChatContainer(
         }
 
     init {
+        AiChatExtension.ensureStyleSheetRegistered()
         addClass("ai-chat-container")
         setPreferredSize(Size(width, height))
-        setPaddingAll(SpacingScale.S2)
 
         providerSettingsButton.setOnClick {
             val customHandler = onOpenProviderSettings

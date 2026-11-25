@@ -3,6 +3,7 @@ package com.nexustools.genericui.ext.canvas3d.desktop
 import com.nexustools.genericui.desktop.canvas.DesktopCanvas3DNativeImpl
 import com.nexustools.genericui.desktop.canvas.DesktopGLContextImpl
 import com.nexustools.genericui.desktop.canvas.DesktopVKContextImpl
+import com.nexustools.genericui.desktop.core.DesktopCanvasWidgetHooks
 import com.nexustools.genericui.desktop.core.DesktopNativeWidget
 import com.nexustools.genericui.ext.canvas3d.Canvas3DRegistry
 import com.nexustools.genericui.ext.gpu.GpuBackendType
@@ -29,8 +30,10 @@ object DesktopCanvas3DProvider {
         Canvas3DRegistry.registerProvider(
             supportDetector = { backend -> DesktopGpuDynamicLoader.detectSupport(backend) },
             canvas3DFactory = { canvas, acceleration ->
+                val widget = DesktopCanvasWidgetHooks.createInteractiveSurfaceWidget?.invoke("canvas-3d")
+                    ?: DesktopNativeWidget("Desktop", "canvas-3d")
                 DesktopCanvas3DNativeImpl(
-                    nativeWidget = DesktopNativeWidget("Desktop", "canvas-3d"),
+                    nativeWidget = widget,
                     config = canvas.config,
                     activeBackend = canvas.backend,
                     activeAcceleration = acceleration,

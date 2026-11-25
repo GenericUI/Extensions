@@ -2,9 +2,25 @@
 
 package com.nexustools.genericui.ext.media
 
+import com.nexustools.genericui.component.media.AudioAnalyzerConfig
+import com.nexustools.genericui.component.media.AudioEnergyBands
+import com.nexustools.genericui.component.media.AudioFftSize
+import com.nexustools.genericui.component.media.AudioPcmFftAnalyzer
 import com.nexustools.genericui.component.media.MediaCapabilitiesReport
+import com.nexustools.genericui.component.media.res.GeneratedResourceRegistry
+import com.nexustools.genericui.component.media.res.R
+import com.nexustools.genericui.component.shell.IApplication
+import com.nexustools.genericui.core.ApplicationLifecycleExtensionHook
+import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.core.GenericUiAppDescriptor
+import com.nexustools.genericui.core.GenericUiExtensionRegistry
+import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.enums.media.VideoCodec
+import com.nexustools.genericui.res.Resources
+import com.nexustools.genericui.style.css.CssStyleSheet
+import com.nexustools.genericui.style.sass.SassCompiler
+import com.nexustools.genericui.style.theme.ThemeStyleSheetRegistry
 import com.nexustools.genericui.ext.media.vlc.VlcAudioOutputDevice
 import com.nexustools.genericui.ext.media.vlc.VlcAudioOutputModule
 import com.nexustools.genericui.ext.media.vlc.VlcBackendConfigHandler
@@ -16,7 +32,6 @@ import com.nexustools.genericui.ext.schema.ObjectSchema
 import com.nexustools.genericui.ext.schema.SchemaRegistry
 import com.nexustools.genericui.nativeimpl.media.AudioAnalyzerNativeImpl
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
-import com.nexustools.genericui.nativeimpl.media.SeekBarNativeImpl
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import com.nexustools.genericui.nativeimpl.system.MediaNotificationNativeImpl
 import com.nexustools.genericui.nativeimpl.system.MediaSessionManagerNativeImpl
@@ -28,15 +43,19 @@ import kotlin.concurrent.atomics.AtomicReference
  *
  * `:extensions:media` is completely self-contained and does not rely on any other extensions
  * outside optional schema/overlay contracts:
- * - Native desktop targets (`:windows`, `:macos`, `:gtk`, `:qt`) use native `libvlc`.
+ * - Native desktop targets (`:windows`, `:macos`, `:gtk`, `:kde`) use native `libvlc`.
  * - JVM `:swing` uses `libvlcj` (`uk.co.caprica.vlcj`).
  * - Mobile targets (`:android`, `:ios`) use native OS media components (`MediaPlayer` / `ExoPlayer` / `AudioRecord` and `AVPlayer`).
  * - `:web` uses native HTML5 `<video>`, `<audio>`, and WebAudio `AnalyserNode` components.
  */
 object MediaExtension {
+    const val DEFAULT_STYLE_MODULE_ID: String = "ext:media:style"
+
+    private var cachedRawStyleScss: String? = null
+    private var cachedDefaultStyleSheet: CssStyleSheet? = null
+    private var styleLifecycleHookInstalled: Boolean = false
     private var videoPlayerProvider: (() -> VideoPlayerNativeImpl<*>)? = null
     private var audioPlayerProvider: (() -> AudioPlayerNativeImpl)? = null
-    private var seekBarProvider: (() -> SeekBarNativeImpl<*>)? = null
     private var audioAnalyzerProvider: ((Int) -> AudioAnalyzerNativeImpl)? = null
     private var mediaSessionManagerProvider: (() -> MediaSessionManagerNativeImpl)? = null
     private var screenWakeLockProvider: (() -> ScreenWakeLockNativeImpl)? = null
@@ -46,9 +65,71 @@ object MediaExtension {
     private val playerSettingsProviderRef = AtomicReference<MediaPlayerSettingsProvider?>(null)
     private val vlcConfigHandlerRef = AtomicReference<VlcBackendConfigHandler?>(null)
     private val vlcConfigurationRef = AtomicReference(VlcConfiguration())
+    private val autoInstalledFactoryRef = AtomicReference<NativeFactory?>(null)
+    private var isInstallingPlatformDefaults: Boolean = false
 
     init {
         SchemaRegistry.register(VlcConfigurationSchemaDescriptor, VlcConfiguration::class)
+        rawDefaultStyleScss()
+    }
+
+    /**
+     * Captures and returns the raw generic `:extensions:media:media` `style.scss` source (`R.style.style`)
+     * before another module with the same generated style resource ID (`0x6f0c0001`) can overwrite
+     * the shared [Resources.activeTable] slot.
+     */
+    fun rawDefaultStyleScss(): String {
+        cachedRawStyleScss?.let { return it }
+        GeneratedResourceRegistry.ensureInitialized()
+        return Resources.getRawText(R.style.style).also { raw ->
+            if (raw.isNotBlank()) {
+                cachedRawStyleScss = raw
+            }
+        }
+    }
+
+    /**
+     * Lazily compiles and caches `:extensions:media:media`'s generic, theme-independent `style.scss`
+     * stylesheet (`R.style.style`). Never compiles consumer `theme.scss`.
+     */
+    fun defaultStyleSheet(): CssStyleSheet {
+        cachedDefaultStyleSheet?.let { return it }
+        val rawScss = rawDefaultStyleScss()
+        return SassCompiler.compileToStyleSheet(rawScss).also { sheet ->
+            cachedDefaultStyleSheet = sheet
+        }
+    }
+
+    /**
+     * Installs an [ApplicationLifecycleExtensionHook] so consumer apps register [DEFAULT_STYLE_MODULE_ID]
+     * in [ThemeStyleSheetRegistry] without forcing eager CSS compilation during headless construction.
+     */
+    fun installStyleSheetHook() {
+        rawDefaultStyleScss()
+        if (styleLifecycleHookInstalled) return
+        styleLifecycleHookInstalled = true
+        GenericUiExtensionRegistry.registerLifecycleHook(
+            object : ApplicationLifecycleExtensionHook {
+                override fun onAppPrepared(app: IApplication, descriptor: GenericUiAppDescriptor) {
+                    if (ThemeStyleSheetRegistry.getCompiledThemeEntries().none { it.first == DEFAULT_STYLE_MODULE_ID }) {
+                        ThemeStyleSheetRegistry.registerCompiledThemeStyleSheet(DEFAULT_STYLE_MODULE_ID, defaultStyleSheet())
+                    }
+                }
+            }
+        )
+    }
+
+    /**
+     * Synchronously ensures [defaultStyleSheet] is registered in [ThemeStyleSheetRegistry]
+     * (`"ext:media:style"`) and installs the application lifecycle hook.
+     */
+    fun ensureStyleSheetRegistered(): CssStyleSheet {
+        val sheet = defaultStyleSheet()
+        if (ThemeStyleSheetRegistry.getCompiledThemeEntries().none { it.first == DEFAULT_STYLE_MODULE_ID }) {
+            ThemeStyleSheetRegistry.registerCompiledThemeStyleSheet(DEFAULT_STYLE_MODULE_ID, sheet)
+        }
+        installStyleSheetHook()
+        return sheet
     }
 
     val supportsVlcConfiguration: Boolean
@@ -89,18 +170,19 @@ object MediaExtension {
         audioPlayer: (() -> AudioPlayerNativeImpl)? = null,
         audioAnalyzer: ((Int) -> AudioAnalyzerNativeImpl)? = null,
         mediaSessionManager: (() -> MediaSessionManagerNativeImpl)? = null,
-        seekBar: (() -> SeekBarNativeImpl<*>)? = null,
         mediaNotification: (() -> MediaNotificationNativeImpl)? = null,
         screenWakeLock: (() -> ScreenWakeLockNativeImpl)? = null,
         vlcConfigHandler: VlcBackendConfigHandler? = null,
         codecSupportProvider: MediaCodecSupportProvider? = null,
         playerSettingsProvider: MediaPlayerSettingsProvider? = null
     ) {
+        autoInstalledFactoryRef.store(
+            if (isInstallingPlatformDefaults) GenericUI.activeFactory else null
+        )
         if (videoPlayer != null) videoPlayerProvider = videoPlayer
         if (audioPlayer != null) audioPlayerProvider = audioPlayer
         if (audioAnalyzer != null) audioAnalyzerProvider = audioAnalyzer
         if (mediaSessionManager != null) mediaSessionManagerProvider = mediaSessionManager
-        if (seekBar != null) seekBarProvider = seekBar
         if (mediaNotification != null) mediaNotificationFactory = mediaNotification
         if (screenWakeLock != null) {
             screenWakeLockProvider = screenWakeLock
@@ -131,41 +213,88 @@ object MediaExtension {
     fun listSupportedVlcVideoRenderers(): List<VlcVideoRendererMode> =
         vlcConfigHandlerRef.load()?.listSupportedVideoRenderers() ?: emptyList()
 
-    fun createVideoPlayerNative(): VideoPlayerNativeImpl<*>? = videoPlayerProvider?.invoke()
+    private fun invalidateAutoInstalledProvidersIfFactoryChanged() {
+        val installedFor = autoInstalledFactoryRef.load() ?: return
+        if (GenericUI.activeFactory !== installedFor) {
+            autoInstalledFactoryRef.store(null)
+            resetProvidersForTest()
+        }
+    }
+
+    private inline fun <T> createOrInstallDefaultProvider(
+        providerGetter: () -> T?,
+        missingMessage: String
+    ): T {
+        invalidateAutoInstalledProvidersIfFactoryChanged()
+        providerGetter()?.let { return it }
+        if (GenericUI.activeFactory != null) {
+            isInstallingPlatformDefaults = true
+            try {
+                installPlatformDefaultMediaProvidersIfNeeded()
+            } finally {
+                isInstallingPlatformDefaults = false
+            }
+            providerGetter()?.let { return it }
+        }
+        throw IllegalStateException(missingMessage)
+    }
+
+    fun createVideoPlayerNative(): VideoPlayerNativeImpl<*>? {
+        invalidateAutoInstalledProvidersIfFactoryChanged()
+        return videoPlayerProvider?.invoke()
+    }
 
     fun createVideoPlayerNativeOrFallback(): VideoPlayerNativeImpl<*> =
-        videoPlayerProvider?.invoke()
-            ?: throw IllegalStateException("No VideoPlayerNativeImpl provider registered in MediaExtension")
+        createOrInstallDefaultProvider(
+            providerGetter = { videoPlayerProvider?.invoke() },
+            missingMessage = "No VideoPlayerNativeImpl provider registered in MediaExtension"
+        )
 
-    fun createAudioPlayerNative(): AudioPlayerNativeImpl? = audioPlayerProvider?.invoke()
+    fun createAudioPlayerNative(): AudioPlayerNativeImpl? {
+        invalidateAutoInstalledProvidersIfFactoryChanged()
+        return audioPlayerProvider?.invoke()
+    }
 
     fun createAudioPlayerNativeOrFallback(): AudioPlayerNativeImpl =
-        audioPlayerProvider?.invoke()
-            ?: throw IllegalStateException("No AudioPlayerNativeImpl provider registered in MediaExtension")
+        createOrInstallDefaultProvider(
+            providerGetter = { audioPlayerProvider?.invoke() },
+            missingMessage = "No AudioPlayerNativeImpl provider registered in MediaExtension"
+        )
 
-    fun createSeekBarNative(): SeekBarNativeImpl<*>? = seekBarProvider?.invoke()
+    fun createAudioAnalyzerNative(fftSize: Int = 2048): AudioAnalyzerNativeImpl {
+        invalidateAutoInstalledProvidersIfFactoryChanged()
+        audioAnalyzerProvider?.invoke(fftSize)?.let { return it }
+        if (GenericUI.activeFactory != null) {
+            isInstallingPlatformDefaults = true
+            try {
+                installPlatformDefaultMediaProvidersIfNeeded()
+            } finally {
+                isInstallingPlatformDefaults = false
+            }
+            audioAnalyzerProvider?.invoke(fftSize)?.let { return it }
+        }
+        return HeadlessDspAudioAnalyzerNativeImpl(fftSize)
+    }
 
-    fun createSeekBarNativeOrFallback(): SeekBarNativeImpl<*> =
-        seekBarProvider?.invoke()
-            ?: throw IllegalStateException("No SeekBarNativeImpl provider registered in MediaExtension")
+    fun createMediaSessionManagerNative(): MediaSessionManagerNativeImpl? {
+        invalidateAutoInstalledProvidersIfFactoryChanged()
+        return mediaSessionManagerProvider?.invoke()
+    }
 
-    fun createAudioAnalyzerNative(fftSize: Int = 2048): AudioAnalyzerNativeImpl =
-        audioAnalyzerProvider?.invoke(fftSize)
-            ?: throw IllegalStateException("No AudioAnalyzerNativeImpl provider registered in MediaExtension")
+    fun createMediaNotificationNative(): MediaNotificationNativeImpl? {
+        invalidateAutoInstalledProvidersIfFactoryChanged()
+        return mediaNotificationFactory?.invoke()
+    }
 
-    fun createMediaSessionManagerNative(): MediaSessionManagerNativeImpl? =
-        mediaSessionManagerProvider?.invoke()
-
-    fun createMediaNotificationNative(): MediaNotificationNativeImpl? =
-        mediaNotificationFactory?.invoke()
-
-    fun createScreenWakeLockNative(): ScreenWakeLockNativeImpl? =
-        screenWakeLockProvider?.invoke()
+    fun createScreenWakeLockNative(): ScreenWakeLockNativeImpl? {
+        invalidateAutoInstalledProvidersIfFactoryChanged()
+        return screenWakeLockProvider?.invoke()
+    }
 
     internal fun resetProvidersForTest() {
+        autoInstalledFactoryRef.store(null)
         videoPlayerProvider = null
         audioPlayerProvider = null
-        seekBarProvider = null
         audioAnalyzerProvider = null
         mediaSessionManagerProvider = null
         screenWakeLockProvider = null
@@ -264,6 +393,40 @@ object MediaExtension {
         } else {
             playerSettingsProviderRef.load()?.applySettingsValues(values)
         }
+    }
+
+    private class HeadlessDspAudioAnalyzerNativeImpl(
+        initialFftSize: Int = 2048
+    ) : AudioAnalyzerNativeImpl {
+        private val dsp = AudioPcmFftAnalyzer(
+            AudioAnalyzerConfig(fftSize = AudioFftSize.fromSampleCount(initialFftSize.coerceIn(32, 32768)))
+        )
+
+        override var fftSize: Int
+            get() = dsp.fftSize
+            set(value) {
+                dsp.fftSize = value.coerceIn(32, 32768)
+            }
+
+        override val frequencyBinCount: Int
+            get() = dsp.frequencyBinCount
+
+        override fun getByteTimeDomainData(destination: ByteArray) = dsp.getByteTimeDomainData(destination)
+
+        override fun getFloatTimeDomainData(destination: FloatArray) = dsp.getFloatTimeDomainData(destination)
+
+        override fun getByteFrequencyData(destination: ByteArray) = dsp.getByteFrequencyData(destination)
+
+        override fun getFloatFrequencyData(destination: FloatArray) = dsp.getFloatFrequencyData(destination)
+
+        override fun computeEnergyBands(): AudioEnergyBands = dsp.computeEnergyBands()
+
+        override fun pushPcmSamples(samples: FloatArray, channels: Int) = dsp.pushPcmFloatMonoOrStereo(samples, channels = channels)
+
+        override fun pushPcmS16Le(bytes: ByteArray, byteCount: Int, channels: Int, volumeScale: Float) =
+            dsp.pushPcmS16Le(bytes, byteCount, channels, volumeScale)
+
+        override fun dispose() = Unit
     }
 
     private val EMPTY_CAPABILITIES_REPORT = MediaCapabilitiesReport(

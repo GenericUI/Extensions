@@ -1,19 +1,12 @@
 package com.nexustools.genericui.ext.gamepad.ui
 
+import com.nexustools.genericui.animation.Animator
 import com.nexustools.genericui.component.form.Slider
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.ext.gamepad.GamepadButton
 import com.nexustools.genericui.ext.gamepad.GamepadFrameSnapshot
 import com.nexustools.genericui.ext.gamepad.GamepadManager
-import com.nexustools.genericui.threading.GenericUiThreading
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
@@ -37,10 +30,13 @@ class GamepadUiNavigator(
     var isRunning: Boolean = false
         private set
 
+    val isWatchingVBlank: Boolean
+        get() = vblankWatcherId > 0
+
     private var activeDirection: GamepadNavDirection? = null
     private var holdElapsedSeconds: Float = 0f
     private var nextRepeatAtSeconds: Float = initialRepeatDelaySeconds
-    private var pollingJob: Job? = null
+    private var vblankWatcherId: Int = -1
 
     fun setFocusedComponent(target: AbstractComponent?) {
         val candidates = strategy.discoverFocusableComponents(root)
@@ -53,26 +49,32 @@ class GamepadUiNavigator(
     }
 
     fun start(tickIntervalMs: Long = 16L) {
-        if (isRunning) return
+        if (isRunning || root.isDisposed) return
         isRunning = true
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val dtSec = (tickIntervalMs.coerceAtLeast(4L) / 1000f)
-        pollingJob = scope.launch {
-            while (isActive && isRunning) {
-                GenericUiThreading.runOnUi {
-                    if (isRunning) {
-                        step(dtSec)
-                    }
+        val fallbackDtSec = tickIntervalMs.coerceAtLeast(4L) / 1000f
+        if (vblankWatcherId <= 0) {
+            vblankWatcherId = Animator.watchVBlank { deltaMs, _, _ ->
+                if (!isRunning || root.isDisposed) {
+                    stop()
+                    return@watchVBlank
                 }
-                delay(tickIntervalMs.coerceAtLeast(4L))
+                val dtSec = if (deltaMs > 0.0) {
+                    (deltaMs / 1000.0).toFloat().coerceIn(0.001f, 0.25f)
+                } else {
+                    fallbackDtSec
+                }
+                step(dtSec)
             }
         }
     }
 
     fun stop() {
         isRunning = false
-        pollingJob?.cancel()
-        pollingJob = null
+        val id = vblankWatcherId
+        vblankWatcherId = -1
+        if (id > 0) {
+            Animator.unwatchVBlank(id)
+        }
     }
 
     fun detach() {

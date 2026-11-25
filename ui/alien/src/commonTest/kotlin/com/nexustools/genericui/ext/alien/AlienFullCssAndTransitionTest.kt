@@ -51,6 +51,7 @@ class AlienFullCssAndTransitionTest {
         override fun createContainer(classPrefix: String) = delegate.createContainer(classPrefix)
         override fun createContainer(classPrefix: String, tagName: String) = delegate.createContainer(classPrefix, tagName)
         override fun createStyledContainer(classPrefix: String, tagName: String) = delegate.createStyledContainer(classPrefix, tagName)
+        override fun createStyledComponent(classPrefix: String, tagName: String) = delegate.createStyledComponent(classPrefix, tagName)
         override fun createMenuBar() = delegate.createMenuBar()
         override fun createMenu() = delegate.createMenu()
         override fun createMenuItem(checkable: Boolean, radio: Boolean) = delegate.createMenuItem(checkable, radio)

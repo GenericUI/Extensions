@@ -2,9 +2,6 @@ package com.nexustools.genericui.ext.aichat
 
 import com.nexustools.genericui.component.layout.HStack
 import com.nexustools.genericui.component.layout.VStack
-import com.nexustools.genericui.enums.bootstrap.BorderRadiusStyle
-import com.nexustools.genericui.enums.bootstrap.BootstrapType
-import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.ext.codeeditor.CodeLanguage
 import com.nexustools.genericui.ext.codeeditor.IdeCodeEditor
 
@@ -41,10 +38,8 @@ class AiChatToolCallCard(
     }
 
     init {
+        AiChatExtension.ensureStyleSheetRegistered()
         addClass("ai-tool-call-card")
-        setBorderRadius(BorderRadiusStyle.ROUNDED)
-        setPaddingAll(SpacingScale.S2)
-        setMarginAll(SpacingScale.S1)
 
         headerRow.setOnClick {
             toggleDetails()
@@ -81,14 +76,19 @@ class AiChatToolCallCard(
     }
 
     private fun applyStatusStyling() {
-        val border = when (currentToolCall.status) {
-            AiToolCallStatus.COMPLETED -> BootstrapType.SUCCESS
-            AiToolCallStatus.FAILED -> BootstrapType.DANGER
-            AiToolCallStatus.RUNNING, AiToolCallStatus.STREAMING_ARGS -> BootstrapType.INFO
-            AiToolCallStatus.CANCELLED -> BootstrapType.WARNING
-            AiToolCallStatus.PENDING -> BootstrapType.SECONDARY
+        removeClass("ai-tool-status-completed")
+        removeClass("ai-tool-status-failed")
+        removeClass("ai-tool-status-running")
+        removeClass("ai-tool-status-cancelled")
+        removeClass("ai-tool-status-pending")
+        val statusClass = when (currentToolCall.status) {
+            AiToolCallStatus.COMPLETED -> "ai-tool-status-completed"
+            AiToolCallStatus.FAILED -> "ai-tool-status-failed"
+            AiToolCallStatus.RUNNING, AiToolCallStatus.STREAMING_ARGS -> "ai-tool-status-running"
+            AiToolCallStatus.CANCELLED -> "ai-tool-status-cancelled"
+            AiToolCallStatus.PENDING -> "ai-tool-status-pending"
         }
-        setBorderType(border)
+        addClass(statusClass)
     }
 
     companion object {

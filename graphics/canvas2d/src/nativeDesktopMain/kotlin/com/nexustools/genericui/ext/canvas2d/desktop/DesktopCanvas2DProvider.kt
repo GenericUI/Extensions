@@ -1,6 +1,7 @@
 package com.nexustools.genericui.ext.canvas2d.desktop
 
 import com.nexustools.genericui.desktop.canvas.DesktopCanvas2DNativeImpl
+import com.nexustools.genericui.desktop.core.DesktopCanvasWidgetHooks
 import com.nexustools.genericui.desktop.core.DesktopNativeWidget
 import com.nexustools.genericui.ext.canvas2d.Canvas2DExtension
 import com.nexustools.genericui.ext.imageprocessing.context2d.SystemGpuImageBuffer
@@ -33,8 +34,10 @@ object DesktopCanvas2DProvider {
                     preferVulkan = enableVulkan
                 )
             } else {
+                val widget = DesktopCanvasWidgetHooks.createInteractiveSurfaceWidget?.invoke("canvas-2d")
+                    ?: DesktopNativeWidget(nativeApiName, "canvas-2d")
                 DesktopCanvas2DNativeImpl(
-                    nativeWidget = DesktopNativeWidget(nativeApiName, "canvas-2d"),
+                    nativeWidget = widget,
                     nativeApiName = nativeApiName,
                     initialWidth = width,
                     initialHeight = height,

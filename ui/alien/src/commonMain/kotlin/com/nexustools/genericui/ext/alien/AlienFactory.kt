@@ -30,6 +30,7 @@ import com.nexustools.genericui.nativeimpl.navigation.BottomNavigationBarNativeI
 import com.nexustools.genericui.nativeimpl.navigation.NavbarNativeImpl
 import com.nexustools.genericui.nativeimpl.overlay.PopoverNativeImpl
 import com.nexustools.genericui.nativeimpl.shell.*
+import com.nexustools.genericui.nativeimpl.surface.StyledComponentNativeImpl
 import com.nexustools.genericui.nativeimpl.system.*
 import com.nexustools.genericui.nativeimpl.tabs.TabContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
@@ -86,6 +87,9 @@ class AlienFactory(
 
     override fun createStyledContainer(classPrefix: String, tagName: String): StyledContainerNativeImpl<*> =
         StyledContainerAlienImpl(componentClassPrefix = classPrefix, tagName = tagName, session = session)
+
+    override fun createStyledComponent(classPrefix: String, tagName: String): StyledComponentNativeImpl<*> =
+        AlienStyledComponentImpl(componentClassPrefix = classPrefix, tagName = tagName, session = session)
 
     override fun createBookContainer(): BookContainerNativeImpl<*> =
         BookContainerAlienImpl(hostFactory = hostFactory, session = session)

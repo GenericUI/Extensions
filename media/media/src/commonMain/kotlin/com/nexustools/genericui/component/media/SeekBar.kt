@@ -1,107 +1,65 @@
 package com.nexustools.genericui.component.media
 
-import com.nexustools.genericui.component.shell.Application
+import com.nexustools.genericui.component.action.StyledButton
+import com.nexustools.genericui.component.form.StyledSlider
+import com.nexustools.genericui.component.surface.StyledComponent
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.Disposable
-import com.nexustools.genericui.core.NativeFactory
-import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.event.PointerDragManager
 import com.nexustools.genericui.event.PointerDragSession
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.ext.media.MediaExtension
-import com.nexustools.genericui.nativeimpl.media.SeekBarNativeImpl
-import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.CssLength
+import kotlin.math.abs
 import kotlin.math.round
 
 /**
- * Media playback seek bar with dual-layer progress rendering:
- * - Base unloaded track ([trackColor])
- * - Preloaded / buffered media ranges ([bufferedColor], rendered beneath the played progress bar)
- * - Played progress bar ([accentColor], defaulting to the application's theme color)
- * - Scrubbing thumb ([thumbColor], defaulting to the effective accent color)
+ * Media playback seek bar extending `:common`'s [StyledSlider] (`Composite`) directly and
+ * appending only [preloadSegment] (`.seek-bar-preload`) at the end of `compositeChildren`.
+ *
+ * Layering (`z-index`) and track/fill/knob aesthetics come purely from `style.scss` and
+ * consumer-compiled `theme.scss` (`z-index: 1` track, `2` preload with `pointer-events: none`,
+ * `3` progress with `pointer-events: none`, `4` knob), with zero custom native seekbar impls
+ * and zero static/theme inline Kotlin style setters.
  */
 open class SeekBar(
     value: Double = 0.0,
     min: Double = 0.0,
     max: Double = 100.0,
     step: Double = 0.25
-) : AbstractComponent("seek-bar", "genericui:seekbar") {
+) : StyledSlider(
+    min = min,
+    max = max,
+    value = value,
+    step = step.coerceAtLeast(0.0)
+) {
+
+    /**
+     * Buffered / preloaded range bar (`z-index: 2; pointer-events: none;`) appended after
+     * `StyledSlider`'s `trackButton`, `progressSegment`, and `knobButton`.
+     */
+    protected val preloadSegment: StyledComponent = StyledComponent(
+        classPrefix = PRELOAD_CLASS,
+        tagName = StyledComponent.DEFAULT_TAG_NAME
+    ).apply {
+        addClass(PRELOAD_CLASS)
+    }
 
     private var suppressBoundSeekPropagation: Boolean = false
+    private var suppressInternalScrubCallbacks: Boolean = false
+    private var suppressCommitOnNextEndScrub: Boolean = false
     private val boundPlayerSeekCallbacks = mutableListOf<(Double) -> Unit>()
-
-    var min: Double = min
-        set(newMin) {
-            if (kotlin.math.abs(field - newMin) < 1e-6) return
-            field = newMin
-            if (max < newMin) {
-                max = newMin
-            }
-            val clampedVal = this.value.coerceIn(field, max)
-            if (clampedVal != this.value) {
-                suppressBoundSeekPropagation = true
-                try {
-                    this.value = clampedVal
-                } finally {
-                    suppressBoundSeekPropagation = false
-                }
-            }
-            typedNative<SeekBarNativeImpl<*>>()?.setRange(field, max, step)
-            syncVisualDataAttributes()
-        }
-
-    var max: Double = max.coerceAtLeast(min)
-        set(newMax) {
-            val coercedMax = newMax.coerceAtLeast(min)
-            if (kotlin.math.abs(field - coercedMax) < 1e-6) return
-            field = coercedMax
-            val clampedVal = this.value.coerceIn(min, field)
-            if (clampedVal != this.value) {
-                suppressBoundSeekPropagation = true
-                try {
-                    this.value = clampedVal
-                } finally {
-                    suppressBoundSeekPropagation = false
-                }
-            }
-            typedNative<SeekBarNativeImpl<*>>()?.let { impl ->
-                impl.setRange(min, field, step)
-                impl.setBufferedRanges(bufferedRanges, field)
-            }
-            syncVisualDataAttributes()
-        }
-
-    var step: Double = step.coerceAtLeast(0.001)
-        set(newStep) {
-            val coercedStep = newStep.coerceAtLeast(0.001)
-            if (kotlin.math.abs(field - coercedStep) < 1e-6) return
-            field = coercedStep
-            typedNative<SeekBarNativeImpl<*>>()?.setRange(min, max, field)
-            syncVisualDataAttributes()
-        }
-
-    var value: Double = value.coerceIn(this.min, this.max)
-        set(newValue) {
-            val clamped = newValue.coerceIn(min, max)
-            val changed = kotlin.math.abs(field - clamped) >= 1e-6
-            field = clamped
-            if (changed) {
-                typedNative<SeekBarNativeImpl<*>>()?.setValue(clamped)
-                syncValueOnlyDataAttributes()
-            }
-            if (!suppressBoundSeekPropagation && boundPlayerSeekCallbacks.isNotEmpty()) {
-                notifyBoundPlayerSeek(clamped)
-            }
-        }
+    private var activeKnobDragSession: PointerDragSession? = null
+    private var inEndKnobDrag: Boolean = false
+    private var lastPreloadSyncMin: Double = this.min
+    private var lastPreloadSyncMax: Double = this.max
+    private var lastPreloadPct: Float = -1f
 
     var bufferedValue: Double
         get() = bufferedRanges.maxOfOrNull { it.second } ?: 0.0
-        set(newBufferedEnd) {
-            bufferedRanges = if (newBufferedEnd > min) {
-                listOf(min to newBufferedEnd.coerceIn(min, max))
-            } else {
-                emptyList()
-            }
+        set(bufEnd) {
+            val clamped = bufEnd.coerceIn(min, max)
+            bufferedRanges = if (clamped > min) listOf(min to clamped) else emptyList()
         }
 
     var bufferedRanges: List<Pair<Double, Double>> = emptyList()
@@ -111,67 +69,80 @@ open class SeekBar(
                 val clampedEnd = end.coerceIn(min, max)
                 if (clampedEnd > clampedStart) clampedStart to clampedEnd else null
             }
-            if (field == normalized) return
+            val changed = field != normalized
             field = normalized
-            val serialized = normalized.joinToString(",") { "${it.first}-${it.second}" }
-            val bufEnd = normalized.maxOfOrNull { it.second } ?: 0.0
-            setAttribute("bufferedRanges", serialized)
-            setAttribute("bufferedEnd", bufEnd.toString())
-            setAttribute("data-buffered-ranges", serialized)
-            setAttribute("data-buffered-end", bufEnd.toString())
-            typedNative<SeekBarNativeImpl<*>>()?.setBufferedRanges(field, max)
-            syncBufferedOnlyDataAttributes(serialized, bufEnd)
+            if (changed || lastPreloadSyncMax != max || lastPreloadSyncMin != min) {
+                syncPreloadWidthPercentage()
+                syncBufferedDataAttributes()
+            }
         }
 
-    var accentColor: RgbaColor? = null
-        set(color) {
-            field = color
-            syncColorsToNative()
-        }
-
-    var bufferedColor: RgbaColor = RgbaColor(255, 255, 255, 128)
-        set(color) {
-            field = color
-            syncColorsToNative()
-        }
-
-    var trackColor: RgbaColor = RgbaColor(255, 255, 255, 56)
-        set(color) {
-            field = color
-            syncColorsToNative()
-        }
-
-    var thumbColor: RgbaColor? = null
-        set(color) {
-            field = color
-            syncColorsToNative()
-        }
-
-    var trackHeightPx: Float = 5f
-        set(height) {
-            field = height.coerceAtLeast(1f)
-            typedNative<SeekBarNativeImpl<*>>()?.setDimensions(field, thumbRadiusPx)
-            syncVisualDataAttributes()
-        }
-
-    var thumbRadiusPx: Float = 7f
-        set(radius) {
-            field = radius.coerceAtLeast(0f)
-            typedNative<SeekBarNativeImpl<*>>()?.setDimensions(trackHeightPx, field)
-            syncVisualDataAttributes()
-        }
-
-    var isScrubbing: Boolean = false
-        private set
-
-    private var activeKnobDragSession: PointerDragSession? = null
-    private var inEndKnobDrag: Boolean = false
-
-    var onValueChanged: ((Double) -> Unit)? = null
     var onSeekStart: ((Double) -> Unit)? = null
     var onSeekCommit: ((Double) -> Unit)? = null
     var onTrackHoverMove: ((fraction: Double, isOverKnob: Boolean) -> Unit)? = null
     var onTrackHoverExit: (() -> Unit)? = null
+
+    val playedFraction: Float
+        get() = normalizedFraction.toFloat().coerceIn(0f, 1f)
+
+    val bufferedFraction: Float
+        get() = if (max > min) ((bufferedValue - min) / (max - min)).toFloat().coerceIn(0f, 1f) else 0f
+
+    init {
+        MediaExtension.ensureStyleSheetRegistered()
+        htmlTag = DEFAULT_TAG_NAME
+        addClass(SEEK_BAR_CLASS)
+        addCompositeChild(preloadSegment)
+
+        syncPreloadWidthPercentage()
+        syncAllDataAttributes()
+
+        onValueChanged { newVal ->
+            handleSliderValueChanged(newVal)
+        }
+
+        onScrubStateChanged = { scrubbing ->
+            handleScrubStateChanged(scrubbing)
+        }
+
+        wireHoverPreviewHandlers()
+    }
+
+    private fun handleSliderValueChanged(newVal: Double) {
+        if (lastPreloadSyncMax != max || lastPreloadSyncMin != min) {
+            syncPreloadWidthPercentage()
+            syncBufferedDataAttributes()
+        }
+        syncValueOnlyDataAttributes()
+        if (!suppressBoundSeekPropagation) {
+            notifyBoundPlayerSeek(newVal)
+        }
+    }
+
+    private fun handleScrubStateChanged(scrubbing: Boolean) {
+        if (suppressInternalScrubCallbacks) return
+        if (scrubbing) {
+            onSeekStart?.invoke(value)
+        } else {
+            val suppressCommit = suppressCommitOnNextEndScrub
+            suppressCommitOnNextEndScrub = false
+            if (!suppressCommit) {
+                val clamped = value.coerceIn(min, max)
+                onSeekCommit?.invoke(clamped)
+                notifyBoundPlayerSeek(clamped)
+            }
+        }
+    }
+
+    internal fun internalPreloadSegment(): StyledComponent = preloadSegment
+
+    internal fun mediaTrackButton(): StyledButton = trackButton
+
+    internal fun mediaProgressSegment(): StyledComponent = progressSegment
+
+    internal fun mediaKnobButton(): StyledButton = knobButton
+
+    internal fun mediaCompositeChildren(): List<AbstractComponent> = compositeChildren
 
     fun notifyTrackHover(fraction: Double, isOverKnob: Boolean) {
         onTrackHoverMove?.invoke(fraction.coerceIn(0.0, 1.0), isOverKnob)
@@ -181,51 +152,8 @@ open class SeekBar(
         onTrackHoverExit?.invoke()
     }
 
-    val playedFraction: Float
-        get() = if (max > min) ((value - min) / (max - min)).toFloat().coerceIn(0f, 1f) else 0f
-
-    val bufferedFraction: Float
-        get() = if (max > min) ((bufferedValue - min) / (max - min)).toFloat().coerceIn(0f, 1f) else 0f
-
-    init {
-        htmlTag = "genericui:seekbar"
-        syncVisualDataAttributes()
-        onPointerDown = { event ->
-            if (typedNative<SeekBarNativeImpl<*>>()?.handlesNativePointerScrubbing != true) {
-                if (isEnabled && !isScrubbing) {
-                    beginKnobDrag(resolveFractionFromPointerX(event.x), event)
-                }
-            }
-        }
-        onPointerMove = { event ->
-            val nativeImpl = typedNative<SeekBarNativeImpl<*>>()
-            val fraction = resolveFractionFromPointerX(event.x)
-            if (nativeImpl?.handlesNativePointerScrubbing != true && isEnabled && isScrubbing) {
-                updateKnobDrag(fraction)
-            }
-            if (nativeImpl?.supportsNativeTrackHover != true) {
-                val w = (getBounds().width.takeIf { it > 0 } ?: widthPx ?: 200).toFloat()
-                val knobCenterX = playedFraction * w
-                val knobThreshold = maxOf(9f, thumbRadiusPx + 2f)
-                val overKnob = kotlin.math.abs(event.x - knobCenterX) <= knobThreshold
-                notifyTrackHover(fraction, overKnob)
-            }
-        }
-        onPointerLeave = {
-            if (typedNative<SeekBarNativeImpl<*>>()?.supportsNativeTrackHover != true) {
-                notifyTrackHoverExit()
-            }
-        }
-        onPointerUp = { event ->
-            if (typedNative<SeekBarNativeImpl<*>>()?.handlesNativePointerScrubbing != true && isScrubbing) {
-                updateKnobDrag(resolveFractionFromPointerX(event.x))
-                endKnobDrag(commit = true)
-            }
-        }
-    }
-
     fun resolveFractionFromPointerX(pointerX: Float): Double {
-        val w = (getBounds().width.takeIf { it > 0 } ?: widthPx ?: 200).toFloat()
+        val w = resolveEffectiveTrackWidthPx()
         if (w <= 1f) return 0.0
         return (pointerX / w).toDouble().coerceIn(0.0, 1.0)
     }
@@ -243,16 +171,23 @@ open class SeekBar(
     }
 
     /**
-     * Begins a global pointer drag session for this seekbar's knob via [PointerDragManager],
-     * allowing dragging to continue smoothly when the pointer leaves the element bounds and
-     * committing the seek when the pointer is released anywhere inside or outside the element.
+     * Begins a global pointer drag session at [initialFraction] via [PointerDragManager],
+     * delegating scrub state cleanly to [StyledSlider.beginScrub].
      */
     fun beginKnobDrag(
         initialFraction: Double,
         initialEvent: PointerEvent = PointerEvent()
     ): PointerDragSession {
-        isScrubbing = true
+        if (!isScrubbing) {
+            suppressInternalScrubCallbacks = true
+            try {
+                beginScrub()
+            } finally {
+                suppressInternalScrubCallbacks = false
+            }
+        }
         val startVal = resolveValueFromFraction(initialFraction)
+        val changed = abs(value - startVal) >= EPSILON
         suppressBoundSeekPropagation = true
         try {
             value = startVal
@@ -261,7 +196,9 @@ open class SeekBar(
         }
         val session = ensureGlobalKnobDragSession(initialEvent)
         onSeekStart?.invoke(startVal)
-        onValueChanged?.invoke(startVal)
+        if (!changed) {
+            onValueChanged?.invoke(startVal)
+        }
         return session
     }
 
@@ -274,105 +211,41 @@ open class SeekBar(
             return
         }
         val nextVal = resolveValueFromFraction(fraction)
+        val changed = abs(value - nextVal) >= EPSILON
         suppressBoundSeekPropagation = true
         try {
             value = nextVal
         } finally {
             suppressBoundSeekPropagation = false
         }
-        onValueChanged?.invoke(nextVal)
+        if (!changed) {
+            onValueChanged?.invoke(nextVal)
+        }
         notifyBoundPlayerSeek(nextVal)
     }
 
     /**
      * Ends the active seekbar knob drag session and commits the seek position when [commit] is `true`.
      */
-    fun endKnobDrag(commit: Boolean = true) {
+    fun endKnobDrag(commit: Boolean) {
         if (inEndKnobDrag) return
         if (!isScrubbing && activeKnobDragSession == null) return
         inEndKnobDrag = true
         try {
-            isScrubbing = false
             val session = activeKnobDragSession
             activeKnobDragSession = null
             if (session != null && session.isActive) {
                 PointerDragManager.endSession(session, session.lastEvent, cancelled = !commit)
             }
-            if (commit) {
-                val clamped = value.coerceIn(min, max)
-                onSeekCommit?.invoke(clamped)
-                notifyBoundPlayerSeek(clamped)
+            if (!commit) {
+                suppressCommitOnNextEndScrub = true
             }
+            endScrub()
         } finally {
+            suppressCommitOnNextEndScrub = false
             inEndKnobDrag = false
         }
     }
-
-    private fun ensureGlobalKnobDragSession(initialEvent: PointerEvent = PointerEvent()): PointerDragSession {
-        val existing = activeKnobDragSession
-        if (existing != null && existing.isActive) return existing
-        return startPointerDrag(
-            initialEvent = initialEvent,
-            onDragMove = { moveEv ->
-                if (isEnabled) {
-                    updateKnobDrag(resolveFractionFromPointerX(moveEv.x))
-                }
-            },
-            onDragEnd = { endEv, cancelled ->
-                if (!inEndKnobDrag && isScrubbing) {
-                    if (!cancelled && isEnabled && (endEv.x != 0f || endEv.screenX != 0f)) {
-                        updateKnobDrag(resolveFractionFromPointerX(endEv.x))
-                    }
-                    endKnobDrag(commit = !cancelled)
-                }
-            }
-        ).also { activeKnobDragSession = it }
-    }
-
-    private var cachedSheetCountForColors: Int = -1
-    private var cachedSheetAccentColor: RgbaColor? = null
-    private var cachedSheetAccentResolved: Boolean = false
-
-    fun resolveEffectiveAccentColor(): RgbaColor {
-        accentColor?.let { return it }
-
-        val appTheme = Application.current?.getThemeColor()?.trim()?.takeIf { it.isNotEmpty() }
-        if (appTheme != null) {
-            runCatching { RgbaColor.fromCss(appTheme) }.getOrNull()?.let { parsed ->
-                if (parsed.r > 40 || parsed.g > 40 || parsed.b > 40) {
-                    return parsed
-                }
-            }
-        }
-
-        val styleSheets = Application.current?.getStyleSheets().orEmpty()
-        if (styleSheets.size != cachedSheetCountForColors || !cachedSheetAccentResolved) {
-            cachedSheetCountForColors = styleSheets.size
-            cachedSheetAccentResolved = true
-            var found: RgbaColor? = null
-            for (sheet in styleSheets) {
-                val raw = sheet.rawCss
-                if (raw.isNotBlank()) {
-                    found = extractCssCustomPropertyColor(raw, "--genericui-accent-color")
-                        ?: extractCssCustomPropertyColor(raw, "--bs-primary")
-                    if (found != null) break
-                }
-            }
-            cachedSheetAccentColor = found
-        }
-        cachedSheetAccentColor?.let { return it }
-
-        getStyle().accentColor?.let { return it }
-        getAttribute("data-accent-color")?.trim()?.takeIf { it.isNotEmpty() }?.let { attrCss ->
-            runCatching { RgbaColor.fromCss(attrCss) }.getOrNull()?.let { return it }
-        }
-        getStyle().color?.let { return it }
-
-        return RgbaColor(13, 110, 253, 255)
-    }
-
-    fun resolveEffectiveThumbColor(): RgbaColor =
-        thumbColor ?: resolveEffectiveAccentColor()
 
     fun updateProgressAndBuffer(
         currentValue: Double,
@@ -393,6 +266,8 @@ open class SeekBar(
             } else {
                 this.bufferedValue = bufferedEndValue
             }
+            syncPreloadWidthPercentage()
+            syncAllDataAttributes()
         } finally {
             suppressBoundSeekPropagation = false
         }
@@ -458,170 +333,110 @@ open class SeekBar(
         }
     }
 
-    protected override fun createNativeImpl(factory: NativeFactory): SeekBarNativeImpl<*> =
-        MediaExtension.createSeekBarNativeOrFallback()
-
-    protected override fun onAttachNative(impl: NativeImpl<*>) {
-        super.onAttachNative(impl)
-        syncSeekBarToNative(impl as? SeekBarNativeImpl<*> ?: return)
+    override fun dispose() {
+        activeKnobDragSession?.cancel()
+        activeKnobDragSession = null
+        boundPlayerSeekCallbacks.clear()
+        super.dispose()
     }
 
-    override fun syncStateToNative() {
-        super.syncStateToNative()
-        val impl = typedNative<SeekBarNativeImpl<*>>() ?: return
-        syncSeekBarToNative(impl)
-    }
+    private fun wireHoverPreviewHandlers() {
+        val baseSelfMove = this.onPointerMove
+        val baseTrackMove = trackButton.onPointerMove
+        val baseKnobMove = knobButton.onPointerMove
+        val baseSelfLeave = this.onPointerLeave
 
-    private fun syncSeekBarToNative(impl: SeekBarNativeImpl<*>) {
-        impl.setRange(min, max, step)
-        impl.setValue(value)
-        impl.setBufferedRanges(bufferedRanges, max)
-        impl.setColors(
-            accentColor = resolveEffectiveAccentColor(),
-            bufferedColor = bufferedColor,
-            trackColor = trackColor,
-            thumbColor = resolveEffectiveThumbColor()
-        )
-        impl.setDimensions(trackHeightPx, thumbRadiusPx)
-        impl.setOnSeekStart { startVal ->
-            isScrubbing = true
-            if (!impl.handlesNativePointerScrubbing) {
-                ensureGlobalKnobDragSession()
-            }
-            val clamped = startVal.coerceIn(min, max)
-            suppressBoundSeekPropagation = true
-            try {
-                value = clamped
-            } finally {
-                suppressBoundSeekPropagation = false
-            }
-            onSeekStart?.invoke(clamped)
+        this.onPointerMove = { event ->
+            baseSelfMove?.invoke(event)
+            emitTrackHover(event.x)
         }
-        impl.setOnValueChanged { newVal ->
-            val clamped = newVal.coerceIn(min, max)
-            suppressBoundSeekPropagation = true
-            try {
-                value = clamped
-            } finally {
-                suppressBoundSeekPropagation = false
-            }
-            onValueChanged?.invoke(clamped)
-            notifyBoundPlayerSeek(clamped)
+        trackButton.onPointerMove = { event ->
+            baseTrackMove?.invoke(event)
+            emitTrackHover(event.x)
         }
-        impl.setOnSeekCommit { commitVal ->
-            isScrubbing = false
-            val session = activeKnobDragSession
-            activeKnobDragSession = null
-            if (session != null && session.isActive) {
-                inEndKnobDrag = true
-                try {
-                    PointerDragManager.endSession(session, session.lastEvent, cancelled = false)
-                } finally {
-                    inEndKnobDrag = false
-                }
-            }
-            val clamped = commitVal.coerceIn(min, max)
-            suppressBoundSeekPropagation = true
-            try {
-                value = clamped
-            } finally {
-                suppressBoundSeekPropagation = false
-            }
-            onSeekCommit?.invoke(clamped)
-            notifyBoundPlayerSeek(clamped)
+        knobButton.onPointerMove = { event ->
+            baseKnobMove?.invoke(event)
+            val w = resolveEffectiveTrackWidthPx()
+            val knobW = knobButton.getBounds().width.toFloat()
+            val offsetPx = if (knobW > 0f) event.x - knobW / 2f else 0f
+            val fraction = (playedFraction.toDouble() + (offsetPx / w).toDouble()).coerceIn(0.0, 1.0)
+            notifyTrackHover(fraction, isOverKnob = true)
         }
-        impl.setOnTrackHoverMove { fraction, isOverKnob ->
-            notifyTrackHover(fraction, isOverKnob)
-        }
-        impl.setOnTrackHoverExit {
+        this.onPointerLeave = { event ->
+            baseSelfLeave?.invoke(event)
             notifyTrackHoverExit()
         }
-        syncVisualDataAttributes()
     }
 
-    private fun syncColorsToNative() {
-        val effectiveAccent = resolveEffectiveAccentColor()
-        val effectiveThumb = resolveEffectiveThumbColor()
-        typedNative<SeekBarNativeImpl<*>>()?.setColors(
-            accentColor = effectiveAccent,
-            bufferedColor = bufferedColor,
-            trackColor = trackColor,
-            thumbColor = effectiveThumb
-        )
-        syncVisualDataAttributes()
+    private fun emitTrackHover(localX: Float) {
+        val fraction = resolveFractionFromPointerX(localX)
+        val w = resolveEffectiveTrackWidthPx()
+        val knobCenterX = playedFraction * w
+        val knobHalfW = (knobButton.getBounds().width.takeIf { it > 0 }?.toFloat()?.div(2f)) ?: 7f
+        val overKnob = abs(localX - knobCenterX) <= maxOf(9f, knobHalfW + 2f)
+        notifyTrackHover(fraction, overKnob)
+    }
+
+    private fun resolveEffectiveTrackWidthPx(): Float {
+        val trackW = trackButton.getBounds().width
+        if (trackW > 0) return trackW.toFloat()
+        val selfW = getBounds().width
+        if (selfW > 0) return selfW.toFloat()
+        return (widthPx?.takeIf { it > 0 } ?: 200).toFloat()
+    }
+
+    private fun ensureGlobalKnobDragSession(initialEvent: PointerEvent = PointerEvent()): PointerDragSession {
+        val existing = activeKnobDragSession
+        if (existing != null && existing.isActive) return existing
+        return startPointerDrag(
+            initialEvent = initialEvent,
+            onDragMove = { moveEv ->
+                if (isEnabled) {
+                    updateKnobDrag(resolveFractionFromPointerX(moveEv.x))
+                }
+            },
+            onDragEnd = { endEv, cancelled ->
+                if (!inEndKnobDrag && isScrubbing) {
+                    if (!cancelled && isEnabled && (endEv.x != 0f || endEv.screenX != 0f)) {
+                        updateKnobDrag(resolveFractionFromPointerX(endEv.x))
+                    }
+                    endKnobDrag(commit = !cancelled)
+                }
+            }
+        ).also { activeKnobDragSession = it }
+    }
+
+    private fun syncPreloadWidthPercentage() {
+        lastPreloadSyncMin = min
+        lastPreloadSyncMax = max
+        val pct = if (max > min) {
+            (((bufferedValue - min) / (max - min)) * 100.0).toFloat().coerceIn(0f, 100f)
+        } else {
+            0f
+        }
+        if (abs(pct - lastPreloadPct) < 1e-4f) return
+        lastPreloadPct = pct
+        preloadSegment.style.setWidth(CssLength.percent(pct))
     }
 
     private fun syncValueOnlyDataAttributes() {
-        val valStr = value.toString()
-        val playedStr = playedFraction.toString()
-        setAttribute("data-value", valStr)
-        setAttribute("data-played-fraction", playedStr)
-        typedNative<SeekBarNativeImpl<*>>()?.let { impl ->
-            impl.setAttribute("data-value", valStr)
-            impl.setAttribute("data-played-fraction", playedStr)
-        }
+        setAttribute("data-min", min.toString())
+        setAttribute("data-max", max.toString())
+        setAttribute("data-step", step.toString())
+        setAttribute("data-value", value.toString())
+        setAttribute("data-played-fraction", playedFraction.toString())
     }
 
-    private fun syncBufferedOnlyDataAttributes(serializedRanges: String, bufEnd: Double) {
-        val bufferedStr = bufferedFraction.toString()
-        val bufEndStr = bufEnd.toString()
-        setAttribute("data-buffered-fraction", bufferedStr)
-        setAttribute("data-buffered-end", bufEndStr)
-        setAttribute("data-buffered-ranges", serializedRanges)
-        typedNative<SeekBarNativeImpl<*>>()?.let { impl ->
-            impl.setAttribute("data-buffered-fraction", bufferedStr)
-            impl.setAttribute("data-buffered-end", bufEndStr)
-            impl.setAttribute("data-buffered-ranges", serializedRanges)
-        }
+    private fun syncBufferedDataAttributes() {
+        val serialized = bufferedRanges.joinToString(",") { "${it.first}-${it.second}" }
+        setAttribute("data-buffered-fraction", bufferedFraction.toString())
+        setAttribute("data-buffered-end", bufferedValue.toString())
+        setAttribute("data-buffered-ranges", serialized)
     }
 
-    private fun syncVisualDataAttributes() {
-        val minStr = min.toString()
-        val maxStr = max.toString()
-        val stepStr = step.toString()
-        val valStr = value.toString()
-        val playedStr = playedFraction.toString()
-        val bufferedStr = bufferedFraction.toString()
-        val bufEndStr = bufferedValue.toString()
-        val rangesStr = bufferedRanges.joinToString(",") { "${it.first}-${it.second}" }
-        val accentStr = resolveEffectiveAccentColor().toCssRgbaString()
-        val bufColorStr = bufferedColor.toCssRgbaString()
-        val trackColorStr = trackColor.toCssRgbaString()
-        val thumbColorStr = resolveEffectiveThumbColor().toCssRgbaString()
-        val trackHStr = trackHeightPx.toString()
-        val thumbRStr = thumbRadiusPx.toString()
-
-        setAttribute("data-min", minStr)
-        setAttribute("data-max", maxStr)
-        setAttribute("data-step", stepStr)
-        setAttribute("data-value", valStr)
-        setAttribute("data-played-fraction", playedStr)
-        setAttribute("data-buffered-fraction", bufferedStr)
-        setAttribute("data-buffered-end", bufEndStr)
-        setAttribute("data-buffered-ranges", rangesStr)
-        setAttribute("data-effective-accent-color", accentStr)
-        setAttribute("data-buffered-color", bufColorStr)
-        setAttribute("data-track-color", trackColorStr)
-        setAttribute("data-thumb-color", thumbColorStr)
-        setAttribute("data-track-height-px", trackHStr)
-        setAttribute("data-thumb-radius-px", thumbRStr)
-
-        typedNative<SeekBarNativeImpl<*>>()?.let { impl ->
-            impl.setAttribute("data-min", minStr)
-            impl.setAttribute("data-max", maxStr)
-            impl.setAttribute("data-step", stepStr)
-            impl.setAttribute("data-value", valStr)
-            impl.setAttribute("data-played-fraction", playedStr)
-            impl.setAttribute("data-buffered-fraction", bufferedStr)
-            impl.setAttribute("data-buffered-end", bufEndStr)
-            impl.setAttribute("data-buffered-ranges", rangesStr)
-            impl.setAttribute("data-effective-accent-color", accentStr)
-            impl.setAttribute("data-buffered-color", bufColorStr)
-            impl.setAttribute("data-track-color", trackColorStr)
-            impl.setAttribute("data-thumb-color", thumbColorStr)
-            impl.setAttribute("data-track-height-px", trackHStr)
-            impl.setAttribute("data-thumb-radius-px", thumbRStr)
-        }
+    private fun syncAllDataAttributes() {
+        syncValueOnlyDataAttributes()
+        syncBufferedDataAttributes()
     }
 
     private fun notifyBoundPlayerSeek(targetSeconds: Double) {
@@ -630,15 +445,10 @@ open class SeekBar(
         }
     }
 
-    private fun extractCssCustomPropertyColor(rawCss: String, variableName: String): RgbaColor? {
-        val idx = rawCss.indexOf(variableName)
-        if (idx < 0) return null
-        val colonIdx = rawCss.indexOf(':', idx + variableName.length)
-        if (colonIdx < 0) return null
-        val endIdx = rawCss.indexOfAny(charArrayOf(';', '}'), colonIdx + 1)
-        val rawValue = (if (endIdx > colonIdx) rawCss.substring(colonIdx + 1, endIdx) else rawCss.substring(colonIdx + 1))
-            .trim()
-        if (rawValue.isEmpty()) return null
-        return runCatching { RgbaColor.fromCss(rawValue) }.getOrNull()
+    companion object {
+        const val DEFAULT_TAG_NAME: String = "genericui:seekbar"
+        const val SEEK_BAR_CLASS: String = "seek-bar"
+        const val PRELOAD_CLASS: String = "seek-bar-preload"
+        private const val EPSILON: Double = 1e-6
     }
 }

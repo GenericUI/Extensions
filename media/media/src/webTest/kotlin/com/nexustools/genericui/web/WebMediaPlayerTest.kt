@@ -145,6 +145,8 @@ class WebMediaPlayerTest {
             MediaScreenWakeController.releaseAll()
             if (prevFactory != null) {
                 GenericUI.initialize(prevFactory)
+            } else {
+                GenericUI.activeFactory = null
             }
         }
     }

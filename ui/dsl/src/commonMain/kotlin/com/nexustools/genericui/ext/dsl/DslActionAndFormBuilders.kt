@@ -103,11 +103,10 @@ inline fun AbstractContainer.buttonGroup(
  */
 inline fun AbstractContainer.dropdownButton(
     label: String = "",
-    type: BootstrapType = BootstrapType.PRIMARY,
     classes: String? = null,
     id: String? = null,
     block: (@GenericUiDslMarker DropdownButton).() -> Unit = {}
-): DropdownButton = mountDslComponent(this, DropdownButton(label = label, type = type), classes, id, block)
+): DropdownButton = mountDslComponent(this, DropdownButton(label = label), classes, id, block)
 
 /**
  * In-place `<input type="text">` [TextField] builder.

@@ -3,9 +3,6 @@ package com.nexustools.genericui.ext.aichat
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.HStack
 import com.nexustools.genericui.component.layout.VStack
-import com.nexustools.genericui.enums.bootstrap.BorderRadiusStyle
-import com.nexustools.genericui.enums.bootstrap.BootstrapType
-import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.ext.codeeditor.CodeLanguage
 import com.nexustools.genericui.ext.codeeditor.IdeCodeEditor
 
@@ -36,10 +33,8 @@ class AiChatMessageView(
     private val toolCallCards = mutableListOf<AiChatToolCallCard>()
 
     init {
+        AiChatExtension.ensureStyleSheetRegistered()
         addClass("ai-chat-message-view")
-        setBorderRadius(BorderRadiusStyle.ROUNDED_3)
-        setPaddingAll(SpacingScale.S3)
-        setMarginAll(SpacingScale.S2)
 
         addChild(headerBar)
         addChild(reasoningAccordion)
@@ -55,13 +50,17 @@ class AiChatMessageView(
     fun bindMessage(updated: AiChatMessage) {
         this.message = updated
 
-        val roleBorder = when (updated.role) {
-            AiMessageRole.USER -> BootstrapType.PRIMARY
-            AiMessageRole.ASSISTANT -> BootstrapType.INFO
-            AiMessageRole.TOOL -> BootstrapType.SUCCESS
-            AiMessageRole.SYSTEM -> BootstrapType.SECONDARY
+        removeClass("ai-message-role-user")
+        removeClass("ai-message-role-assistant")
+        removeClass("ai-message-role-tool")
+        removeClass("ai-message-role-system")
+        val roleClass = when (updated.role) {
+            AiMessageRole.USER -> "ai-message-role-user"
+            AiMessageRole.ASSISTANT -> "ai-message-role-assistant"
+            AiMessageRole.TOOL -> "ai-message-role-tool"
+            AiMessageRole.SYSTEM -> "ai-message-role-system"
         }
-        setBorderType(roleBorder)
+        addClass(roleClass)
 
         if (updated.hasReasoning) {
             reasoningAccordion.isVisible = true

@@ -7,20 +7,26 @@ import com.nexustools.genericui.ext.mediacontrols.MediaControlButtonConfig
 import com.nexustools.genericui.ext.mediacontrols.MediaControlMetadata
 import com.nexustools.genericui.ext.mediacontrols.MediaPlaybackStatus
 import com.nexustools.genericui.threading.GenericUiThreading
+import platform.Foundation.NSThread
 import platform.MediaPlayer.MPChangePlaybackPositionCommandEvent
 import platform.MediaPlayer.MPMediaItemPropertyAlbumTitle
 import platform.MediaPlayer.MPMediaItemPropertyArtist
 import platform.MediaPlayer.MPMediaItemPropertyPlaybackDuration
 import platform.MediaPlayer.MPMediaItemPropertyTitle
 import platform.MediaPlayer.MPNowPlayingInfoCenter
+import platform.MediaPlayer.MPNowPlayingInfoPropertyDefaultPlaybackRate
 import platform.MediaPlayer.MPNowPlayingInfoPropertyElapsedPlaybackTime
 import platform.MediaPlayer.MPNowPlayingInfoPropertyPlaybackRate
+import platform.MediaPlayer.MPNowPlayingPlaybackState
 import platform.MediaPlayer.MPNowPlayingPlaybackStatePaused
 import platform.MediaPlayer.MPNowPlayingPlaybackStatePlaying
 import platform.MediaPlayer.MPNowPlayingPlaybackStateStopped
+import platform.MediaPlayer.MPRemoteCommand
 import platform.MediaPlayer.MPRemoteCommandCenter
 import platform.MediaPlayer.MPRemoteCommandHandlerStatusCommandFailed
 import platform.MediaPlayer.MPRemoteCommandHandlerStatusSuccess
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_get_main_queue
 import kotlin.math.roundToLong
 
 /**
@@ -33,81 +39,88 @@ internal class AppleNowPlayingBridge(
 ) {
     val nowPlayingInfoDictionary: MutableMap<String, Any?> = mutableMapOf()
     private var remoteCommandsInstalled: Boolean = false
-    private val commandTargets: MutableList<Pair<Any, Any>> = mutableListOf()
+    private var disposed: Boolean = false
+    private var latestButtonConfig: MediaControlButtonConfig = MediaControlButtonConfig()
+    private val commandTargets: MutableList<Pair<MPRemoteCommand, Any>> = mutableListOf()
+
+    private fun runOnAppleMain(block: () -> Unit) {
+        if (NSThread.isMainThread) {
+            block()
+        } else {
+            dispatch_async(dispatch_get_main_queue(), block)
+        }
+    }
 
     fun ensureRemoteCommandsInstalled(buttonConfig: MediaControlButtonConfig) {
-        if (remoteCommandsInstalled) return
-        remoteCommandsInstalled = true
-        runCatching {
-            val center = MPRemoteCommandCenter.sharedCommandCenter()
-            commandTargets.add(
-                center.playCommand to center.playCommand.addTargetWithHandler { _ ->
-                    if (!isActiveProvider()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
-                    GenericUiThreading.runOnLogic { onRemoteCommand(MediaControlAction.PLAY, null) }
-                    MPRemoteCommandHandlerStatusSuccess
-                }
-            )
-            commandTargets.add(
-                center.pauseCommand to center.pauseCommand.addTargetWithHandler { _ ->
-                    if (!isActiveProvider()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
-                    GenericUiThreading.runOnLogic { onRemoteCommand(MediaControlAction.PAUSE, null) }
-                    MPRemoteCommandHandlerStatusSuccess
-                }
-            )
-            commandTargets.add(
-                center.togglePlayPauseCommand to center.togglePlayPauseCommand.addTargetWithHandler { _ ->
-                    if (!isActiveProvider()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
-                    GenericUiThreading.runOnLogic { onRemoteCommand(MediaControlAction.PLAY_PAUSE, null) }
-                    MPRemoteCommandHandlerStatusSuccess
-                }
-            )
-            commandTargets.add(
-                center.stopCommand to center.stopCommand.addTargetWithHandler { _ ->
-                    if (!isActiveProvider()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
-                    GenericUiThreading.runOnLogic { onRemoteCommand(MediaControlAction.STOP, null) }
-                    MPRemoteCommandHandlerStatusSuccess
-                }
-            )
-            commandTargets.add(
-                center.nextTrackCommand to center.nextTrackCommand.addTargetWithHandler { _ ->
-                    if (!isActiveProvider()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
-                    GenericUiThreading.runOnLogic { onRemoteCommand(MediaControlAction.NEXT, null) }
-                    MPRemoteCommandHandlerStatusSuccess
-                }
-            )
-            commandTargets.add(
-                center.previousTrackCommand to center.previousTrackCommand.addTargetWithHandler { _ ->
-                    if (!isActiveProvider()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
-                    GenericUiThreading.runOnLogic { onRemoteCommand(MediaControlAction.PREVIOUS, null) }
-                    MPRemoteCommandHandlerStatusSuccess
-                }
-            )
-            commandTargets.add(
-                center.changePlaybackPositionCommand to center.changePlaybackPositionCommand.addTargetWithHandler { event ->
-                    if (!isActiveProvider()) return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
-                    val posEvent = event as? MPChangePlaybackPositionCommandEvent
-                        ?: return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
-                    val targetMs = (posEvent.positionTime * 1000.0).roundToLong().coerceAtLeast(0L)
-                    GenericUiThreading.runOnLogic {
-                        onRemoteCommand(MediaControlAction.SEEK_TO, targetMs)
+        if (disposed) return
+        latestButtonConfig = buttonConfig
+        runOnAppleMain {
+            if (disposed) return@runOnAppleMain
+            val commandCenter = MPRemoteCommandCenter.sharedCommandCenter()
+            if (!remoteCommandsInstalled) {
+                val installed = ArrayList<Pair<MPRemoteCommand, Any>>(7)
+                try {
+                    fun registerActionCommand(command: MPRemoteCommand, action: MediaControlAction) {
+                        val token = command.addTargetWithHandler { _ ->
+                            if (!isActiveProvider()) {
+                                return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
+                            }
+                            GenericUiThreading.runOnLogic { onRemoteCommand(action, null) }
+                            MPRemoteCommandHandlerStatusSuccess
+                        }
+                        installed.add(command to token)
                     }
-                    MPRemoteCommandHandlerStatusSuccess
+
+                    registerActionCommand(commandCenter.playCommand, MediaControlAction.PLAY)
+                    registerActionCommand(commandCenter.pauseCommand, MediaControlAction.PAUSE)
+                    registerActionCommand(commandCenter.togglePlayPauseCommand, MediaControlAction.PLAY_PAUSE)
+                    registerActionCommand(commandCenter.stopCommand, MediaControlAction.STOP)
+                    registerActionCommand(commandCenter.nextTrackCommand, MediaControlAction.NEXT)
+                    registerActionCommand(commandCenter.previousTrackCommand, MediaControlAction.PREVIOUS)
+
+                    val seekToken = commandCenter.changePlaybackPositionCommand.addTargetWithHandler { event ->
+                        if (!isActiveProvider()) {
+                            return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
+                        }
+                        val posEvent = event as? MPChangePlaybackPositionCommandEvent
+                            ?: return@addTargetWithHandler MPRemoteCommandHandlerStatusCommandFailed
+                        val targetMs = (posEvent.positionTime * 1000.0).roundToLong().coerceAtLeast(0L)
+                        GenericUiThreading.runOnLogic {
+                            onRemoteCommand(MediaControlAction.SEEK_TO, targetMs)
+                        }
+                        MPRemoteCommandHandlerStatusSuccess
+                    }
+                    installed.add(commandCenter.changePlaybackPositionCommand to seekToken)
+
+                    commandTargets.addAll(installed)
+                    remoteCommandsInstalled = true
+                } catch (_: Throwable) {
+                    for ((command, token) in installed) {
+                        runCatching { command.removeTarget(token) }
+                    }
+                    return@runOnAppleMain
                 }
-            )
-            syncRemoteCommandButtons(buttonConfig)
+            }
+            if (isActiveProvider()) {
+                activeBridges.add(this)
+            }
+            applyRemoteCommandButtonsOnMain(commandCenter, latestButtonConfig, active = isActiveProvider())
         }
     }
 
     fun syncRemoteCommandButtons(config: MediaControlButtonConfig) {
-        runCatching {
-            val center = MPRemoteCommandCenter.sharedCommandCenter()
-            center.playCommand.enabled = config.playPauseEnabled
-            center.pauseCommand.enabled = config.playPauseEnabled
-            center.togglePlayPauseCommand.enabled = config.playPauseEnabled
-            center.stopCommand.enabled = config.stopEnabled
-            center.nextTrackCommand.enabled = config.nextEnabled
-            center.previousTrackCommand.enabled = config.previousEnabled
-            center.changePlaybackPositionCommand.enabled = config.seekEnabled
+        if (disposed) return
+        latestButtonConfig = config
+        runOnAppleMain {
+            if (disposed) return@runOnAppleMain
+            val active = isActiveProvider()
+            if (active) {
+                activeBridges.add(this)
+            } else {
+                activeBridges.remove(this)
+            }
+            if (!active && activeBridges.isNotEmpty()) return@runOnAppleMain
+            applyRemoteCommandButtonsOnMain(MPRemoteCommandCenter.sharedCommandCenter(), latestButtonConfig, active)
         }
     }
 
@@ -118,66 +131,132 @@ internal class AppleNowPlayingBridge(
         durationMs: Long,
         playbackRate: Float
     ) {
-        if (!isActiveProvider()) {
+        if (disposed || !isActiveProvider()) {
             clearNowPlayingInfo()
             return
         }
         val durationSec = durationMs / 1000.0
-        val elapsedSec = positionMs / 1000.0
+        val elapsedSec = (positionMs / 1000.0).coerceAtLeast(0.0)
         val rate = if (status == MediaPlaybackStatus.PLAYING) playbackRate.toDouble() else 0.0
+        val resolvedTitle = metadata.title.trim().ifEmpty { DEFAULT_ACTIVE_TITLE }
+        val mpPlaybackState = resolvePlaybackState(status)
 
-        nowPlayingInfoDictionary["MPMediaItemPropertyTitle"] = metadata.title
-        nowPlayingInfoDictionary["MPMediaItemPropertyArtist"] = metadata.artist
-        nowPlayingInfoDictionary["MPMediaItemPropertyAlbumTitle"] = metadata.album
-        nowPlayingInfoDictionary["MPMediaItemPropertyPlaybackDuration"] = durationSec
+        nowPlayingInfoDictionary["MPMediaItemPropertyTitle"] = resolvedTitle
+        if (metadata.artist.isNotBlank()) {
+            nowPlayingInfoDictionary["MPMediaItemPropertyArtist"] = metadata.artist
+        } else {
+            nowPlayingInfoDictionary.remove("MPMediaItemPropertyArtist")
+        }
+        if (metadata.album.isNotBlank()) {
+            nowPlayingInfoDictionary["MPMediaItemPropertyAlbumTitle"] = metadata.album
+        } else {
+            nowPlayingInfoDictionary.remove("MPMediaItemPropertyAlbumTitle")
+        }
+        if (durationMs > 0L) {
+            nowPlayingInfoDictionary["MPMediaItemPropertyPlaybackDuration"] = durationSec
+        } else {
+            nowPlayingInfoDictionary.remove("MPMediaItemPropertyPlaybackDuration")
+        }
         nowPlayingInfoDictionary["MPNowPlayingInfoPropertyElapsedPlaybackTime"] = elapsedSec
         nowPlayingInfoDictionary["MPNowPlayingInfoPropertyPlaybackRate"] = rate
-        nowPlayingInfoDictionary["MPNowPlayingPlaybackState"] = status.name
+        nowPlayingInfoDictionary["MPNowPlayingInfoPropertyDefaultPlaybackRate"] = 1.0
+        nowPlayingInfoDictionary["MPNowPlayingPlaybackState"] = when (mpPlaybackState) {
+            MPNowPlayingPlaybackStatePlaying -> "PLAYING"
+            MPNowPlayingPlaybackStatePaused -> "PAUSED"
+            else -> "STOPPED"
+        }
+        nowPlayingInfoDictionary["MPNowPlayingPlaybackStatus"] = status.name
 
-        runCatching {
-            val center = MPNowPlayingInfoCenter.defaultCenter()
+        runOnAppleMain {
+            if (disposed || !isActiveProvider()) return@runOnAppleMain
+            activeBridges.add(this)
+            val infoCenter = MPNowPlayingInfoCenter.defaultCenter()
             val appleMap = LinkedHashMap<Any?, Any?>(8)
-            appleMap[MPMediaItemPropertyTitle] = metadata.title
-            appleMap[MPMediaItemPropertyArtist] = metadata.artist
-            appleMap[MPMediaItemPropertyAlbumTitle] = metadata.album
+            appleMap[MPMediaItemPropertyTitle] = resolvedTitle
+            if (metadata.artist.isNotBlank()) {
+                appleMap[MPMediaItemPropertyArtist] = metadata.artist
+            }
+            if (metadata.album.isNotBlank()) {
+                appleMap[MPMediaItemPropertyAlbumTitle] = metadata.album
+            }
             if (durationMs > 0L) {
                 appleMap[MPMediaItemPropertyPlaybackDuration] = durationSec
             }
             appleMap[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedSec
             appleMap[MPNowPlayingInfoPropertyPlaybackRate] = rate
-            center.nowPlayingInfo = appleMap
-            center.playbackState = when (status) {
-                MediaPlaybackStatus.PLAYING -> MPNowPlayingPlaybackStatePlaying
-                MediaPlaybackStatus.PAUSED -> MPNowPlayingPlaybackStatePaused
-                else -> MPNowPlayingPlaybackStateStopped
-            }
+            appleMap[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
+            infoCenter.nowPlayingInfo = appleMap
+            infoCenter.playbackState = mpPlaybackState
         }
     }
 
-    fun clearNowPlayingInfo() {
+    fun clearNowPlayingInfo(disableCommands: Boolean = false) {
         nowPlayingInfoDictionary.clear()
-        runCatching {
-            val center = MPNowPlayingInfoCenter.defaultCenter()
-            center.nowPlayingInfo = null
-            center.playbackState = MPNowPlayingPlaybackStateStopped
+        runOnAppleMain {
+            if (disposed) return@runOnAppleMain
+            activeBridges.remove(this)
+            if (activeBridges.isNotEmpty()) return@runOnAppleMain
+            val infoCenter = MPNowPlayingInfoCenter.defaultCenter()
+            infoCenter.nowPlayingInfo = null
+            infoCenter.playbackState = MPNowPlayingPlaybackStateStopped
+            if (disableCommands || !isActiveProvider()) {
+                applyRemoteCommandButtonsOnMain(
+                    MPRemoteCommandCenter.sharedCommandCenter(),
+                    latestButtonConfig,
+                    active = false
+                )
+            }
         }
     }
 
     fun dispose() {
-        clearNowPlayingInfo()
-        if (remoteCommandsInstalled) {
-            runCatching {
-                val center = MPRemoteCommandCenter.sharedCommandCenter()
-                center.playCommand.removeTarget(null)
-                center.pauseCommand.removeTarget(null)
-                center.togglePlayPauseCommand.removeTarget(null)
-                center.stopCommand.removeTarget(null)
-                center.nextTrackCommand.removeTarget(null)
-                center.previousTrackCommand.removeTarget(null)
-                center.changePlaybackPositionCommand.removeTarget(null)
-            }
+        if (disposed) return
+        disposed = true
+        nowPlayingInfoDictionary.clear()
+        runOnAppleMain {
+            activeBridges.remove(this)
+            val targetsSnapshot = commandTargets.toList()
             commandTargets.clear()
             remoteCommandsInstalled = false
+            val noOtherActive = activeBridges.isEmpty()
+            for ((command, token) in targetsSnapshot) {
+                if (noOtherActive) {
+                    command.enabled = false
+                }
+                command.removeTarget(token)
+            }
+            if (noOtherActive) {
+                val infoCenter = MPNowPlayingInfoCenter.defaultCenter()
+                infoCenter.nowPlayingInfo = null
+                infoCenter.playbackState = MPNowPlayingPlaybackStateStopped
+            }
         }
+    }
+
+    private fun resolvePlaybackState(status: MediaPlaybackStatus): MPNowPlayingPlaybackState = when (status) {
+        // Keep macOS/iOS Now Playing active during buffering so media keys stay owned by this session.
+        MediaPlaybackStatus.PLAYING,
+        MediaPlaybackStatus.LOADING -> MPNowPlayingPlaybackStatePlaying
+        MediaPlaybackStatus.PAUSED -> MPNowPlayingPlaybackStatePaused
+        MediaPlaybackStatus.STOPPED -> MPNowPlayingPlaybackStateStopped
+    }
+
+    private fun applyRemoteCommandButtonsOnMain(
+        commandCenter: MPRemoteCommandCenter,
+        config: MediaControlButtonConfig,
+        active: Boolean
+    ) {
+        commandCenter.playCommand.enabled = active && config.playPauseEnabled
+        commandCenter.pauseCommand.enabled = active && config.playPauseEnabled
+        commandCenter.togglePlayPauseCommand.enabled = active && config.playPauseEnabled
+        commandCenter.stopCommand.enabled = active && config.stopEnabled
+        commandCenter.nextTrackCommand.enabled = active && config.nextEnabled
+        commandCenter.previousTrackCommand.enabled = active && config.previousEnabled
+        commandCenter.changePlaybackPositionCommand.enabled = active && config.seekEnabled
+    }
+
+    companion object {
+        private const val DEFAULT_ACTIVE_TITLE: String = "Media Playing"
+        private val activeBridges: MutableSet<AppleNowPlayingBridge> = mutableSetOf()
     }
 }

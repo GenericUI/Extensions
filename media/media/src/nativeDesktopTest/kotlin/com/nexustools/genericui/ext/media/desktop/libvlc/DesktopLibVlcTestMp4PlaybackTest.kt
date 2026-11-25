@@ -10,6 +10,8 @@ import com.nexustools.genericui.component.media.Player
 import com.nexustools.genericui.component.media.VideoPlayer
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.desktop.core.DesktopNativeWidget
+import com.nexustools.genericui.enums.media.VideoResizeMode
+import com.nexustools.genericui.enums.ui.ObjectFit
 import com.nexustools.genericui.ext.media.desktop.DesktopVlcMediaExtensionProvider
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
 import kotlinx.cinterop.ByteVar
@@ -82,6 +84,28 @@ class DesktopLibVlcTestMp4PlaybackTest {
             assertEquals('p'.code.toByte(), header[7])
         } finally {
             fclose(fp)
+        }
+    }
+
+    @Test
+    fun testDesktopVlcProviderHasNoClassOrTagFastPathsAndVideoWidgetMarksStageRoot() {
+        DesktopVlcMediaExtensionProvider.install("Desktop")
+        val genericControlWidget = DesktopNativeWidget("Desktop", "div").apply {
+            attributes["htmlTag"] = "genericui:expanding-volume-slider"
+            rebuildClassTokensCache("seek-bar expanding-volume-slider expanding-volume-pill desktop-web-video-overlay")
+        }
+        assertFalse(
+            genericControlWidget.isInsideIsolatedStageSubtree(),
+            "DesktopVlcMediaExtensionProvider must not register class/tag stage fast paths"
+        )
+
+        val videoWidget = DesktopNativeWidget("Desktop", "libvlc-video")
+        val videoImpl = DesktopLibVlcVideoPlayerImpl(nativeWidget = videoWidget, platformName = "Desktop")
+        try {
+            assertTrue(videoWidget.isIsolatedStageSubtreeRoot)
+            assertTrue(videoWidget.isInsideIsolatedStageSubtree())
+        } finally {
+            videoImpl.dispose()
         }
     }
 
@@ -260,6 +284,61 @@ class DesktopLibVlcTestMp4PlaybackTest {
         } finally {
             audioPlayer.dispose()
             audioImpl.dispose()
+        }
+    }
+
+    @Test
+    fun testDesktopLibVlcVideoPlayerWiresResizeModeObjectFitBackdropAndDetectedAspectRatio() {
+        DesktopVlcMediaExtensionProvider.install("Desktop")
+        val path = resolveMediaExtensionTestMp4Path()
+        val widget = DesktopNativeWidget("Desktop", "libvlc-video")
+        val playerImpl = DesktopLibVlcVideoPlayerImpl(nativeWidget = widget, platformName = "Desktop")
+        try {
+            val surfaceSpec = widget.interactiveSurfaceSpec
+            assertNotNull(surfaceSpec, "Expected DesktopInteractiveSurfaceSpec to be attached to VideoPlayer widget")
+            assertFalse(surfaceSpec.preferHardwareStretchBlit, "Expected preferHardwareStretchBlit to be false")
+            assertEquals(ObjectFit.CONTAIN, surfaceSpec.resolveContentFitMode())
+            assertTrue(surfaceSpec.shouldPaintBlackBackdrop(), "Expected shouldPaintBlackBackdrop() to be true")
+
+            playerImpl.setResizeMode(VideoResizeMode.FILL)
+            assertEquals(ObjectFit.COVER, surfaceSpec.resolveContentFitMode())
+
+            playerImpl.setResizeMode(VideoResizeMode.STRETCH)
+            assertEquals(ObjectFit.FILL, surfaceSpec.resolveContentFitMode())
+
+            playerImpl.setResizeMode(VideoResizeMode.FIT)
+            assertEquals(ObjectFit.CONTAIN, surfaceSpec.resolveContentFitMode())
+
+            playerImpl.setMuted(true)
+            playerImpl.setSource(path, 0.0, null)
+            playerImpl.play()
+
+            var attempts = 0
+            while (attempts < 120 && playerImpl.frameSwapCounter <= 0L) {
+                usleep(25_000u)
+                playerImpl.tickVBlank(attempts * 25.0)
+                attempts++
+            }
+            playerImpl.tickVBlank((attempts + 1) * 25.0)
+
+            assertTrue(
+                playerImpl.frameSwapCounter > 0L,
+                "Expected DesktopLibVlcVideoPlayerImpl to decode frames from $path (swapCount=${playerImpl.frameSwapCounter})"
+            )
+
+            val resolvedAspectRatio = surfaceSpec.resolveContentAspectRatio(1920, 1080)
+            assertTrue(
+                resolvedAspectRatio.isFinite() && resolvedAspectRatio > 0.5f,
+                "Expected resolved content aspect ratio to be finite and > 0.5f, got $resolvedAspectRatio"
+            )
+            if (LibVlcBindings.isAvailable) {
+                val detected = playerImpl.detectedVideoAspectRatio
+                assertNotNull(detected, "Expected libvlc_video_get_size to detect video aspect ratio")
+                assertEquals(detected, resolvedAspectRatio)
+            }
+        } finally {
+            playerImpl.pause()
+            playerImpl.dispose()
         }
     }
 }

@@ -12,12 +12,15 @@ import kotlinx.cinterop.COpaquePointerVar
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.CPointerVar
 import kotlinx.cinterop.IntVar
+import kotlinx.cinterop.UIntVar
+import kotlinx.cinterop.alloc
 import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.cstr
 import kotlinx.cinterop.invoke
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.plus
 import kotlinx.cinterop.pointed
+import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.set
 import kotlinx.cinterop.sizeOf
@@ -26,7 +29,7 @@ import kotlinx.cinterop.value
 
 /**
  * Shared Kotlin/Native bindings to the official `libvlc` C API (`libvlc.h`, `libvlc_media.h`,
- * `libvlc_media_player.h`) used by the `:qt`, `:gtk`, `:windows`, and `:macos` media extension backends.
+ * `libvlc_media_player.h`) used by the `:kde`, `:gtk`, `:windows`, and `:macos` media extension backends.
  */
 object LibVlcBindings {
     const val SLAVE_TYPE_SUBTITLE: Int = 0
@@ -241,6 +244,14 @@ object LibVlcBindings {
         val fn = symbol("libvlc_media_player_get_rate")
             ?.reinterpret<CFunction<(COpaquePointer) -> Float>>()
             ?: return 1.0f
+        return fn.invoke(player)
+    }
+
+    fun libvlc_media_player_get_fps(player: COpaquePointer?): Float {
+        if (player == null) return 0.0f
+        val fn = symbol("libvlc_media_player_get_fps")
+            ?.reinterpret<CFunction<(COpaquePointer) -> Float>>()
+            ?: return 0.0f
         return fn.invoke(player)
     }
 
@@ -533,6 +544,21 @@ object LibVlcBindings {
             libvlc_track_description_list_release(head)
         }
         return result
+    }
+
+    fun libvlc_video_get_size(player: COpaquePointer?, num: UInt = 0u): Pair<Int, Int>? {
+        if (player == null) return null
+        val fn = symbol("libvlc_video_get_size")
+            ?.reinterpret<CFunction<(COpaquePointer, UInt, CPointer<UIntVar>, CPointer<UIntVar>) -> Int>>()
+            ?: return null
+        return memScoped {
+            val px = alloc<UIntVar>()
+            val py = alloc<UIntVar>()
+            val rc = fn.invoke(player, num, px.ptr, py.ptr)
+            val w = px.value.toInt()
+            val h = py.value.toInt()
+            if (rc == 0 && w > 0 && h > 0) w to h else null
+        }
     }
 
     fun libvlc_video_set_aspect_ratio(player: COpaquePointer?, aspect: String?) {

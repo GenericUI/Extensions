@@ -1,5 +1,6 @@
 package com.nexustools.genericui.ext.pip
 
+import com.nexustools.genericui.animation.Animator
 import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.layout.Container
@@ -12,10 +13,18 @@ import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.UiTimerScheduler
 import com.nexustools.genericui.enums.css.CssPointerEvents
+import com.nexustools.genericui.enums.window.TitleBarControlsPlacement
 import com.nexustools.genericui.enums.window.WindowState
+import com.nexustools.genericui.event.PointerEvent
+import com.nexustools.genericui.ext.overlay.OverlayHostBox
+import com.nexustools.genericui.ext.overlay.OverlayInputRouter
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
+import com.nexustools.genericui.style.css.CssCornerRadii
+import com.nexustools.genericui.style.css.CssFilter
+import com.nexustools.genericui.style.css.CssLength
 import com.nexustools.genericui.window.IWindow
+import com.nexustools.genericui.window.TitleCapabilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -32,11 +41,13 @@ class PipExtensionCommonTest {
     fun setUp() {
         PipRegistry.resetForTest()
         FragmentPipRegistry.clearForTest()
+        Animator.cancelAllAnimations()
         UiTimerScheduler.clearAllTimers()
     }
 
     @AfterTest
     fun tearDown() {
+        Animator.cancelAllAnimations()
         UiTimerScheduler.clearAllTimers()
         FragmentPipRegistry.clearForTest()
         PipRegistry.resetForTest()
@@ -168,14 +179,14 @@ class PipExtensionCommonTest {
         assertTrue(animator.isAnimating)
         assertEquals(Rect(0, 0, 800, 450), steps.first())
 
-        UiTimerScheduler.advanceTimeBy(48)
+        Animator.advanceTimeBy(48.0)
         assertTrue(steps.size >= 3)
         val mid = steps.last()
         assertTrue(mid.x in 1..999)
         assertTrue(mid.width in 401..799)
         assertEquals(0, completedCount)
 
-        UiTimerScheduler.advanceTimeBy(160)
+        Animator.advanceTimeBy(160.0)
         assertFalse(animator.isAnimating)
         assertEquals(1, completedCount)
         assertEquals(Rect(1000, 600, 400, 225), steps.last())
@@ -193,7 +204,7 @@ class PipExtensionCommonTest {
         assertTrue(animator.isAnimating)
         animator.cancel()
         assertFalse(animator.isAnimating)
-        UiTimerScheduler.advanceTimeBy(300)
+        Animator.advanceTimeBy(300.0)
         assertEquals(0, cancelledComplete)
 
         animator.dispose()
@@ -204,6 +215,7 @@ class PipExtensionCommonTest {
         var restoreCount = 0
         var closeCount = 0
         var dragCount = 0
+        var stagePlayPauseCount = 0
         var playClicks = 0
         var disabledClicks = 0
 
@@ -214,9 +226,12 @@ class PipExtensionCommonTest {
             actions = listOf(
                 PipAction(id = "play", label = "Play", icon = PipActionIcon.PLAY) { playClicks++ },
                 PipAction(id = "next", label = "Next", icon = PipActionIcon.NEXT, enabled = false) { disabledClicks++ }
-            )
-        )
-        overlay.setOverlayTitle("Big Buck Bunny")
+            ),
+            onPlayPauseRequested = { stagePlayPauseCount++ }
+        ).apply {
+            setOverlayTitle("Big Buck Bunny")
+            applyStyleSheet(PipExtension.composeEffectiveStyleSheet())
+        }
 
         assertTrue(overlay.isChromeVisible)
         assertEquals(PipControlOverlay.AUTO_HIDE_DELAY_MS, overlay.autoHideController.delayMs)
@@ -224,31 +239,221 @@ class PipExtensionCommonTest {
         assertTrue(overlay.titleLabel.isVisible)
         assertEquals(2, overlay.actionButtons.size)
 
-        // Action clicks work and wake HUD.
+        // Action clicks work and wake HUD without leaking to stage Play/Pause.
         overlay.actionButtons[0].onClick?.invoke()
         overlay.actionButtons[1].onClick?.invoke()
+        UiTimerScheduler.advanceTimeBy(OverlayInputRouter.DEFAULT_CLICK_DEBOUNCE_MS + 10)
         assertEquals(1, playClicks)
         assertEquals(0, disabledClicks)
+        assertEquals(0, stagePlayPauseCount)
 
-        // Advance 2000ms -> HUD chrome fades out while root stays hit-testable for background drag.
+        // Advance 2000ms -> chromeContainer fades out via .hidden while root stays hit-testable for background gestures.
         UiTimerScheduler.advanceTimeBy(2000)
         assertFalse(overlay.isChromeVisible)
+        assertFalse(overlay.hasClass("hidden"))
+        assertTrue(overlay.chromeContainer.hasClass("hidden"))
+        assertEquals(0.0f, overlay.chromeContainer.computedStyle?.opacity ?: -1f, 0.001f)
+        assertEquals(false, overlay.chromeContainer.computedStyle?.pointerEventsEnabled)
         assertEquals(1.0f, overlay.opacity)
-        assertEquals(CssPointerEvents.AUTO, overlay.style.pointerEvents)
+        assertEquals(true, overlay.computedStyle?.pointerEventsEnabled)
 
-        // Background drag wakes HUD and invokes drag callback.
-        overlay.dragSurface.onPointerDown?.invoke(
-            com.nexustools.genericui.event.PointerEvent(10f, 10f)
-        )
-        assertEquals(1, dragCount)
+        // Pointer down on stage wakes HUD WITHOUT immediately starting window drag.
+        overlay.dragSurface.onPointerDown?.invoke(PointerEvent(10f, 10f))
+        assertEquals(0, dragCount)
         assertTrue(overlay.isChromeVisible)
+        assertFalse(overlay.chromeContainer.hasClass("hidden"))
+        assertEquals(1.0f, overlay.chromeContainer.computedStyle?.opacity ?: -1f, 0.001f)
+
+        // Sub-slop movement (< 5px) followed by click toggles stage Play/Pause after 250ms debounce.
+        overlay.dragSurface.onPointerMove?.invoke(PointerEvent(12f, 11f))
+        assertEquals(0, dragCount)
+        overlay.dragSurface.onPointerUp?.invoke(PointerEvent(12f, 11f))
+        overlay.dragSurface.onClick?.invoke()
+        UiTimerScheduler.advanceTimeBy(OverlayInputRouter.DEFAULT_CLICK_DEBOUNCE_MS + 10)
+        assertEquals(1, stagePlayPauseCount)
+
+        // Drag >= 5px invokes window drag move and suppresses release click so Play/Pause does not toggle.
+        overlay.dragSurface.onPointerDown?.invoke(PointerEvent(10f, 10f))
+        overlay.dragSurface.onPointerMove?.invoke(PointerEvent(22f, 10f))
+        assertEquals(1, dragCount)
+        overlay.dragSurface.onPointerUp?.invoke(PointerEvent(22f, 10f))
+        overlay.dragSurface.onClick?.invoke()
+        UiTimerScheduler.advanceTimeBy(OverlayInputRouter.DEFAULT_CLICK_DEBOUNCE_MS + 10)
+        assertEquals(1, stagePlayPauseCount)
+
+        // Double-clicking stage cancels any pending click and triggers restore by default.
+        overlay.dragSurface.onClick?.invoke()
+        overlay.dragSurface.onDoubleClick?.invoke()
+        UiTimerScheduler.advanceTimeBy(OverlayInputRouter.DEFAULT_CLICK_DEBOUNCE_MS + 10)
+        assertEquals(1, stagePlayPauseCount)
+        assertEquals(1, restoreCount)
+
+        overlay.restoreButton.onClick?.invoke()
+        overlay.closeButton.onClick?.invoke()
+        assertEquals(2, restoreCount)
+        assertEquals(1, closeCount)
+
+        overlay.dispose()
+    }
+
+    @Test
+    fun pipControlOverlayWindowedTitleBarModeUsesOverlayWindowTitleBarWithMacosBlurAndZeroRadius() {
+        var restoreCount = 0
+        var closeCount = 0
+        var moveCount = 0
+
+        val pipWindow = object : Window(title = "PiP Window", initialSize = Size(360, 202)) {
+            override val isMinimizable: Boolean = false
+            override val isMaximizable: Boolean = false
+            override val isToolWindow: Boolean = true
+            override val titleCapabilities: TitleCapabilities = TitleCapabilities(
+                isTitleBarRequired = true,
+                defaultControlsPlacement = TitleBarControlsPlacement.LEADING,
+                prefersBlurredTranslucentOverlayTitleBar = true
+            )
+
+            override fun startSystemMove() {
+                moveCount++
+            }
+        }
+        val pipContent = Container("pip-content")
+        val overlay = PipControlOverlay(
+            onRestoreRequested = { restoreCount++ },
+            onCloseRequested = { closeCount++ },
+            onDragMoveRequested = { pipWindow.startSystemMove() }
+        ).apply {
+            setOverlayTitle("macOS Floating Clip")
+        }
+        val hostBox = OverlayHostBox(
+            content = pipContent,
+            initialOverlay = overlay
+        ).apply {
+            borderRadiusPx = 0f
+            setAttribute("borderRadiusPx", "0")
+            style.setBorderRadius(CssCornerRadii.ZERO)
+        }
+        pipWindow.setContent(hostBox)
+        hostBox.windowTitleBar.syncFromWindow(pipWindow)
+        hostBox.applyStyleSheet(PipExtension.composeEffectiveStyleSheet())
+
+        val bar = overlay.windowTitleBar
+        assertSame(bar, hostBox.windowTitleBar)
+        assertSame(overlay.chromeContainer, bar.parent)
+        assertTrue(overlay.windowTitleBarEnabled)
+        assertTrue(hostBox.windowTitleBarEnabled)
+        assertEquals(0f, hostBox.borderRadiusPx)
+        assertEquals("0", hostBox.getAttribute("borderRadiusPx"))
+        assertTrue(bar.isWindowedTitleBarActive)
+        assertTrue(bar.isVisible)
+        assertEquals(32, bar.effectiveHeightPx)
+        assertEquals(TitleBarControlsPlacement.LEADING, bar.resolvedControlsPlacement)
+        assertEquals(CssFilter(blur = CssLength.px(22f), saturate = 1.4f), bar.computedStyle?.backdropFilter)
+        assertEquals("macOS Floating Clip", bar.titleLabel.text)
+        assertTrue(bar.closeButton.isVisible)
+        assertFalse(bar.minimizeButton.isVisible)
+        assertFalse(bar.maximizeButton.isVisible)
+        assertTrue(bar.trailingAccessorySlot.children.contains(overlay.restoreButton))
+
+        bar.onPointerDown?.invoke(com.nexustools.genericui.event.PointerEvent(40f, 12f))
+        assertEquals(1, moveCount)
+
+        // Auto-hide toggles .hidden atomically on chromeContainer (containing embedded titlebar) after 2000ms
+        UiTimerScheduler.advanceTimeBy(PipControlOverlay.AUTO_HIDE_DELAY_MS)
+        assertFalse(overlay.isChromeVisible)
+        assertTrue(overlay.chromeContainer.hasClass("hidden"))
+        assertFalse(bar.hasClass("hidden"))
+        assertEquals(0.0f, overlay.chromeContainer.computedStyle?.opacity ?: -1f, 0.001f)
+        assertEquals(1.0f, bar.opacity, 0.001f)
 
         overlay.restoreButton.onClick?.invoke()
         overlay.closeButton.onClick?.invoke()
         assertEquals(1, restoreCount)
         assertEquals(1, closeCount)
 
-        overlay.dispose()
+        hostBox.dispose()
+        pipWindow.close()
+    }
+
+    @Test
+    fun pipControlOverlayHidesFallbackTitleCloseAndScrimWhenLinuxWmManagesChrome() {
+        var restoreCount = 0
+        val linuxPipWindow = object : Window(title = "PiP Clip", initialSize = Size(360, 202)) {
+            override val isMinimizable: Boolean = false
+            override val isMaximizable: Boolean = false
+            override val isToolWindow: Boolean = true
+            override val titleCapabilities: TitleCapabilities = TitleCapabilities(
+                isSupported = true,
+                isTitleBarRequired = true,
+                supportsCustomTitleBar = false,
+                supportsCustomComponents = false
+            )
+        }
+        val pipContent = Container("pip-content")
+        val overlay = PipControlOverlay(
+            onRestoreRequested = { restoreCount++ }
+        ).apply {
+            setOverlayTitle("Linux WM Clip")
+        }
+        val hostBox = OverlayHostBox(
+            content = pipContent,
+            initialOverlay = overlay
+        )
+        linuxPipWindow.setContent(hostBox)
+        hostBox.windowTitleBar.syncFromWindow(linuxPipWindow)
+        overlay.syncTopBarWindowTitleBarOffset()
+
+        assertFalse(overlay.windowTitleBar.isWindowedTitleBarActive)
+        assertFalse(overlay.windowTitleBar.isVisible)
+        assertEquals(0, overlay.windowTitleBar.effectiveHeightPx)
+        assertFalse(overlay.fallbackTitleLabel.isVisible)
+        assertFalse(overlay.fallbackCloseButton.isVisible)
+        assertFalse(overlay.topScrim.isVisible)
+        assertTrue(overlay.topBar.isVisible)
+        assertTrue(overlay.restoreButton.isVisible)
+        assertFalse(overlay.windowTitleBar.trailingAccessorySlot.children.contains(overlay.restoreButton))
+
+        // Auto-hide fades HUD out and waking restores only restoreButton without duplicate title/close/scrim.
+        UiTimerScheduler.advanceTimeBy(PipControlOverlay.AUTO_HIDE_DELAY_MS)
+        Animator.flushAll()
+        assertFalse(overlay.isChromeVisible)
+        assertFalse(overlay.topBar.isVisible)
+        assertFalse(overlay.fallbackTitleLabel.isVisible)
+        assertFalse(overlay.fallbackCloseButton.isVisible)
+        assertFalse(overlay.topScrim.isVisible)
+
+        overlay.showTemporarily()
+        Animator.flushAll()
+        assertTrue(overlay.isChromeVisible)
+        assertTrue(overlay.topBar.isVisible)
+        assertTrue(overlay.restoreButton.isVisible)
+        assertFalse(overlay.fallbackTitleLabel.isVisible)
+        assertFalse(overlay.fallbackCloseButton.isVisible)
+        assertFalse(overlay.topScrim.isVisible)
+
+        overlay.restoreButton.onClick?.invoke()
+        assertEquals(1, restoreCount)
+
+        // Contrast with non-WM-managed fallback (e.g. Web Document PiP where isTitleBarRequired == false):
+        val webPipWindow = object : Window(title = "Web PiP", initialSize = Size(360, 202)) {
+            override val titleCapabilities: TitleCapabilities = TitleCapabilities(
+                isSupported = false,
+                isTitleBarRequired = false,
+                supportsCustomTitleBar = false,
+                supportsCustomComponents = false
+            )
+        }
+        webPipWindow.setContent(hostBox)
+        hostBox.windowTitleBar.syncFromWindow(webPipWindow)
+        overlay.syncTopBarWindowTitleBarOffset()
+        assertFalse(overlay.windowTitleBar.isWindowedTitleBarActive)
+        assertTrue(overlay.fallbackTitleLabel.isVisible)
+        assertTrue(overlay.fallbackCloseButton.isVisible)
+        assertTrue(overlay.topScrim.isVisible)
+        assertTrue(overlay.restoreButton.isVisible)
+
+        hostBox.dispose()
+        linuxPipWindow.close()
+        webPipWindow.close()
     }
 
     @Test

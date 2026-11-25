@@ -4,6 +4,7 @@ import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.Disposable
+import com.nexustools.genericui.ext.overlay.OverlayStageProvider
 import com.nexustools.genericui.window.IWindow
 
 /**
@@ -26,6 +27,8 @@ class FragmentPipHelper(val fragment: Fragment) : Disposable {
     var actionsProvider: () -> List<PipAction> = { emptyList() }
 
     var onPauseRequested: (() -> Unit)? = null
+    var onPlayPauseRequested: (() -> Unit)? = null
+    var onDoubleClickRequested: (() -> Unit)? = null
     var onPipModeChanged: ((Boolean) -> Unit)? = null
 
     var isInPipMode: Boolean = false
@@ -44,6 +47,41 @@ class FragmentPipHelper(val fragment: Fragment) : Disposable {
         get() = backend?.capabilities ?: PipRegistry.capabilities()
 
     init {
+        if (fragment is OverlayStageProvider) {
+            pipTargetProvider = { fragment.stageTargetComponent }
+            isActivelyPlayingProvider = { fragment.isStagePlaying }
+            aspectRatioProvider = { fragment.stageAspectRatio }
+            configProvider = {
+                val (num, den) = fragment.stageAspectRatio
+                PipSessionConfig(
+                    aspectRatioNumerator = num,
+                    aspectRatioDenominator = den,
+                    title = fragment.stageTitle
+                )
+            }
+            onPlayPauseRequested = {
+                fragment.toggleStagePlayPause()
+                notifyStateChanged()
+            }
+            onPauseRequested = {
+                fragment.pauseStagePlayback()
+                notifyStateChanged()
+            }
+            actionsProvider = {
+                val playing = fragment.isStagePlaying
+                listOf(
+                    PipAction(
+                        id = "play_pause",
+                        label = if (playing) "Pause" else "Play",
+                        icon = if (playing) PipActionIcon.PAUSE else PipActionIcon.PLAY,
+                        onTrigger = {
+                            fragment.toggleStagePlayPause()
+                            notifyStateChanged()
+                        }
+                    )
+                )
+            }
+        }
         FragmentPipRegistry.register(fragment, this)
     }
 
@@ -73,6 +111,28 @@ class FragmentPipHelper(val fragment: Fragment) : Disposable {
 
     fun resolveEffectiveActions(): List<PipAction> =
         effectiveHelper().actionsProvider()
+
+    fun resolveEffectivePlayPauseAction(): (() -> Unit)? {
+        val effective = effectiveHelper()
+        effective.onPlayPauseRequested?.let { return it }
+        onPlayPauseRequested?.let { return it }
+        val playPauseAction = resolveEffectiveActions().firstOrNull { action ->
+            action.enabled && (
+                action.id == "play_pause" ||
+                    action.icon == PipActionIcon.PLAY ||
+                    action.icon == PipActionIcon.PAUSE
+                )
+        } ?: return null
+        return {
+            playPauseAction.onTrigger()
+            notifyStateChanged()
+        }
+    }
+
+    fun resolveEffectiveDoubleClickAction(): (() -> Unit)? {
+        val effective = effectiveHelper()
+        return effective.onDoubleClickRequested ?: onDoubleClickRequested
+    }
 
     fun resolveEffectiveAspectRatio(): Pair<Int, Int> {
         val effective = effectiveHelper()

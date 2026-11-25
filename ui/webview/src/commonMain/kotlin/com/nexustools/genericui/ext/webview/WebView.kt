@@ -7,7 +7,7 @@ import com.nexustools.genericui.nativeimpl.media.WebViewNativeImpl
 /**
  * Modular WebView component provided by `:extensions:webview`.
  *
- * - **Desktop (`:windows`, `:macos`, `:gtk`, `:qt`, `:swing`)**: Uses the **Chromium** project
+ * - **Desktop (`:windows`, `:macos`, `:gtk`, `:kde`, `:swing`)**: Uses the **Chromium** project
  *   (`ChromiumBlinkEngine`) for HTML/CSS layout and rendering, paired with **`NJS`**
  *   (`D:\IdeaProjects\NJS` symlinked at `lib/NJS` with AsmJit/SLJIT Native JIT) for the
  *   JavaScript runtime.

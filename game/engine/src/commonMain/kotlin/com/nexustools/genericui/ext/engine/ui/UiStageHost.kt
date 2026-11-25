@@ -3,11 +3,10 @@ package com.nexustools.genericui.ext.engine.ui
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.ext.engine.GameEngineExtension
 import com.nexustools.genericui.ext.engine.scene.GameScene
 import com.nexustools.genericui.ext.engine.scene.SceneEntity
 import com.nexustools.genericui.ext.engine.threading.GameLoopScheduler
-import com.nexustools.genericui.enums.css.CssPosition
-import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Pure-UI host mounting a [GameScene] onto a GenericUI [Container] / [Window] with zero canvas
@@ -17,7 +16,7 @@ import com.nexustools.genericui.style.css.CssLength
  */
 class UiStageHost(
     val scene: GameScene = GameScene("UiStageScene"),
-    val rootContainer: Container = Container("genericui:stage-host", "position-relative"),
+    val rootContainer: Container = Container("genericui:stage-host", "gui-stage-host position-relative"),
     targetTicksPerSecond: Int = 60
 ) {
     val scheduler: GameLoopScheduler = GameLoopScheduler(
@@ -26,9 +25,8 @@ class UiStageHost(
     )
 
     init {
-        rootContainer.getStyle().setPosition(CssPosition.RELATIVE)
-        rootContainer.getStyle().setWidth(CssLength.PERCENT_100)
-        rootContainer.getStyle().setHeight(CssLength.PERCENT_100)
+        GameEngineExtension.ensureStyleSheetRegistered()
+        rootContainer.addClass("gui-stage-host")
 
         rootContainer.onPointerDown = { ev -> scene.input.notifyPointerDown(ev) }
         rootContainer.onPointerMove = { ev -> scene.input.notifyPointerMove(ev) }

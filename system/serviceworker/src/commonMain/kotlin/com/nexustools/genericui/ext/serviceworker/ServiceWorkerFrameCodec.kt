@@ -16,7 +16,20 @@ internal object ServiceWorkerFrameCodec {
         val typeBytes = envelope.typeId.encodeToByteArray()
         val payloadBytes = envelope.payloadJson.encodeToByteArray()
         val errorBytes = envelope.error.encodeToByteArray()
-        val totalLen = 1 + 8 + 4 + clientBytes.size + 4 + typeBytes.size + 4 + payloadBytes.size + 4 + errorBytes.size
+        val hasFragmentRouting = envelope.targetFragmentId != null || envelope.sourceFragmentId != null
+        val targetBytes = envelope.targetFragmentId?.encodeToByteArray()
+        val sourceBytes = envelope.sourceFragmentId?.encodeToByteArray()
+        val routingBytesLen = if (hasFragmentRouting) {
+            (4 + (targetBytes?.size ?: 0)) + (4 + (sourceBytes?.size ?: 0))
+        } else {
+            0
+        }
+        val totalLen = 1 + 8 +
+            4 + clientBytes.size +
+            4 + typeBytes.size +
+            4 + payloadBytes.size +
+            4 + errorBytes.size +
+            routingBytesLen
         val out = ByteArray(totalLen)
         var offset = 0
         out[offset++] = envelope.kind
@@ -25,7 +38,11 @@ internal object ServiceWorkerFrameCodec {
         offset = writeLengthPrefixed(out, offset, clientBytes)
         offset = writeLengthPrefixed(out, offset, typeBytes)
         offset = writeLengthPrefixed(out, offset, payloadBytes)
-        writeLengthPrefixed(out, offset, errorBytes)
+        offset = writeLengthPrefixed(out, offset, errorBytes)
+        if (hasFragmentRouting) {
+            offset = writeNullableLengthPrefixed(out, offset, targetBytes)
+            writeNullableLengthPrefixed(out, offset, sourceBytes)
+        }
         return out
     }
 
@@ -41,14 +58,28 @@ internal object ServiceWorkerFrameCodec {
         offset = next2
         val (payloadJson, next3) = readLengthPrefixed(body, offset) ?: return null
         offset = next3
-        val (error, _) = readLengthPrefixed(body, offset) ?: return null
+        val (error, next4) = readLengthPrefixed(body, offset) ?: return null
+        offset = next4
+        var targetFragmentId: String? = null
+        var sourceFragmentId: String? = null
+        if (offset < body.size) {
+            val decodedTarget = readNullableLengthPrefixed(body, offset) ?: return null
+            targetFragmentId = decodedTarget.first
+            offset = decodedTarget.second
+        }
+        if (offset < body.size) {
+            val decodedSource = readNullableLengthPrefixed(body, offset) ?: return null
+            sourceFragmentId = decodedSource.first
+        }
         return ServiceWorkerEnvelope(
             kind = kind,
             correlationId = corrId,
             clientId = clientId,
             typeId = typeId,
             payloadJson = payloadJson,
-            error = error
+            error = error,
+            targetFragmentId = targetFragmentId,
+            sourceFragmentId = sourceFragmentId
         )
     }
 
@@ -69,13 +100,23 @@ internal object ServiceWorkerFrameCodec {
             "p" to PreferenceElement.ofString(envelope.payloadJson),
             "e" to PreferenceElement.ofString(envelope.error)
         )
+        if (envelope.targetFragmentId != null) {
+            map["tf"] = PreferenceElement.ofString(envelope.targetFragmentId)
+        }
+        if (envelope.sourceFragmentId != null) {
+            map["sf"] = PreferenceElement.ofString(envelope.sourceFragmentId)
+        }
         return WEB_PREFIX + PreferenceObjectCodec.elementToJson(PreferenceElement.ofObject(map))
     }
 
     fun decodeWebText(raw: String): ServiceWorkerEnvelope? {
         if (!raw.startsWith(WEB_PREFIX)) return null
         val json = raw.removePrefix(WEB_PREFIX)
-        val elem = runCatching { PreferenceObjectCodec.fromJsonElement(json) }.getOrNull() ?: return null
+        val elem = try {
+            PreferenceObjectCodec.fromJsonElement(json)
+        } catch (e: IllegalArgumentException) {
+            throw ServiceWorkerIpcException("Malformed Web ServiceWorker frame: ${e.message}", e)
+        }
         if (!elem.isObject && !elem.isMap) return null
         val kind = elem["k"]?.asInt(0)?.toByte() ?: return null
         val corrId = elem["c"]?.asLong(0L) ?: 0L
@@ -83,13 +124,17 @@ internal object ServiceWorkerFrameCodec {
         val typeId = elem["t"]?.asString("") ?: ""
         val payloadJson = elem["p"]?.asString("null") ?: "null"
         val err = elem["e"]?.asString("") ?: ""
+        val targetFragId = elem["tf"]?.let { if (it.isNull) null else it.asString() }
+        val sourceFragId = elem["sf"]?.let { if (it.isNull) null else it.asString() }
         return ServiceWorkerEnvelope(
             kind = kind,
             correlationId = corrId,
             clientId = cid,
             typeId = typeId,
             payloadJson = payloadJson,
-            error = err
+            error = err,
+            targetFragmentId = targetFragId,
+            sourceFragmentId = sourceFragId
         )
     }
 
@@ -127,11 +172,31 @@ internal object ServiceWorkerFrameCodec {
         return offset + 4 + bytes.size
     }
 
+    private fun writeNullableLengthPrefixed(buf: ByteArray, offset: Int, bytes: ByteArray?): Int {
+        if (bytes == null) {
+            writeIntBE(buf, offset, -1)
+            return offset + 4
+        }
+        return writeLengthPrefixed(buf, offset, bytes)
+    }
+
     private fun readLengthPrefixed(buf: ByteArray, offset: Int): Pair<String, Int>? {
         if (offset + 4 > buf.size) return null
         val len = readIntBE(buf, offset)
         val start = offset + 4
         if (len < 0 || start + len > buf.size) return null
+        val text = buf.decodeToString(startIndex = start, endIndex = start + len)
+        return text to (start + len)
+    }
+
+    private fun readNullableLengthPrefixed(buf: ByteArray, offset: Int): Pair<String?, Int>? {
+        if (offset + 4 > buf.size) return null
+        val len = readIntBE(buf, offset)
+        val start = offset + 4
+        if (len == -1) {
+            return null to start
+        }
+        if (len < -1 || start + len > buf.size) return null
         val text = buf.decodeToString(startIndex = start, endIndex = start + len)
         return text to (start + len)
     }

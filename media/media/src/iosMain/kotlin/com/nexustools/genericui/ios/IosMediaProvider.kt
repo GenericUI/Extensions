@@ -6,7 +6,7 @@ import com.nexustools.genericui.ext.media.mobile.MobileMediaExtensionProvider
 /**
  * Wires Apple iOS & iPadOS ([BackendTarget.IOS] and [BackendTarget.IPadOS]) media playback and
  * session implementations ([IosVideoPlayerImpl], [IosAudioPlayerImpl], [IosAudioAnalyzerImpl],
- * [IosMediaSessionManagerImpl], [IosSeekBarImpl], and [IosScreenWakeLockImpl]) into
+ * [IosMediaSessionManagerImpl], and [IosScreenWakeLockImpl]) into
  * [MobileMediaExtensionProvider].
  */
 object IosMediaProvider {
@@ -25,7 +25,6 @@ object IosMediaProvider {
             audioPlayerFactory = { IosAudioPlayerImpl() },
             audioAnalyzerFactory = { IosAudioAnalyzerImpl() },
             mediaSessionManagerFactory = { IosMediaSessionManagerImpl() },
-            seekBarFactory = { IosSeekBarImpl() },
             screenWakeLockFactory = { IosScreenWakeLockImpl() },
             codecSupportProvider = IosMediaCodecSupportProvider()
         )

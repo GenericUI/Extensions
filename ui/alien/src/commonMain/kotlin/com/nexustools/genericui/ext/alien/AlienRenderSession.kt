@@ -11,7 +11,7 @@ import com.nexustools.genericui.style.css.PrecompiledStyleSheet
  * or [AlienFragment] on System targets.
  *
  * Owns:
- * - [hostFactory]: The underlying OS [NativeFactory] (`WindowsNativeFactory`, `QtNativeFactory`, `GtkNativeFactory`, etc.).
+ * - [hostFactory]: The underlying OS [NativeFactory] (`WindowsNativeFactory`, `KdeNativeFactory`, `GtkNativeFactory`, etc.).
  * - [alienFactory]: The [AlienFactory] provided to all child components via `resolveChildFactory()`.
  * - [canvas2D]: The double-buffered `:extensions:canvas2d` [Canvas2D] surface backed by `:extensions:imageprocessing`'s `ImageBuffer`.
  * - [rootNode]: Root [AlienWidgetNode] of the Alien scene graph.

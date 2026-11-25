@@ -3,6 +3,7 @@
 package com.nexustools.genericui.ext.webview.desktop
 
 import com.nexustools.genericui.desktop.core.DesktopBaseNativeImpl
+import com.nexustools.genericui.desktop.core.DesktopCanvasWidgetHooks
 import com.nexustools.genericui.desktop.core.DesktopNativeWidget
 import com.nexustools.genericui.ext.webview.WebViewConfig
 import com.nexustools.genericui.ext.webview.WebViewConsoleMessage
@@ -21,11 +22,13 @@ import platform.posix.fread
  * Desktop `WebViewNativeImpl` implementation backed by the multi-process **Chromium** architecture
  * ([ChromiumBrowserProcessHost]: Browser + Renderer + GPU + Network processes), the Chromium Blink
  * layout/rendering engine ([ChromiumBlinkEngine]), and the **`NJS`** Native JIT runtime ([NjsDesktopWebRuntime])
- * across `:windows`, `:macos`, `:gtk`, and `:qt`.
+ * across `:windows`, `:macos`, `:gtk`, and `:kde`.
  */
 class DesktopChromiumNjsWebViewImpl(
     val config: WebViewConfig = WebViewConfig(),
-    nativeHandle: DesktopNativeWidget = DesktopNativeWidget("Desktop", "ChromiumNjsWebView")
+    nativeHandle: DesktopNativeWidget =
+        DesktopCanvasWidgetHooks.createInteractiveSurfaceWidget?.invoke("ChromiumNjsWebView")
+            ?: DesktopNativeWidget("Desktop", "ChromiumNjsWebView")
 ) : DesktopBaseNativeImpl<DesktopNativeWidget>(nativeHandle, "webview"), WebViewNativeImpl<DesktopNativeWidget> {
 
     private val history = ArrayList<String>()

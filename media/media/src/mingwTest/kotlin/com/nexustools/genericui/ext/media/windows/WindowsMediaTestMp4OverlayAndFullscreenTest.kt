@@ -197,6 +197,8 @@ class WindowsMediaTestMp4OverlayAndFullscreenTest {
             WindowsApplicationNativeImpl.interactiveWin32GuiEnabled = prevInteractive
             if (prevFactory != null) {
                 GenericUI.initialize(prevFactory)
+            } else {
+                GenericUI.activeFactory = null
             }
         }
     }

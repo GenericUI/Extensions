@@ -73,8 +73,6 @@ actual object DesktopGpuDynamicLoader {
             dirs.add(envAngleDir)
         }
         dirs.add(".")
-        dirs.add("D:\\AICore\\workspace\\episode-caster\\node_modules\\nw\\nwjs-v0.116.0-win-x64")
-        dirs.add("D:\\AICore\\node_modules\\nw\\nwjs-v0.115.0-win-x64")
         return dirs.distinct()
     }
 

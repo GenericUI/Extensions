@@ -9,7 +9,6 @@ import com.nexustools.genericui.component.layout.VStack
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.geometry.Size
-import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssLength
 
 /**
@@ -151,8 +150,8 @@ class ComponentReparentSlot {
         val bounds = target.getBounds()
         val preferred = target.getPreferredSize()
         return Container("genericui:pip-placeholder", "pip-reparent-placeholder").apply {
+            addClass("pip-reparent-placeholder")
             setAttribute("data-pip-placeholder", "true")
-            style.backgroundColor = RgbaColor.TRANSPARENT
             val w = when {
                 preferred != null && preferred.width > 0 -> preferred.width
                 bounds.width > 0 -> bounds.width
@@ -166,8 +165,8 @@ class ComponentReparentSlot {
             if (w > 0 && h > 0) {
                 setPreferredSize(Size(w, h))
             } else {
-                target.style.width?.let { style.width = it } ?: run { style.width = CssLength.percent(100f) }
-                target.style.height?.let { style.height = it } ?: run { style.height = CssLength.percent(100f) }
+                target.style.width?.let { style.width = it }
+                target.style.height?.let { style.height = it }
             }
         }
     }

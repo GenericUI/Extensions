@@ -1,0 +1,63 @@
+/*
+ * GenericUI Media Extension Consumer Theme Template (theme.scss)
+ *
+ * Raw SCSS template packaged uncompiled inside `:extensions:media:media` artifact metadata.
+ * Consumer applications compile this template with their own `genericui { theme { ... } }`
+ * variables (`$primary`, `$accent`, `$surface-elevated`, `$dark`, `$light`, `$border`, etc.).
+ */
+
+$primary: #0d6efd !default;
+$accent: #0d6efd !default;
+$surface-elevated: #ffffff !default;
+$dark: #121216 !default;
+$light: #f2f5fa !default;
+$border: #dee2e6 !default;
+
+/* SeekBar Consumer Theme Palette (inherits StyledSlider track/progress/knob theme colors) */
+genericui:seekbar,
+.seek-bar {
+    .seek-bar-preload {
+        background-color: rgba($accent, 0.36);
+    }
+}
+
+/* ExpandingVolumeSlider Consumer Theme Palette */
+genericui:expanding-volume-slider,
+.expanding-volume-slider {
+    background-color: rgba($dark, 0.76);
+    border-color: rgba($light, 0.16);
+
+    .expanding-volume-mute-btn {
+        color: $light;
+
+        &:hover {
+            background-color: rgba($accent, 0.24);
+            color: $surface-elevated;
+        }
+
+        &:focus,
+        &:focus-visible {
+            box-shadow: 0 0 0 3px rgba($primary, 0.4);
+        }
+    }
+
+    .expanding-volume-slider-control {
+        .styled-slider-track {
+            background-color: rgba($light, 0.24);
+        }
+
+        .styled-slider-progress {
+            background-color: $accent;
+        }
+
+        .styled-slider-knob {
+            background-color: $accent;
+            border: 2px solid $light;
+
+            &:focus,
+            &:focus-visible {
+                box-shadow: 0 0 0 3px rgba($primary, 0.4);
+            }
+        }
+    }
+}

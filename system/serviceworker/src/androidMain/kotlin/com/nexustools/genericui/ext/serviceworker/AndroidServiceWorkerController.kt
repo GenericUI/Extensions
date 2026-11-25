@@ -16,7 +16,11 @@ import androidx.core.app.ServiceCompat
 import com.nexustools.genericui.android.AndroidActivityLifecycleObserver
 import com.nexustools.genericui.android.AndroidActivityRegistry
 import com.nexustools.genericui.android.AndroidExtensionRuntimeBridge
+import com.nexustools.genericui.component.fragment.FragmentBundle
+import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.shell.ContextMenu
+import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.exception.SystemTrayUnsupportedException
 import com.nexustools.genericui.resources.ResourceID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +39,14 @@ import kotlin.concurrent.Volatile
 object AndroidServiceWorkerController {
 
     internal val runtimeHost: ServiceWorkerRuntimeHost = object : ServiceWorkerRuntimeHost {
+        override val backendName: String = BackendTarget.Android.displayName
+        override val supportsMultipleWindows: Boolean = false
+        override val supportsFragmentLaunch: Boolean = true
+        override val supportsDialogFragments: Boolean = true
+        override val supportsSystemTray: Boolean = false
+        override val supportsOngoingNotification: Boolean = true
+        override val supportsAutostart: Boolean = true
+
         override fun updateNotification(
             title: String,
             text: String,
@@ -51,8 +63,11 @@ object AndroidServiceWorkerController {
             tooltip: String?,
             badgeText: String?,
             menu: ContextMenu?,
-            onClick: (() -> Unit)?
-        ) {}
+            onClick: (() -> Unit)?,
+            macosIconPathOrUrl: String?
+        ) {
+            throw SystemTrayUnsupportedException(BackendTarget.Android.displayName)
+        }
 
         override fun openMainWindow(route: String?) {
             this@AndroidServiceWorkerController.openMainWindow(route)
@@ -60,6 +75,14 @@ object AndroidServiceWorkerController {
 
         override fun closeMainWindow() {
             this@AndroidServiceWorkerController.closeMainWindow()
+        }
+
+        override fun requestLaunchFragment(request: ServiceWorkerFragmentLaunchRequest) {
+            this@AndroidServiceWorkerController.requestLaunchFragment(request)
+        }
+
+        override fun requestCloseFragment(fragmentId: String, instanceId: String?) {
+            this@AndroidServiceWorkerController.requestCloseFragment(fragmentId, instanceId)
         }
 
         override fun stopSelf() {
@@ -167,6 +190,9 @@ object AndroidServiceWorkerController {
     }
 
     fun activeWorker(): ServiceWorker? = workerInstance
+
+    internal fun isInProcessClientConnected(): Boolean =
+        serviceBound && clientEnvelopeListener != null && workerInstance != null
 
     fun lastPostedNotification(): Notification? = lastNotification
 
@@ -291,6 +317,7 @@ object AndroidServiceWorkerController {
         worker?.performStop()
         lastNotification = null
         AndroidExtensionRuntimeBridge.cancelNotification(service, NOTIFICATION_ID)
+        clientEnvelopeListener = null
         clientConnectionListener?.invoke(false)
     }
 
@@ -350,6 +377,7 @@ object AndroidServiceWorkerController {
         }
         serviceBound = false
         workerInstance?.dispatchClientDisconnected(ANDROID_CLIENT_ID)
+        clientEnvelopeListener = null
         clientConnectionListener?.invoke(false)
     }
 
@@ -383,28 +411,126 @@ object AndroidServiceWorkerController {
         AndroidExtensionRuntimeBridge.notifyOngoing(ctx, NOTIFICATION_ID, notification)
     }
 
-    private fun unusedTrayNoOp() {
-        // Desktop tray icon is not used on Android.
-    }
-
     fun openMainWindow(route: String?) {
-        val ctx = serviceInstance ?: AndroidExtensionRuntimeBridge.resolveApplicationContext() ?: return
+        val ctx = serviceInstance ?: AndroidExtensionRuntimeBridge.resolveApplicationContext()
+            ?: throw ServiceWorkerFragmentLaunchUnsupportedException(
+                fragmentId = "__main__",
+                backendName = BackendTarget.Android.displayName,
+                message = "No Android Context is available to open the main Activity."
+            )
         val mainClass = AndroidActivityRegistry.mainActivityClass
         val launchIntent = if (mainClass != null) {
             Intent(ctx, mainClass)
         } else {
             ctx.packageManager?.getLaunchIntentForPackage(ctx.packageName)
-        } ?: return
+        } ?: throw ServiceWorkerFragmentLaunchUnsupportedException(
+            fragmentId = "__main__",
+            backendName = BackendTarget.Android.displayName,
+            message = "No main launcher Activity is registered on Android."
+        )
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         if (!route.isNullOrBlank()) {
             launchIntent.putExtra("genericui_route", route)
         }
-        runCatching { ctx.startActivity(launchIntent) }
+        try {
+            ctx.startActivity(launchIntent)
+        } catch (t: Throwable) {
+            throw ServiceWorkerFragmentLaunchUnsupportedException(
+                fragmentId = "__main__",
+                backendName = BackendTarget.Android.displayName,
+                message = "Android blocked or failed starting main Activity: ${t.message}",
+                cause = t
+            )
+        }
     }
 
     fun closeMainWindow() {
         val activity = AndroidActivityRegistry.resolveActiveActivity() ?: return
-        runCatching { activity.finish() }
+        activity.finish()
+    }
+
+    fun requestLaunchFragment(request: ServiceWorkerFragmentLaunchRequest) {
+        if (serviceBound && clientEnvelopeListener != null) {
+            val env = ServiceWorkerEnvelope(
+                kind = ServiceWorkerEnvelope.KIND_MESSAGE,
+                typeId = ServiceWorkerEnvelope.CONTROL_LAUNCH_FRAGMENT,
+                payloadJson = request.toControlPayloadJson(),
+                targetFragmentId = request.fragmentId
+            )
+            workerControlScope.launch {
+                if (!sendToClient(ANDROID_CLIENT_ID, env)) {
+                    throw ServiceWorkerIpcException(
+                        "Failed to send launch control envelope for fragment '${request.fragmentId}' to Android UI client."
+                    )
+                }
+            }
+            return
+        }
+        val ctx = serviceInstance ?: AndroidExtensionRuntimeBridge.resolveApplicationContext()
+            ?: throw ServiceWorkerFragmentLaunchUnsupportedException(
+                fragmentId = request.fragmentId,
+                backendName = BackendTarget.Android.displayName,
+                message = "No Android Context is available to start fragment '${request.fragmentId}'."
+            )
+        val targetActivityClass = AndroidActivityRegistry.resolveByFragmentId(request.fragmentId)
+            ?: request.route?.let { route ->
+                FragmentRegistry.resolveFragmentClass(route)?.let { fragClass ->
+                    AndroidActivityRegistry.getActivityClass(fragClass)
+                }
+            }
+            ?: AndroidActivityRegistry.mainActivityClass
+        val launchIntent = if (targetActivityClass != null) {
+            Intent(ctx, targetActivityClass)
+        } else {
+            ctx.packageManager?.getLaunchIntentForPackage(ctx.packageName)
+        } ?: throw ServiceWorkerFragmentLaunchUnsupportedException(
+            fragmentId = request.fragmentId,
+            backendName = BackendTarget.Android.displayName,
+            message = "No launcher Activity is registered on Android for fragment '${request.fragmentId}'."
+        )
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        if (request.clearTask) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        }
+        val bundle = FragmentBundle().apply {
+            request.arguments?.let { putAll(it) }
+            putString(FragmentBundle.KEY_LAUNCH_FRAGMENT_ID, request.fragmentId)
+            request.route?.takeIf { it.isNotBlank() }?.let { putString(FragmentBundle.KEY_LAUNCH_ROUTE, it) }
+            putBoolean(FragmentBundle.KEY_LAUNCH_OPEN_ADDITIONAL_WINDOW, request.openAdditionalWindow)
+        }
+        AndroidActivityRegistry.putFragmentBundleExtras(launchIntent, bundle)
+        launchIntent.putExtra(FragmentBundle.KEY_LAUNCH_FRAGMENT_ID, request.fragmentId)
+        request.route?.takeIf { it.isNotBlank() }?.let { launchIntent.putExtra("genericui_route", it) }
+        try {
+            ctx.startActivity(launchIntent)
+        } catch (t: Throwable) {
+            throw ServiceWorkerFragmentLaunchUnsupportedException(
+                fragmentId = request.fragmentId,
+                backendName = BackendTarget.Android.displayName,
+                message = "Android blocked or failed starting Activity for fragment '${request.fragmentId}': ${t.message}",
+                cause = t
+            )
+        }
+    }
+
+    fun requestCloseFragment(fragmentId: String, instanceId: String? = null) {
+        if (serviceBound && clientEnvelopeListener != null) {
+            val env = ServiceWorkerEnvelope(
+                kind = ServiceWorkerEnvelope.KIND_MESSAGE,
+                typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_FRAGMENT,
+                payloadJson = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
+                targetFragmentId = fragmentId
+            )
+            workerControlScope.launch {
+                if (!sendToClient(ANDROID_CLIENT_ID, env)) {
+                    throw ServiceWorkerIpcException(
+                        "Failed to send close control envelope for fragment '$fragmentId' to Android UI client."
+                    )
+                }
+            }
+            return
+        }
+        AndroidActivityRegistry.resolveActiveActivity()?.finish()
     }
 
     fun stopSelf() {
@@ -412,13 +538,12 @@ object AndroidServiceWorkerController {
         workerInstance?.performStop()
         workerInstance = null
         if (service != null) {
-            runCatching {
-                ServiceCompat.stopForeground(service, ServiceCompat.STOP_FOREGROUND_REMOVE)
-            }
+            ServiceCompat.stopForeground(service, ServiceCompat.STOP_FOREGROUND_REMOVE)
             service.stopSelf()
             serviceInstance = null
         }
         serviceBound = false
+        clientEnvelopeListener = null
         clientConnectionListener?.invoke(false)
     }
 
@@ -434,7 +559,11 @@ object AndroidServiceWorkerController {
     }
 
     fun setAutostartEnabled(enabled: Boolean): Boolean {
-        val ctx = serviceInstance ?: AndroidExtensionRuntimeBridge.resolveApplicationContext() ?: return false
+        val ctx = serviceInstance ?: AndroidExtensionRuntimeBridge.resolveApplicationContext()
+            ?: throw ServiceWorkerAutostartUnsupportedException(
+                backendName = BackendTarget.Android.displayName,
+                message = "No Android Context is available to update autostart preference."
+            )
         ctx.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(PREF_KEY_AUTOSTART, enabled)
@@ -446,11 +575,17 @@ object AndroidServiceWorkerController {
             } else {
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED
             }
-            runCatching {
+            try {
                 ctx.packageManager.setComponentEnabledSetting(
                     ComponentName(ctx, bootClass),
                     state,
                     PackageManager.DONT_KILL_APP
+                )
+            } catch (t: Throwable) {
+                throw ServiceWorkerAutostartUnsupportedException(
+                    backendName = BackendTarget.Android.displayName,
+                    message = "Failed to update Android BootReceiver state: ${t.message}",
+                    cause = t
                 )
             }
         }
@@ -574,7 +709,11 @@ object AndroidServiceWorkerController {
             "${context.packageName}.GeneratedAndroidServiceWorkerService"
         ).distinct()
         for (fqn in candidates) {
-            val loaded = runCatching { Class.forName(fqn) }.getOrNull()
+            val loaded = try {
+                Class.forName(fqn)
+            } catch (_: ClassNotFoundException) {
+                null
+            }
             if (loaded != null && Service::class.java.isAssignableFrom(loaded)) {
                 val cls = loaded as Class<out Service>
                 registeredServiceClass = cls
@@ -590,7 +729,11 @@ object AndroidServiceWorkerController {
             "${context.packageName}.GeneratedAndroidServiceWorkerBootReceiver"
         ).distinct()
         for (fqn in candidates) {
-            val loaded = runCatching { Class.forName(fqn) }.getOrNull()
+            val loaded = try {
+                Class.forName(fqn)
+            } catch (_: ClassNotFoundException) {
+                null
+            }
             if (loaded != null) return loaded
         }
         return null

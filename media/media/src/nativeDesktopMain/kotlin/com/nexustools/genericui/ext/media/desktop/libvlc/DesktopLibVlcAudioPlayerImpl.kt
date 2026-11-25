@@ -26,10 +26,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import platform.posix.memcpy
+import kotlin.math.abs
 
 /**
  * Shared desktop [AudioPlayerNativeImpl] backed directly by native `libvlc` ([LibVlcBindings]),
- * shared by `:extensions:media:desktop:qt`, `:extensions:media:desktop:gtk`,
+ * shared by `:extensions:media:desktop:kde`, `:extensions:media:desktop:gtk`,
  * `:extensions:media:desktop:windows`, and `:extensions:media:desktop:macos`.
  */
 open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
@@ -79,6 +80,11 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     private var onPlayingStateChangedListener: ((Boolean) -> Unit)? = null
     private var onMediaReadyListener: (() -> Unit)? = null
     private var mediaReady: Boolean = false
+    private var lastReportedTimeSec: Double = -1.0
+    private var lastReportedDurationSec: Double = -1.0
+    private var clockAnchorVlcMs: Long = -1L
+    private var clockAnchorTimeSec: Double = 0.0
+    private var clockAnchorMark: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
 
     private fun syncWakeLockState() {
         val active = !nativePlayerDisposed && keepScreenOnState && isPlaying()
@@ -90,16 +96,63 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
         playbackMonitorJob = null
     }
 
+    private fun resolveInterpolatedAudioTimeSec(): Double {
+        var curSec = clockAnchorTimeSec
+        val mark = clockAnchorMark
+        if (mark != null && playingFallback) {
+            val delta = (mark.elapsedNow().inWholeNanoseconds / 1_000_000_000.0).coerceAtMost(5.0)
+            curSec += delta
+        }
+        val dur = lastReportedDurationSec
+        return if (dur > 0.0) curSec.coerceIn(0.0, dur) else curSec.coerceAtLeast(0.0)
+    }
+
     private fun startPlaybackMonitorIfNeeded() {
         stopPlaybackMonitor()
         if (nativePlayerDisposed || !playingFallback || currentSourceUrl.isBlank() || !LibVlcBindings.isAvailable) return
         playbackMonitorJob = pollScope.launch {
             while (isActive && !nativePlayerDisposed && playingFallback) {
-                delay(250L)
+                delay(150L)
                 if (nativePlayerDisposed || !playingFallback) break
                 val player = vlcMediaPlayer ?: continue
                 val state = LibVlcBindings.libvlc_media_player_get_state(player)
-                if (state == 6) {
+                if (lastReportedDurationSec <= 0.0) {
+                    val vlcLenMs = LibVlcBindings.libvlc_media_player_get_length(player)
+                    if (vlcLenMs > 0L) {
+                        val durSec = vlcLenMs / 1000.0
+                        lastReportedDurationSec = durSec
+                        onDurationChangedListener?.invoke(durSec)
+                    }
+                }
+                if (state == 3) {
+                    val vlcMs = LibVlcBindings.libvlc_media_player_get_time(player)
+                    val nowMark = kotlin.time.TimeSource.Monotonic.markNow()
+                    if (vlcMs >= 0L && vlcMs != clockAnchorVlcMs) {
+                        val vlcSec = vlcMs / 1000.0
+                        val anchoredSec = if (clockAnchorMark != null && vlcSec > 0.0) {
+                            val prev = resolveInterpolatedAudioTimeSec()
+                            if (vlcSec >= prev - 0.5) maxOf(vlcSec, prev) else vlcSec
+                        } else if (vlcMs > 0L) {
+                            vlcSec
+                        } else {
+                            currentSecFallback
+                        }
+                        clockAnchorVlcMs = vlcMs
+                        clockAnchorTimeSec = anchoredSec
+                        clockAnchorMark = nowMark
+                    } else if (clockAnchorMark == null) {
+                        clockAnchorVlcMs = vlcMs
+                        clockAnchorTimeSec = if (vlcMs > 0L) vlcMs / 1000.0 else currentSecFallback
+                        clockAnchorMark = nowMark
+                    }
+                    val curSec = resolveInterpolatedAudioTimeSec()
+                    currentSecFallback = curSec
+                    val crossedWholeSecond = lastReportedTimeSec >= 0.0 && curSec.toInt() != lastReportedTimeSec.toInt()
+                    if (lastReportedTimeSec < 0.0 || crossedWholeSecond || abs(curSec - lastReportedTimeSec) >= 0.25) {
+                        lastReportedTimeSec = curSec
+                        onTimeUpdateListener?.invoke(curSec)
+                    }
+                } else if (state == 6) {
                     playingFallback = false
                     syncWakeLockState()
                     onPlayingStateChangedListener?.invoke(false)
@@ -160,7 +213,6 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
         if (selfStableRef == null) {
             selfStableRef = StableRef.create(this)
         }
-        LibVlcBindings.libvlc_audio_set_format(tapPlayer, "S16N", 44100, 2)
         LibVlcBindings.libvlc_audio_set_callbacks(
             player = tapPlayer,
             playCb = vlcAudioPlayCallback.reinterpret(),
@@ -170,6 +222,7 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
             drainCb = null,
             opaque = selfStableRef?.asCPointer()
         )
+        LibVlcBindings.libvlc_audio_set_format(tapPlayer, "S16N", 44100, 2)
         analyzerVlcMediaPlayer = tapPlayer
         return tapPlayer
     }
@@ -214,6 +267,11 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
         playingFallback = false
         mediaReady = false
+        lastReportedTimeSec = -1.0
+        lastReportedDurationSec = -1.0
+        clockAnchorVlcMs = -1L
+        clockAnchorTimeSec = seekOffsetSeconds.coerceAtLeast(0.0)
+        clockAnchorMark = null
 
         if (url.isNotBlank()) {
             val player = ensureVlcPlayer()
@@ -245,6 +303,10 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     }
 
     override fun play() {
+        lastReportedTimeSec = -1.0
+        clockAnchorVlcMs = -1L
+        clockAnchorTimeSec = currentSecFallback.coerceAtLeast(0.0)
+        clockAnchorMark = null
         playingFallback = true
         val player = if (currentSourceUrl.isNotBlank()) (vlcMediaPlayer ?: ensureVlcPlayer()) else null
         if (player != null) {
@@ -271,8 +333,12 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     }
 
     override fun pause() {
+        val frozenSec = resolveInterpolatedAudioTimeSec()
         playingFallback = false
         stopPlaybackMonitor()
+        clockAnchorTimeSec = frozenSec
+        currentSecFallback = frozenSec
+        clockAnchorMark = null
         LibVlcBindings.libvlc_media_player_set_pause(vlcMediaPlayer, 1)
         analyzerVlcMediaPlayer?.let { tapPlayer ->
             LibVlcBindings.libvlc_media_player_set_pause(tapPlayer, 1)
@@ -284,7 +350,11 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     override fun stop() {
         playingFallback = false
         stopPlaybackMonitor()
+        lastReportedTimeSec = -1.0
         currentSecFallback = 0.0
+        clockAnchorVlcMs = -1L
+        clockAnchorTimeSec = 0.0
+        clockAnchorMark = null
         LibVlcBindings.libvlc_media_player_stop(vlcMediaPlayer)
         analyzerVlcMediaPlayer?.let { tapPlayer ->
             LibVlcBindings.libvlc_media_player_stop(tapPlayer)
@@ -296,6 +366,9 @@ open class DesktopLibVlcAudioPlayerImpl : AudioPlayerNativeImpl {
     override fun seekTo(seconds: Double) {
         val clamped = seconds.coerceAtLeast(0.0)
         currentSecFallback = clamped
+        clockAnchorVlcMs = -1L
+        clockAnchorTimeSec = clamped
+        clockAnchorMark = null
         val targetMs = (clamped * 1000.0).toLong()
         LibVlcBindings.libvlc_media_player_set_time(vlcMediaPlayer, targetMs)
         analyzerVlcMediaPlayer?.let { tapPlayer ->

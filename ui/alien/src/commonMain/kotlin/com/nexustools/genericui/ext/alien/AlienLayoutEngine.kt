@@ -763,6 +763,29 @@ class AlienLayoutEngine {
         return cursorY
     }
 
+    private fun resolvePositionedContainingBlockBounds(
+        child: AlienWidgetNode,
+        childStyle: AlienResolvedVisualStyle,
+        fallbackBounds: Rect
+    ): Rect {
+        var root: AlienWidgetNode? = child.parent
+        var firstPositioned: AlienWidgetNode? = null
+        while (root != null) {
+            if (childStyle.position != "fixed" && firstPositioned == null) {
+                val ancPos = root.resolveVisualStyle().position
+                if (ancPos != "static") {
+                    firstPositioned = root
+                }
+            }
+            val nextParent = root.parent
+            if (nextParent == null) {
+                return firstPositioned?.bounds ?: root.bounds
+            }
+            root = nextParent
+        }
+        return firstPositioned?.bounds ?: fallbackBounds
+    }
+
     private fun arrangePositionedChild(
         child: AlienWidgetNode,
         childStyle: AlienResolvedVisualStyle,
@@ -771,10 +794,17 @@ class AlienLayoutEngine {
         contentY: Int,
         updateTracker: AlienUpdateRegionTracker?
     ) {
-        val availW = parentBounds.width.coerceAtLeast(1)
-        val availH = parentBounds.height.coerceAtLeast(1)
+        val cbBounds = resolvePositionedContainingBlockBounds(child, childStyle, parentBounds)
+        val availW = cbBounds.width.coerceAtLeast(1)
+        val availH = cbBounds.height.coerceAtLeast(1)
+
+        val leftPx = resolveSignedCssDimensionPx(childStyle.leftCss, availW, childStyle.fontSizePx)
+        val rightPx = resolveSignedCssDimensionPx(childStyle.rightCss, availW, childStyle.fontSizePx)
+        val topPx = resolveSignedCssDimensionPx(childStyle.topCss, availH, childStyle.fontSizePx)
+        val bottomPx = resolveSignedCssDimensionPx(childStyle.bottomCss, availH, childStyle.fontSizePx)
 
         var absW = resolveCssDimensionPx(childStyle.widthCss, availW, childStyle.fontSizePx)
+            ?: if (leftPx != null && rightPx != null) (availW - leftPx - rightPx).coerceAtLeast(1) else null
             ?: child.preferredSize?.width?.takeIf { it > 0 }
             ?: child.measuredSize.width.coerceAtLeast(1)
         resolveCssDimensionPx(childStyle.maxWidthCss, availW, childStyle.fontSizePx)?.let { maxW ->
@@ -790,6 +820,7 @@ class AlienLayoutEngine {
         }
 
         var absH = resolveCssDimensionPx(childStyle.heightCss, availH, childStyle.fontSizePx)
+            ?: if (topPx != null && bottomPx != null) (availH - topPx - bottomPx).coerceAtLeast(1) else null
             ?: child.preferredSize?.height?.takeIf { it > 0 }
             ?: child.measuredSize.height.coerceAtLeast(1)
         resolveCssDimensionPx(childStyle.maxHeightCss, availH, childStyle.fontSizePx)?.let { maxH ->
@@ -799,19 +830,14 @@ class AlienLayoutEngine {
             absH = absH.coerceAtLeast(minH)
         }
 
-        val leftPx = resolveSignedCssDimensionPx(childStyle.leftCss, availW, childStyle.fontSizePx)
-        val rightPx = resolveSignedCssDimensionPx(childStyle.rightCss, availW, childStyle.fontSizePx)
-        val topPx = resolveSignedCssDimensionPx(childStyle.topCss, availH, childStyle.fontSizePx)
-        val bottomPx = resolveSignedCssDimensionPx(childStyle.bottomCss, availH, childStyle.fontSizePx)
-
         var absX = when {
-            leftPx != null -> parentBounds.x + leftPx
-            rightPx != null -> parentBounds.right - rightPx - absW
+            leftPx != null -> cbBounds.x + leftPx
+            rightPx != null -> cbBounds.right - rightPx - absW
             else -> contentX + childStyle.margin.left
         }
         var absY = when {
-            topPx != null -> parentBounds.y + topPx
-            bottomPx != null -> parentBounds.bottom - bottomPx - absH
+            topPx != null -> cbBounds.y + topPx
+            bottomPx != null -> cbBounds.bottom - bottomPx - absH
             else -> contentY + childStyle.margin.top
         }
 

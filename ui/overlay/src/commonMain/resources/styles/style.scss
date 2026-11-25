@@ -1,0 +1,667 @@
+// Theme-independent default styling and auto-hide fade animations for `:extensions:ui:overlay`.
+// Consumer theme overrides live separately in the raw theme stylesheet template.
+
+@keyframes overlayFadeIn {
+    0% {
+        opacity: 0;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
+@keyframes overlayFadeOut {
+    0% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+.gui-overlay-host,
+.genericui-overlay-host-target,
+.gui-overlay-host-root,
+.gui-overlay {
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+}
+
+.gui-overlay-persistent-root {
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+    opacity: 1;
+    pointer-events: none;
+}
+
+.overlay-fading-root {
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+    opacity: 1;
+    pointer-events: auto;
+    cursor: auto;
+}
+
+.overlay-fading-root:not(.hidden) {
+    opacity: 1;
+    pointer-events: auto;
+    cursor: auto;
+    animation: overlayFadeIn 200ms ease-out forwards;
+}
+
+.overlay-fading-root.hidden {
+    opacity: 0;
+    pointer-events: none !important;
+    cursor: none;
+    animation: overlayFadeOut 280ms ease-in-out forwards;
+}
+
+.overlay-fading-root.overlay-keep-cursor.hidden {
+    cursor: auto;
+}
+
+.overlay-fading-root.overlay-instant-fade:not(.hidden),
+.overlay-fading-root.overlay-instant-fade.hidden {
+    animation-duration: 0ms;
+}
+
+.gui-overlay-host.gui-overlay-cursor-hidden,
+.gui-overlay-host.gui-overlay-cursor-hidden .genericui-overlay-host-target,
+.gui-overlay-host.gui-overlay-cursor-hidden .gui-overlay-host-root,
+.gui-overlay-host-target-cursor-hidden {
+    cursor: none !important;
+}
+
+// -----------------------------------------------------------------------------
+// Overlay-Embedded Window TitleBar (Desktop Only)
+// -----------------------------------------------------------------------------
+
+@desktop {
+    .gui-overlay-titlebar {
+        position: relative;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        height: 32px;
+        min-height: 32px;
+        max-height: 32px;
+        border-radius: 0px;
+        border-style: solid;
+        border-top-width: 0px;
+        border-right-width: 0px;
+        border-left-width: 0px;
+        border-bottom-width: 1px;
+        pointer-events: auto;
+        backdrop-filter: none;
+    }
+
+    .gui-overlay-titlebar-flat {
+        backdrop-filter: none;
+    }
+
+    .gui-overlay-titlebar-dark {
+        backdrop-filter: none;
+        background-color: rgba(16, 18, 24, 0.42);
+        border-color: rgba(255, 255, 255, 0.14);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .gui-overlay-titlebar-dark.gui-overlay-titlebar-blurred {
+        backdrop-filter: blur(22px) saturate(1.4);
+        background-color: rgba(16, 18, 24, 0.22);
+        border-color: rgba(255, 255, 255, 0.16);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+    }
+
+    .gui-overlay-titlebar-light {
+        backdrop-filter: none;
+        background-color: rgba(244, 246, 250, 0.48);
+        border-color: rgba(0, 0, 0, 0.10);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.10);
+    }
+
+    .gui-overlay-titlebar-light.gui-overlay-titlebar-blurred {
+        backdrop-filter: blur(22px) saturate(1.4);
+        background-color: rgba(244, 246, 250, 0.28);
+        border-color: rgba(0, 0, 0, 0.10);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.10);
+    }
+
+    .gui-overlay-titlebar-inactive {
+        height: 0px;
+        min-height: 0px;
+        max-height: 0px;
+        pointer-events: none !important;
+        opacity: 0;
+        overflow: hidden;
+        border-bottom-width: 0px;
+    }
+
+    .gui-overlay-window-controls,
+    .gui-overlay-window-leading-accessories,
+    .gui-overlay-window-trailing-accessories,
+    .gui-overlay-titlebar-leading,
+    .gui-overlay-titlebar-trailing {
+        flex-shrink: 0;
+    }
+
+    .gui-overlay-titlebar-leading,
+    .gui-overlay-titlebar-trailing {
+        position: relative;
+        z-index: 2;
+    }
+
+    .gui-overlay-titlebar-leading-placement .gui-overlay-window-controls {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .gui-overlay-titlebar-leading-placement .gui-overlay-titlebar-leading {
+        flex: 0 0 auto;
+        padding: 0px 4px 0px 12px;
+    }
+
+    .gui-overlay-titlebar-leading-placement .gui-overlay-titlebar-center {
+        position: absolute;
+        left: 0px;
+        right: 0px;
+        top: 0px;
+        bottom: 0px;
+        width: 100%;
+        height: 100%;
+        padding: 0px 84px;
+        pointer-events: none;
+        z-index: 1;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .gui-overlay-titlebar-leading-placement .gui-overlay-titlebar-trailing {
+        padding: 0px 8px 0px 4px;
+    }
+
+    .gui-overlay-titlebar-trailing-placement .gui-overlay-window-controls {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .gui-overlay-titlebar-trailing-placement .gui-overlay-titlebar-leading {
+        flex: 1 1 0px;
+        min-width: 0px;
+        padding: 0px 8px 0px 12px;
+    }
+
+    .gui-overlay-titlebar-trailing-placement .gui-overlay-titlebar-trailing {
+        padding: 0px;
+    }
+
+    .gui-overlay-titlebar-native-controls {
+        height: 28px;
+        min-height: 28px;
+        max-height: 28px;
+    }
+
+    @macos {
+        .gui-overlay-titlebar-native-controls .gui-overlay-titlebar-leading {
+            padding-left: 78px;
+        }
+
+        .gui-overlay-titlebar-dark.gui-overlay-titlebar-blurred {
+            backdrop-filter: blur(22px) saturate(1.4);
+        }
+
+        .gui-overlay-titlebar-light.gui-overlay-titlebar-blurred {
+            backdrop-filter: blur(22px) saturate(1.4);
+        }
+    }
+
+    .gui-overlay-window-title-text {
+        font-size: 12.5px;
+        font-weight: 600;
+        white-space: nowrap;
+        pointer-events: none;
+        min-width: 0px;
+    }
+
+    .gui-overlay-titlebar-leading-placement .gui-overlay-titlebar-center .gui-overlay-window-title-text {
+        pointer-events: none;
+        text-align: center;
+    }
+
+    .gui-overlay-titlebar-trailing-placement .gui-overlay-titlebar-leading .gui-overlay-window-title-text {
+        pointer-events: none;
+        text-align: left;
+    }
+
+    .gui-overlay-titlebar-dark .gui-overlay-window-title-text {
+        color: rgba(255, 255, 255, 1.0);
+        text-shadow: 0px 1px 2px rgba(0, 0, 0, 0.45);
+    }
+
+    .gui-overlay-titlebar-light .gui-overlay-window-title-text {
+        color: rgba(24, 28, 36, 0.94);
+    }
+
+    .gui-overlay-titlebar-btn {
+        padding: 0px;
+        cursor: pointer;
+    }
+
+    // macOS-style leading traffic lights
+    .gui-overlay-titlebar-leading-placement .gui-overlay-titlebar-btn {
+        width: 12px;
+        height: 12px;
+        min-width: 12px;
+        min-height: 12px;
+        max-width: 12px;
+        max-height: 12px;
+        border-radius: 6px;
+        padding: 0px;
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 12px;
+        border: 0.5px solid rgba(0, 0, 0, 0.18);
+        color: transparent;
+    }
+
+    .gui-overlay-titlebar-leading-placement .gui-overlay-titlebar-close {
+        background-color: #ff5f57;
+        border: 0.5px solid rgba(0, 0, 0, 0.18);
+        color: transparent;
+    }
+
+    .gui-overlay-titlebar-leading-placement .gui-overlay-titlebar-minimize {
+        background-color: #febc2e;
+        border: 0.5px solid rgba(0, 0, 0, 0.18);
+        color: transparent;
+    }
+
+    .gui-overlay-titlebar-leading-placement .gui-overlay-titlebar-maximize {
+        background-color: #28c840;
+        border: 0.5px solid rgba(0, 0, 0, 0.18);
+        color: transparent;
+    }
+
+    .gui-overlay-titlebar-leading-placement.gui-overlay-titlebar-unfocused.gui-overlay-titlebar-dark .gui-overlay-titlebar-btn {
+        background-color: rgba(255, 255, 255, 0.22);
+        border: 0.5px solid rgba(255, 255, 255, 0.10);
+        color: transparent;
+    }
+
+    .gui-overlay-titlebar-leading-placement.gui-overlay-titlebar-unfocused.gui-overlay-titlebar-light .gui-overlay-titlebar-btn {
+        background-color: rgba(0, 0, 0, 0.16);
+        border: 0.5px solid rgba(0, 0, 0, 0.10);
+        color: transparent;
+    }
+
+    .gui-overlay-titlebar-leading-placement .gui-overlay-titlebar-controls-hovered .gui-overlay-titlebar-close,
+    .gui-overlay-titlebar-leading-placement.gui-overlay-titlebar-unfocused.gui-overlay-titlebar-dark .gui-overlay-titlebar-controls-hovered .gui-overlay-titlebar-close,
+    .gui-overlay-titlebar-leading-placement.gui-overlay-titlebar-unfocused.gui-overlay-titlebar-light .gui-overlay-titlebar-controls-hovered .gui-overlay-titlebar-close {
+        background-color: #ff5f57;
+        border: 0.5px solid rgba(0, 0, 0, 0.18);
+        color: rgba(77, 0, 0, 0.82);
+    }
+
+    .gui-overlay-titlebar-leading-placement .gui-overlay-titlebar-controls-hovered .gui-overlay-titlebar-minimize,
+    .gui-overlay-titlebar-leading-placement.gui-overlay-titlebar-unfocused.gui-overlay-titlebar-dark .gui-overlay-titlebar-controls-hovered .gui-overlay-titlebar-minimize,
+    .gui-overlay-titlebar-leading-placement.gui-overlay-titlebar-unfocused.gui-overlay-titlebar-light .gui-overlay-titlebar-controls-hovered .gui-overlay-titlebar-minimize {
+        background-color: #febc2e;
+        border: 0.5px solid rgba(0, 0, 0, 0.18);
+        color: rgba(153, 87, 0, 0.85);
+    }
+
+    .gui-overlay-titlebar-leading-placement .gui-overlay-titlebar-controls-hovered .gui-overlay-titlebar-maximize,
+    .gui-overlay-titlebar-leading-placement.gui-overlay-titlebar-unfocused.gui-overlay-titlebar-dark .gui-overlay-titlebar-controls-hovered .gui-overlay-titlebar-maximize,
+    .gui-overlay-titlebar-leading-placement.gui-overlay-titlebar-unfocused.gui-overlay-titlebar-light .gui-overlay-titlebar-controls-hovered .gui-overlay-titlebar-maximize {
+        background-color: #28c840;
+        border: 0.5px solid rgba(0, 0, 0, 0.18);
+        color: rgba(0, 101, 0, 0.85);
+    }
+
+    // Windows/Linux-style trailing caption buttons
+    .gui-overlay-titlebar-trailing-placement .gui-overlay-titlebar-btn {
+        width: 36px;
+        height: 31px;
+        min-width: 36px;
+        min-height: 31px;
+        max-width: 36px;
+        max-height: 31px;
+        border-radius: 0px;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 31px;
+        border: none;
+        background-color: transparent;
+    }
+
+    .gui-overlay-titlebar-dark.gui-overlay-titlebar-trailing-placement .gui-overlay-titlebar-btn {
+        color: rgba(240, 244, 250, 0.92);
+    }
+
+    .gui-overlay-titlebar-dark.gui-overlay-titlebar-trailing-placement .gui-overlay-titlebar-minimize:hover,
+    .gui-overlay-titlebar-dark.gui-overlay-titlebar-trailing-placement .gui-overlay-titlebar-maximize:hover {
+        background-color: rgba(255, 255, 255, 0.14);
+        color: #ffffff;
+    }
+
+    .gui-overlay-titlebar-light.gui-overlay-titlebar-trailing-placement .gui-overlay-titlebar-btn {
+        color: rgba(30, 41, 59, 0.90);
+    }
+
+    .gui-overlay-titlebar-light.gui-overlay-titlebar-trailing-placement .gui-overlay-titlebar-minimize:hover,
+    .gui-overlay-titlebar-light.gui-overlay-titlebar-trailing-placement .gui-overlay-titlebar-maximize:hover {
+        background-color: rgba(0, 0, 0, 0.09);
+        color: #000000;
+    }
+
+    .gui-overlay-titlebar-trailing-placement .gui-overlay-titlebar-close:hover {
+        background-color: rgba(196, 43, 28, 0.92);
+        color: #ffffff;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// YouTube-Style Player 3-Zone HUD & Persistent Captions
+// -----------------------------------------------------------------------------
+
+.player-overlay-controls-layer {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    width: 100%;
+    height: 100%;
+    padding: 0px;
+    border-radius: 0px;
+    border-width: 0px;
+    background-color: transparent;
+    pointer-events: auto;
+}
+
+.player-overlay-top {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex: 0 0 auto;
+    padding: 6px 8px;
+    border-radius: 0px;
+    border-width: 0px;
+    background-color: transparent;
+    background-image: linear-gradient(180deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.35) 55%, rgba(0, 0, 0, 0) 100%);
+}
+
+.now-playing-info {
+    flex: 0 1 auto;
+    min-width: 0px;
+}
+
+.player-title-label {
+    color: #ffffff;
+    text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.85);
+}
+
+.player-subtitle-label {
+    color: rgba(255, 255, 255, 0.80);
+    text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.85);
+}
+
+.player-overlay-top-badges,
+.player-overlay-top-actions,
+.player-left-accessories,
+.player-time-accessories,
+.player-controls-left,
+.player-right-badges,
+.player-right-pill-accessories,
+.player-controls-right {
+    flex-shrink: 0;
+}
+
+.player-overlay-center {
+    flex: 1 1 auto;
+}
+
+.player-overlay-bottom {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    padding: 6px 8px;
+    border-radius: 0px;
+    border-width: 0px;
+    background-color: transparent;
+    background-image: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.42) 45%, rgba(0, 0, 0, 0.80) 100%);
+}
+
+.player-timeline-container {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    width: 100%;
+    padding: 0px;
+    border-radius: 0px;
+    border-width: 0px;
+    background-color: transparent;
+}
+
+.player-controls-row {
+    flex: 0 0 auto;
+}
+
+.subtitle-banner {
+    background-color: rgba(0, 0, 0, 0.58);
+    color: #ffffff;
+    backdrop-filter: blur(12px);
+    padding: 4px 12px;
+    border-radius: 8px;
+    border-width: 0px;
+    border-style: none;
+    pointer-events: none;
+    max-width: calc(100% - 32px);
+}
+
+.subtitle-banner-label {
+    color: #ffffff;
+    pointer-events: none;
+}
+
+.seek-hover-bubble {
+    position: absolute;
+    bottom: 68px;
+    transform: translateX(-50%);
+    background-color: rgba(15, 18, 26, 0.67);
+    color: #ffffff;
+    backdrop-filter: blur(10px);
+    padding: 3px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.19);
+    border-radius: 8px;
+    pointer-events: none;
+}
+
+.seek-hover-bubble-above {
+    bottom: 68px;
+}
+
+.seek-hover-bubble-below {
+    bottom: 34px;
+}
+
+.seek-hover-label {
+    color: #ffffff;
+    pointer-events: none;
+}
+
+// -----------------------------------------------------------------------------
+// Overlay Control Buttons & Pills
+// -----------------------------------------------------------------------------
+
+.player-btn,
+.gui-overlay-control-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: #f2f5fa;
+    cursor: pointer;
+    padding: 0px;
+}
+
+.player-circle-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 20px;
+    background-color: rgba(18, 18, 22, 0.74);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.player-pill-inner-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 16px;
+    background-color: transparent;
+    border-width: 0px;
+    border-style: none;
+    border-color: transparent;
+}
+
+.player-btn-center-secondary {
+    width: 56px;
+    height: 56px;
+    border-radius: 28px;
+    background-color: rgba(0, 0, 0, 0.53);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.player-btn-center-primary {
+    width: 64px;
+    height: 64px;
+    border-radius: 32px;
+    background-color: rgba(0, 0, 0, 0.53);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.player-btn-frosted {
+    backdrop-filter: blur(16px) saturate(1.2);
+    background-color: rgba(20, 24, 32, 0.38);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.player-btn:hover:not(:disabled),
+.gui-overlay-control-btn:hover:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.45);
+    color: #ffffff;
+}
+
+.player-pill-inner-btn:hover:not(:disabled) {
+    border-color: transparent;
+}
+
+.player-btn:focus:not(:disabled),
+.player-btn:focus-visible:not(:disabled),
+.gui-overlay-control-btn:focus:not(:disabled),
+.gui-overlay-control-btn:focus-visible:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.22);
+    border-color: rgba(255, 255, 255, 0.65);
+    color: #ffffff;
+    outline: 2px solid rgba(255, 255, 255, 0.35);
+}
+
+.player-pill-inner-btn:focus:not(:disabled),
+.player-pill-inner-btn:focus-visible:not(:disabled) {
+    border-color: transparent;
+    outline: none;
+}
+
+.player-btn:active:not(:disabled),
+.gui-overlay-control-btn:active:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.28);
+    transform: scale(0.96);
+}
+
+.player-btn:disabled,
+.gui-overlay-control-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.36;
+    color: rgba(148, 156, 172, 0.45);
+    background-color: rgba(18, 18, 22, 0.43);
+    border-color: rgba(255, 255, 255, 0.07);
+}
+
+.player-pill-inner-btn:disabled {
+    opacity: 0.35;
+    background-color: transparent;
+    border-color: transparent;
+}
+
+.player-controls-pill {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    height: 40px;
+    padding: 3px 4px;
+    border-radius: 20px;
+    background-color: rgba(18, 18, 22, 0.74);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.player-time-pill {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    height: 40px;
+    padding: 0px 14px;
+    border-radius: 20px;
+    background-color: rgba(18, 18, 22, 0.74);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.player-time-pill .player-time-label,
+.player-time-label {
+    color: #ffffff;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.player-status-label {
+    color: #38bdf8;
+    text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.85);
+}
+
+.seek-hover-label {
+    color: #ffffff;
+    white-space: nowrap;
+}
+
+.overlay-active-feature-badge {
+    background-color: transparent;
+    color: #ffffff;
+    border: 1px solid #ffffff;
+    border-radius: 6px;
+    pointer-events: none;
+}
+
+@mobile {
+    .player-circle-btn {
+        width: 44px;
+        height: 44px;
+        border-radius: 22px;
+    }
+
+    .player-controls-pill {
+        height: 44px;
+        border-radius: 22px;
+    }
+
+    .player-time-pill {
+        height: 44px;
+        border-radius: 22px;
+    }
+}

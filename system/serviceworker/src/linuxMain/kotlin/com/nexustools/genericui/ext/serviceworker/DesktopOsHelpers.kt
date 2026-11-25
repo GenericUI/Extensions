@@ -13,7 +13,10 @@ import kotlinx.cinterop.ptr
 import kotlinx.cinterop.set
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.usePinned
+import platform.posix.FD_CLOEXEC
+import platform.posix.F_GETFD
 import platform.posix.F_OK
+import platform.posix.F_SETFD
 import platform.posix.F_SETLK
 import platform.posix.F_WRLCK
 import platform.posix.O_CREAT
@@ -26,6 +29,7 @@ import platform.posix._exit
 import platform.posix.access
 import platform.posix.chmod
 import platform.posix.close
+import platform.posix.dup2
 import platform.posix.execv
 import platform.posix.fclose
 import platform.posix.fcntl
@@ -49,8 +53,8 @@ import kotlin.uuid.Uuid
 
 internal actual object DesktopOsHelpers {
 
-    private var heldLockFd: Int = -1
-    private var heldLockKey: String? = null
+    private val heldLockFds = linkedMapOf<String, Int>()
+    private val heldLockPaths = linkedMapOf<String, String>()
 
     actual fun currentExecutablePath(): String? = memScoped {
         val buf = allocArray<ByteVar>(4096)
@@ -146,7 +150,7 @@ internal actual object DesktopOsHelpers {
         unlink(path) == 0
 
     actual fun acquireSingleInstanceLock(lockKey: String, lockFilePath: String): Boolean {
-        if (heldLockFd >= 0 && heldLockKey == lockKey) {
+        if (heldLockFds.containsKey(lockKey) || heldLockPaths.containsValue(lockFilePath)) {
             return false
         }
         val parent = lockFilePath.substringBeforeLast('/', "")
@@ -155,6 +159,7 @@ internal actual object DesktopOsHelpers {
         }
         val fd = open(lockFilePath, O_CREAT or O_RDWR, S_IRUSR or S_IWUSR)
         if (fd < 0) return false
+        setCloseOnExec(fd)
         val lockOk = memScoped {
             val fl = alloc<flock>()
             fl.l_type = F_WRLCK.toShort()
@@ -167,18 +172,27 @@ internal actual object DesktopOsHelpers {
             close(fd)
             return false
         }
-        heldLockFd = fd
-        heldLockKey = lockKey
+        heldLockFds[lockKey] = fd
+        heldLockPaths[lockKey] = lockFilePath
         return true
     }
 
-    actual fun releaseSingleInstanceLock() {
-        val fd = heldLockFd
-        heldLockFd = -1
-        heldLockKey = null
+    actual fun releaseSingleInstanceLock(lockKey: String) {
+        heldLockPaths.remove(lockKey)
+        val fd = heldLockFds.remove(lockKey) ?: return
         if (fd >= 0) {
             close(fd)
         }
+    }
+
+    actual fun releaseSingleInstanceLock() {
+        for (key in heldLockFds.keys.toList()) {
+            releaseSingleInstanceLock(key)
+        }
+    }
+
+    actual fun registerShutdownHook(hook: () -> Unit) {
+        // Kernel automatically releases fcntl advisory locks and closes FDs when the process exits.
     }
 
     actual fun spawnDetachedProcess(
@@ -190,6 +204,15 @@ internal actual object DesktopOsHelpers {
         if (pid < 0) return false
         if (pid == 0) {
             setsid()
+            val devNull = open("/dev/null", O_RDWR)
+            if (devNull >= 0) {
+                dup2(devNull, 0)
+                dup2(devNull, 1)
+                dup2(devNull, 2)
+                if (devNull > 2) {
+                    close(devNull)
+                }
+            }
             memScoped {
                 val argv = allocArray<kotlinx.cinterop.CPointerVar<ByteVar>>(args.size + 2)
                 argv[0] = executablePath.cstr.getPointer(this)
@@ -261,25 +284,37 @@ X-GNOME-Autostart-enabled=true
         val self = currentExecutablePath() ?: return null
         val dir = self.substringBeforeLast('/', "")
         if (dir.isEmpty()) return null
-        val isQtSelf = self.endsWith("-qt") || self.endsWith("-qt.kexe")
+        val isKdeSelf = self.endsWith("-kde") || self.endsWith("-kde.kexe")
         val isGtkSelf = self.endsWith("-gtk") || self.endsWith("-gtk.kexe")
         val candidates = buildList {
             add("$dir/$siblingBaseName")
             add("$dir/$siblingBaseName.kexe")
-            if (isQtSelf) {
-                add("$dir/$siblingBaseName-qt")
-                add("$dir/$siblingBaseName-qt.kexe")
+            if (isKdeSelf) {
+                add("$dir/$siblingBaseName-kde")
+                add("$dir/$siblingBaseName-kde.kexe")
             } else if (isGtkSelf) {
                 add("$dir/$siblingBaseName-gtk")
                 add("$dir/$siblingBaseName-gtk.kexe")
             }
             add("$dir/$siblingBaseName-gtk")
             add("$dir/$siblingBaseName-gtk.kexe")
-            add("$dir/$siblingBaseName-qt")
-            add("$dir/$siblingBaseName-qt.kexe")
+            add("$dir/$siblingBaseName-kde")
+            add("$dir/$siblingBaseName-kde.kexe")
         }.distinct()
         val resolved = candidates.firstOrNull { access(it, F_OK) == 0 } ?: "$dir/$siblingBaseName"
         return resolved to emptyList()
+    }
+
+    actual fun tryWakeRegisteredBackgroundService(appId: String): Boolean = false
+
+    private fun setCloseOnExec(fd: Int) {
+        if (fd < 0) return
+        val flags = fcntl(fd, F_GETFD)
+        if (flags >= 0) {
+            fcntl(fd, F_SETFD, flags or FD_CLOEXEC)
+        } else {
+            fcntl(fd, F_SETFD, FD_CLOEXEC)
+        }
     }
 
     private fun desktopEntryPath(appId: String): String {

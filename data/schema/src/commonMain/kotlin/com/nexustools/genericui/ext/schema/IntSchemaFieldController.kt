@@ -4,6 +4,7 @@ import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.form.NumberField
 import com.nexustools.genericui.component.form.Slider
 import com.nexustools.genericui.component.layout.HStack
+import com.nexustools.genericui.component.layout.StackConstraint
 import com.nexustools.genericui.component.layout.VStack
 import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.core.AbstractComponent
@@ -12,6 +13,7 @@ import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.bootstrap.FlexWrap
 import com.nexustools.genericui.enums.bootstrap.SpacingScale
+import com.nexustools.genericui.style.css.CssLength
 
 internal class IntSchemaFieldController(
     private val intSpec: IntFieldSpec,
@@ -70,13 +72,14 @@ internal class IntSchemaFieldController(
                 max = sMax,
                 step = currentStep.toDouble()
             ).apply {
+                style.setMinWidth(CssLength.px(120f))
                 onValueChanged = { d ->
                     if (!suppressUiSync) {
                         applyNumericValue(kotlin.math.round(d).toLong(), syncTextField = true)
                     }
                 }
             }
-            row.addChild(slider!!, weight = 1f)
+            row.addChild(slider!!, StackConstraint(weight = 1f, minWidthPx = 120))
             registerInvalidTarget(slider!!)
         }
         if (useStepper) {
@@ -85,7 +88,13 @@ internal class IntSchemaFieldController(
             }
             row.addChild(minusButton!!)
         }
-        row.addChild(numberField)
+        if (useSlider || useStepper) {
+            numberField.style.setWidth(CssLength.px(110f))
+            numberField.style.setFlexShrink(0f)
+            row.addChild(numberField)
+        } else {
+            row.addChild(numberField, weight = 1f)
+        }
         if (useStepper) {
             plusButton = Button("+", type = BootstrapType.SECONDARY, size = BootstrapSize.SM).apply {
                 onClick = { applyNumericValue(currentVal + currentStep, syncTextField = true) }

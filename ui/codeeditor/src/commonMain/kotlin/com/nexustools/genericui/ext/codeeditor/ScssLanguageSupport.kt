@@ -1,5 +1,7 @@
 package com.nexustools.genericui.ext.codeeditor
 
+import com.nexustools.genericui.style.css.BackendStyleMask
+
 /**
  * SCSS/CSS language intelligence helper for [IdeCodeEditor] and [SyntaxTokenizer], providing
  * property catalogs, `@` directive definitions, `genericui:*` custom element selectors,
@@ -69,6 +71,8 @@ object ScssLanguageSupport {
         "@for",
         "@each"
     )
+
+    val GENERICUI_BACKEND_DIRECTIVES: List<Pair<String, String>> = BackendStyleMask.ALL_DIRECTIVE_DESCRIPTIONS
 
     val GENERICUI_CUSTOM_TAGS: List<String> = listOf(
         "genericui:mdicontainer",
@@ -183,11 +187,39 @@ object ScssLanguageSupport {
         "&:checked"
     )
 
+    private fun addAtDirectiveSuggestion(
+        suggestions: MutableList<CompletionItem>,
+        directive: String,
+        detail: String,
+        extendedPrefix: String,
+        rawPrefix: String
+    ) {
+        if (extendedPrefix.isEmpty() ||
+            directive.startsWith(extendedPrefix, ignoreCase = true) ||
+            directive.removePrefix("@").startsWith(rawPrefix, ignoreCase = true)
+        ) {
+            val insertVal = if (extendedPrefix.startsWith("@") && rawPrefix.isNotEmpty()) {
+                directive.removePrefix("@")
+            } else {
+                directive
+            }
+            suggestions.add(
+                CompletionItem(
+                    label = directive,
+                    kind = CompletionItemKind.KEYWORD,
+                    detail = detail,
+                    insertText = insertVal
+                )
+            )
+        }
+    }
+
     /**
      * Creates a context-aware [CodeCompletionProvider] for SCSS documents that suggests:
      * - Document-declared `$variables`
      * - Document-declared `@mixin` names
      * - Built-in SCSS `@` directives
+     * - GenericUI backend-targeted `@` directives (e.g. `@macos`, `@desktop`, `@backend(...)`)
      * - CSS properties
      * - `genericui:*` custom component tags
      * - Standard HTML compatibility tags
@@ -241,19 +273,12 @@ object ScssLanguageSupport {
             }
         }
 
-        // 3. SCSS @directives
+        // 3. SCSS @directives & GenericUI backend-targeted @directives
         for (dir in SCSS_DIRECTIVES) {
-            if (extendedPrefix.isEmpty() || dir.startsWith(extendedPrefix, ignoreCase = true) || dir.removePrefix("@").startsWith(rawPrefix, ignoreCase = true)) {
-                val insertVal = if (extendedPrefix.startsWith("@") && rawPrefix.isNotEmpty()) dir.removePrefix("@") else dir
-                suggestions.add(
-                    CompletionItem(
-                        label = dir,
-                        kind = CompletionItemKind.KEYWORD,
-                        detail = "SCSS Directive",
-                        insertText = insertVal
-                    )
-                )
-            }
+            addAtDirectiveSuggestion(suggestions, dir, "SCSS Directive", extendedPrefix, rawPrefix)
+        }
+        for ((dir, desc) in GENERICUI_BACKEND_DIRECTIVES) {
+            addAtDirectiveSuggestion(suggestions, dir, "GenericUI Backend Directive — $desc", extendedPrefix, rawPrefix)
         }
 
         // 4. CSS Properties

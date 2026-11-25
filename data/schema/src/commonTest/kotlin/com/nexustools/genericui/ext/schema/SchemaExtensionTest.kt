@@ -1,6 +1,9 @@
 package com.nexustools.genericui.ext.schema
 
 import com.nexustools.genericui.component.feedback.Alert
+import com.nexustools.genericui.component.form.NumberField
+import com.nexustools.genericui.component.form.Slider
+import com.nexustools.genericui.component.form.Switch
 import com.nexustools.genericui.component.form.TextField
 import com.nexustools.genericui.component.layout.Column
 import com.nexustools.genericui.component.layout.HStack
@@ -10,8 +13,10 @@ import com.nexustools.genericui.component.typography.Badge
 import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.enums.bootstrap.AlignSelf
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.CssLength
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -684,5 +689,42 @@ class SchemaExtensionTest {
         } finally {
             SchemaRegistry.unregister(SamplePlayerDescriptor.schema.id)
         }
+    }
+
+    @Test
+    fun testSliderNumberFieldCompactSizingAndStackedSwitchAlignment() {
+        val schema = ObjectSchema(
+            id = "form_layout_sizing_test",
+            nodes = listOf(
+                IntFieldSpec(key = "timeoutMs", defaultValue = 1000, min = 0, max = 60000),
+                DoubleFieldSpec(key = "opacity", defaultValue = 0.5, min = 0.0, max = 1.0),
+                IntFieldSpec(key = "port", defaultValue = 8080),
+                BooleanFieldSpec(key = "enabled", defaultValue = true, widgetHint = SchemaWidgetHint.SWITCH)
+            )
+        )
+
+        val form = SchemaForm(schema, layoutMode = SchemaLayoutMode.STACKED)
+
+        val intComponents = collectComponents(form.findField("timeoutMs")!!.rootComponent)
+        val intSlider = intComponents.filterIsInstance<Slider>().single()
+        val intField = intComponents.filterIsInstance<NumberField>().single()
+        assertEquals(CssLength.px(120f), intSlider.style.getMinWidth())
+        assertEquals(CssLength.px(110f), intField.style.getWidth())
+        assertEquals(0f, intField.style.getFlexShrink())
+
+        val doubleComponents = collectComponents(form.findField("opacity")!!.rootComponent)
+        val doubleSlider = doubleComponents.filterIsInstance<Slider>().single()
+        val doubleField = doubleComponents.filterIsInstance<NumberField>().single()
+        assertEquals(CssLength.px(120f), doubleSlider.style.getMinWidth())
+        assertEquals(CssLength.px(110f), doubleField.style.getWidth())
+        assertEquals(0f, doubleField.style.getFlexShrink())
+
+        val standaloneComponents = collectComponents(form.findField("port")!!.rootComponent)
+        val standaloneField = standaloneComponents.filterIsInstance<NumberField>().single()
+        assertEquals(1f, standaloneField.style.getFlexGrow())
+
+        val switchComponents = collectComponents(form.findField("enabled")!!.rootComponent)
+        val switchCtrl = switchComponents.filterIsInstance<Switch>().single()
+        assertEquals(AlignSelf.START, switchCtrl.style.getAlignSelf())
     }
 }

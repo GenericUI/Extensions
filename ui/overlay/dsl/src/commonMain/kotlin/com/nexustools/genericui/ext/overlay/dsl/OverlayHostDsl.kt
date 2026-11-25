@@ -7,6 +7,7 @@ import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.ext.overlay.OverlayActions
 import com.nexustools.genericui.ext.overlay.OverlayHostBox
 import com.nexustools.genericui.ext.overlay.OverlayState
+import com.nexustools.genericui.ext.overlay.OverlayWindowTitleBarConfig
 
 /**
  * Top-level `kotlinx.html`-style entry point that creates and configures a pure,
@@ -18,6 +19,8 @@ fun buildOverlayHostBox(
     state: OverlayState = OverlayState(),
     actions: OverlayActions = OverlayActions(),
     themeColorHex: String? = null,
+    windowTitleBarEnabled: Boolean = false,
+    windowTitleBarConfig: OverlayWindowTitleBarConfig? = null,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker OverlayHostBox.() -> Unit)? = null
@@ -27,6 +30,13 @@ fun buildOverlayHostBox(
     box.actions = actions
     if (themeColorHex != null) {
         box.themeColorHex = themeColorHex
+    }
+    if (windowTitleBarConfig != null) {
+        box.windowTitleBarConfig = windowTitleBarConfig.copy(
+            enabled = windowTitleBarConfig.enabled || windowTitleBarEnabled
+        )
+    } else if (windowTitleBarEnabled) {
+        box.windowTitleBarEnabled = true
     }
     if (!classes.isNullOrBlank()) {
         box.addClass(classes)
@@ -49,6 +59,8 @@ fun AbstractContainer.overlayHostBox(
     state: OverlayState = OverlayState(),
     actions: OverlayActions = OverlayActions(),
     themeColorHex: String? = null,
+    windowTitleBarEnabled: Boolean = false,
+    windowTitleBarConfig: OverlayWindowTitleBarConfig? = null,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker OverlayHostBox.() -> Unit)? = null
@@ -59,6 +71,8 @@ fun AbstractContainer.overlayHostBox(
         state = state,
         actions = actions,
         themeColorHex = themeColorHex,
+        windowTitleBarEnabled = windowTitleBarEnabled,
+        windowTitleBarConfig = windowTitleBarConfig,
         id = id,
         classes = classes,
         block = block

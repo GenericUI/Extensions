@@ -10,6 +10,7 @@ import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.window.WindowState
 import com.nexustools.genericui.ext.overlay.OverlayHost
+import com.nexustools.genericui.ext.overlay.OverlayStageProvider
 import com.nexustools.genericui.ext.pip.ComponentReparentSlot
 import com.nexustools.genericui.ext.pip.FragmentPipHelper
 import com.nexustools.genericui.ext.pip.PipBackend
@@ -17,10 +18,9 @@ import com.nexustools.genericui.ext.pip.PipCapabilities
 import com.nexustools.genericui.ext.pip.PipComponentClassifier
 import com.nexustools.genericui.ext.pip.PipContentType
 import com.nexustools.genericui.ext.pip.PipControlOverlay
+import com.nexustools.genericui.ext.pip.PipExtension
 import com.nexustools.genericui.ext.pip.PipSessionConfig
 import com.nexustools.genericui.geometry.Size
-import com.nexustools.genericui.style.color.RgbaColor
-import com.nexustools.genericui.style.css.CssCornerRadii
 import com.nexustools.genericui.style.css.CssLength
 import com.nexustools.genericui.web.WebDomElement
 import com.nexustools.genericui.window.IWindow
@@ -69,8 +69,13 @@ class WebPipBackend : PipBackend {
     private var pipRoot: FloatingWebPipRoot? = null
     private var controlOverlay: PipControlOverlay? = null
     private var activeTargetRef: AbstractComponent? = null
+    private var suppressedStageOverlayHost: OverlayHost? = null
     private var activeMode: ActiveWebPipMode = ActiveWebPipMode.NONE
     private var autoEnteredOnHidden: Boolean = false
+    private var inPlaceDragActive: Boolean = false
+    private var hasInPlacePosition: Boolean = false
+    private var inPlaceRightPx: Int = 24
+    private var inPlaceBottomPx: Int = 24
 
     val activeFloatingRoot: LayeredContainer?
         get() = pipRoot
@@ -186,13 +191,17 @@ class WebPipBackend : PipBackend {
         val root = pipRoot
         val overlay = controlOverlay
         val target = activeTargetRef
+        val stageOverlay = suppressedStageOverlayHost
 
         activeMode = ActiveWebPipMode.NONE
         pipRoot = null
         controlOverlay = null
         activeTargetRef = null
+        suppressedStageOverlayHost = null
         inPipModeState = false
         autoEnteredOnHidden = false
+        inPlaceDragActive = false
+        hasInPlacePosition = false
 
         when (mode) {
             ActiveWebPipMode.DOCUMENT_PIP -> {
@@ -200,12 +209,18 @@ class WebPipBackend : PipBackend {
                 if (target is OverlayHost) {
                     target.setPictureInPictureMode(false)
                 }
+                if (stageOverlay != null && stageOverlay !== target) {
+                    stageOverlay.setPictureInPictureMode(false)
+                }
                 WebPipInteropBridge.closeDocumentPipWindow()
             }
             ActiveWebPipMode.IN_PLACE -> {
                 reparentSlot.restore()
                 if (target is OverlayHost) {
                     target.setPictureInPictureMode(false)
+                }
+                if (stageOverlay != null && stageOverlay !== target) {
+                    stageOverlay.setPictureInPictureMode(false)
                 }
                 val rootDom = root?.ensureNativeImpl()?.nativeWidget as? WebDomElement
                 WebPipInteropBridge.detachInPlaceRoot(rootDom?.nativeBrowserPeer)
@@ -231,14 +246,10 @@ class WebPipBackend : PipBackend {
         val factory = resolveHostFactory()
         val root = FloatingWebPipRoot(factory).apply {
             id = "genericui-web-pip-root"
-            style.width = CssLength.percent(100f)
-            style.height = CssLength.percent(100f)
-            style.backgroundColor = RgbaColor.BLACK
+            addClass("pip-web-floating-root")
         }
         val contentHost = Container("genericui:pip-content", "pip-content-slot").apply {
-            style.width = CssLength.percent(100f)
-            style.height = CssLength.percent(100f)
-            style.backgroundColor = RgbaColor.BLACK
+            addClass("pip-content-slot")
         }
         val overlay = PipControlOverlay(
             onRestoreRequested = { exitPip() },
@@ -246,23 +257,34 @@ class WebPipBackend : PipBackend {
                 helper.dispatchCloseRequestedFromBackend()
                 exitPip()
             },
-            onDragMoveRequested = { controlOverlay?.showTemporarily() },
-            actions = helper.resolveEffectiveActions()
+            onDragMoveRequested = {
+                controlOverlay?.showTemporarily()
+                if (activeMode == ActiveWebPipMode.IN_PLACE) {
+                    inPlaceDragActive = true
+                }
+            },
+            actions = helper.resolveEffectiveActions(),
+            onPlayPauseRequested = { helper.resolveEffectivePlayPauseAction()?.invoke() },
+            onDoubleClickRequested = {
+                helper.resolveEffectiveDoubleClickAction()?.invoke() ?: exitPip()
+            }
         ).apply {
             setOverlayTitle(config.title)
         }
+        attachInPlaceDragFallback(overlay, root)
 
         root.addLayer(contentHost, LayerConstraint.fill(zIndex = 0))
         root.addLayer(overlay, LayerConstraint.fill(zIndex = 1))
+        root.applyStyleSheet(PipExtension.composeEffectiveStyleSheet())
 
         if (!reparentSlot.moveInto(target, contentHost)) {
             overlay.dispose()
             root.dispose()
             return false
         }
-        if (target is OverlayHost) {
-            target.setPictureInPictureMode(true)
-        }
+        val stageOverlayHost = resolveStageOverlayHost(target)
+        suppressedStageOverlayHost = stageOverlayHost
+        stageOverlayHost?.setPictureInPictureMode(true)
 
         val rootDom = root.ensureNativeImpl()?.nativeWidget as? WebDomElement
         val browserPeer = rootDom?.nativeBrowserPeer
@@ -326,13 +348,18 @@ class WebPipBackend : PipBackend {
     ) {
         if (root == null) return
         val clampedMargin = marginPx.coerceAtLeast(8)
+        if (!hasInPlacePosition) {
+            inPlaceRightPx = clampedMargin
+            inPlaceBottomPx = clampedMargin
+            hasInPlacePosition = true
+        }
+        root.addClass("pip-web-floating-pip")
         root.style.width = CssLength.px(size.width)
         root.style.height = CssLength.px(size.height)
-        root.style.borderRadius = CssCornerRadii.px(12)
         val dom = root.ensureNativeImpl()?.nativeWidget as? WebDomElement ?: return
         dom.style["position"] = "fixed"
-        dom.style["right"] = "${clampedMargin}px"
-        dom.style["bottom"] = "${clampedMargin}px"
+        dom.style["right"] = "${inPlaceRightPx}px"
+        dom.style["bottom"] = "${inPlaceBottomPx}px"
         dom.style["width"] = "${size.width}px"
         dom.style["height"] = "${size.height}px"
         dom.style["z-index"] = "2147483000"
@@ -343,10 +370,12 @@ class WebPipBackend : PipBackend {
     }
 
     private fun clearInPlaceFloatingStyles(root: FloatingWebPipRoot?) {
+        inPlaceDragActive = false
+        hasInPlacePosition = false
         if (root == null) return
-        root.style.width = CssLength.percent(100f)
-        root.style.height = CssLength.percent(100f)
-        root.style.borderRadius = CssCornerRadii.ZERO
+        root.removeClass("pip-web-floating-pip")
+        root.style.width = null
+        root.style.height = null
         val dom = root.ensureNativeImpl()?.nativeWidget as? WebDomElement ?: return
         dom.style["position"] = "relative"
         dom.style.remove("right")
@@ -357,6 +386,53 @@ class WebPipBackend : PipBackend {
         dom.style.remove("border-radius")
         dom.style.remove("box-shadow")
     }
+
+    private fun attachInPlaceDragFallback(
+        overlay: PipControlOverlay,
+        root: FloatingWebPipRoot
+    ) {
+        val prevDown = overlay.dragSurface.onPointerDown
+        val prevMove = overlay.dragSurface.onPointerMove
+        val prevUp = overlay.dragSurface.onPointerUp
+        var lastPointerX = 0f
+        var lastPointerY = 0f
+        var pointerTracked = false
+
+        overlay.dragSurface.onPointerDown = { event ->
+            inPlaceDragActive = false
+            lastPointerX = if (event.screenX != 0f || event.screenY != 0f) event.screenX else event.x
+            lastPointerY = if (event.screenX != 0f || event.screenY != 0f) event.screenY else event.y
+            pointerTracked = true
+            prevDown?.invoke(event)
+        }
+        overlay.dragSurface.onPointerMove = { event ->
+            prevMove?.invoke(event)
+            if (activeMode == ActiveWebPipMode.IN_PLACE && inPlaceDragActive && pointerTracked) {
+                val curX = if (event.screenX != 0f || event.screenY != 0f) event.screenX else event.x
+                val curY = if (event.screenX != 0f || event.screenY != 0f) event.screenY else event.y
+                val dx = (curX - lastPointerX).roundToInt()
+                val dy = (curY - lastPointerY).roundToInt()
+                lastPointerX = curX
+                lastPointerY = curY
+                inPlaceRightPx = (inPlaceRightPx - dx).coerceAtLeast(8)
+                inPlaceBottomPx = (inPlaceBottomPx - dy).coerceAtLeast(8)
+                hasInPlacePosition = true
+                val dom = root.ensureNativeImpl()?.nativeWidget as? WebDomElement
+                if (dom != null) {
+                    dom.style["right"] = "${inPlaceRightPx}px"
+                    dom.style["bottom"] = "${inPlaceBottomPx}px"
+                }
+            }
+        }
+        overlay.dragSurface.onPointerUp = { event ->
+            inPlaceDragActive = false
+            pointerTracked = false
+            prevUp?.invoke(event)
+        }
+    }
+
+    private fun resolveStageOverlayHost(target: AbstractComponent?): OverlayHost? =
+        (target as? OverlayHost) ?: (hostFragment as? OverlayStageProvider)?.stageOverlayHost
 
     private fun resolveBrowserVideoPeer(component: AbstractComponent): Any? {
         val target = (component as? OverlayHost)?.targetComponent ?: component

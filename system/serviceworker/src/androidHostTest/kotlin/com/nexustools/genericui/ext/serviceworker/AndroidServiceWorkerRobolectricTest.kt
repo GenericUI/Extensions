@@ -6,7 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import com.nexustools.genericui.android.AndroidExtensionRuntimeBridge
+import com.nexustools.genericui.component.fragment.Fragment
+import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.system.PreferenceElement
+import com.nexustools.genericui.exception.SystemTrayUnsupportedException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -20,6 +23,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -32,6 +36,8 @@ class AndroidServiceWorkerRobolectricTest {
 
     data class EchoReq(val value: String)
     data class EchoResp(val echoed: String)
+
+    private class RoboMissingActivityFragment : Fragment()
 
     private class RoboSampleWorker : ServiceWorker() {
         val started = CompletableDeferred<Unit>()
@@ -110,6 +116,7 @@ class AndroidServiceWorkerRobolectricTest {
     fun tearDown() {
         TestAndroidSwService.activeTestWorker = null
         AndroidServiceWorkerController.resetForTests()
+        FragmentRegistry.clear()
         ServiceWorkerCodecRegistry.unregister("androidtest.EchoReq")
         ServiceWorkerCodecRegistry.unregister("androidtest.EchoResp")
     }
@@ -131,7 +138,12 @@ class AndroidServiceWorkerRobolectricTest {
         ServiceWorkerExtension.registerWorkerFactory { worker }
 
         assertTrue(ServiceWorkerExtension.isSupported)
-        assertTrue(ServiceWorkerExtension.isAutostartSupported)
+        assertTrue(ServiceWorkerExtension.supportsAutostart)
+        assertTrue(ServiceWorkerExtension.supportsOngoingNotification)
+        assertTrue(ServiceWorkerExtension.supportsFragmentLaunch)
+        assertTrue(ServiceWorkerExtension.supportsDialogFragments)
+        assertFalse(ServiceWorkerExtension.supportsSystemTray)
+        assertFalse(ServiceWorkerExtension.supportsMultipleWindows)
 
         val controller = Robolectric.buildService(TestAndroidSwService::class.java)
         val service = controller.create().get()
@@ -220,5 +232,28 @@ class AndroidServiceWorkerRobolectricTest {
         val startedIntent = shadowOf(app).nextStartedService
         assertNotNull(startedIntent, "Boot completed must start foreground service when autostart is enabled")
         assertEquals(TestAndroidSwService::class.java.name, startedIntent.component?.className)
+    }
+
+    @Test
+    fun androidWorkerRejectsSystemTrayAndUnbackedFragmentLaunch() {
+        val app = RuntimeEnvironment.getApplication()
+        AndroidExtensionRuntimeBridge.notifyApplicationCreate(app)
+        FragmentRegistry.registerMetadata(
+            fragmentClass = RoboMissingActivityFragment::class,
+            fragmentId = "com.test.RoboMissingActivityFragment",
+            route = "/missing"
+        )
+        val worker = RoboSampleWorker()
+        worker.attachAndStart(AndroidServiceWorkerController.runtimeHost, ServiceWorkerOptions(appId = app.packageName))
+        try {
+            assertFailsWith<SystemTrayUnsupportedException> {
+                worker.setTrayTooltip("Unsupported on Android")
+            }
+            assertFailsWith<ServiceWorkerFragmentLaunchUnsupportedException> {
+                worker.startFragment<RoboMissingActivityFragment>()
+            }
+        } finally {
+            worker.performStop()
+        }
     }
 }

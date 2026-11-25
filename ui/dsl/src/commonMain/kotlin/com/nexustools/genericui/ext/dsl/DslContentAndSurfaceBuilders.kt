@@ -5,16 +5,20 @@ import com.nexustools.genericui.component.content.ImageView
 import com.nexustools.genericui.component.content.MasterDetailStepSelect
 import com.nexustools.genericui.component.content.Table
 import com.nexustools.genericui.component.feedback.Alert
+import com.nexustools.genericui.component.feedback.Banner
 import com.nexustools.genericui.component.feedback.ProgressBar
 import com.nexustools.genericui.component.feedback.Spinner
+import com.nexustools.genericui.component.feedback.Toast
 import com.nexustools.genericui.component.htmlcompat.Li
 import com.nexustools.genericui.component.htmlcompat.Ol
 import com.nexustools.genericui.component.htmlcompat.Ul
 import com.nexustools.genericui.component.navigation.Navbar
 import com.nexustools.genericui.component.surface.Card
 import com.nexustools.genericui.component.surface.CollapsiblePanel
+import com.nexustools.genericui.component.surface.Jumbotron
 import com.nexustools.genericui.component.surface.ListGroup
 import com.nexustools.genericui.component.surface.ListGroupItem
+import com.nexustools.genericui.component.surface.Well
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.ui.ObjectFit
@@ -24,10 +28,11 @@ import com.nexustools.genericui.enums.ui.ObjectFit
  */
 inline fun AbstractContainer.card(
     title: String? = null,
+    type: BootstrapType = BootstrapType.NONE,
     classes: String? = null,
     id: String? = null,
     block: (@GenericUiDslMarker Card).() -> Unit = {}
-): Card = mountDslComponent(this, Card(title = title), classes, id, block)
+): Card = mountDslComponent(this, Card(title = title, type = type), classes, id, block)
 
 /**
  * In-place [CollapsiblePanel] builder.
@@ -68,10 +73,11 @@ inline fun AbstractContainer.ol(
  * In-place Bootstrap [ListGroup] builder (`listGroup`).
  */
 inline fun AbstractContainer.listGroup(
+    type: BootstrapType = BootstrapType.NONE,
     classes: String? = null,
     id: String? = null,
     block: (@GenericUiDslMarker ListGroup).() -> Unit = {}
-): ListGroup = mountDslComponent(this, ListGroup(), classes, id, block)
+): ListGroup = mountDslComponent(this, ListGroup(type = type), classes, id, block)
 
 /**
  * In-place `<li>` [Li] builder matching `kotlinx.html`'s `li`.
@@ -95,10 +101,11 @@ inline fun AbstractContainer.li(
 inline fun AbstractContainer.listGroupItem(
     text: String = "",
     active: Boolean = false,
+    type: BootstrapType = BootstrapType.NONE,
     classes: String? = null,
     id: String? = null,
     block: (@GenericUiDslMarker ListGroupItem).() -> Unit = {}
-): ListGroupItem = mountDslComponent(this, ListGroupItem(id = id, isActive = active), classes, id) {
+): ListGroupItem = mountDslComponent(this, ListGroupItem(id = id, isActive = active, type = type), classes, id) {
     if (text.isNotEmpty()) {
         +text
     }
@@ -190,19 +197,69 @@ inline fun AbstractContainer.alert(
 )
 
 /**
+ * In-place Bootstrap [Banner] builder.
+ */
+inline fun AbstractContainer.banner(
+    message: String = "",
+    type: BootstrapType = BootstrapType.WARNING,
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker Banner).() -> Unit = {}
+): Banner = mountDslComponent(this, Banner(message = message, type = type), classes, id, block)
+
+/**
+ * In-place Bootstrap [Toast] builder.
+ */
+inline fun AbstractContainer.toast(
+    title: String = "",
+    message: String = "",
+    type: BootstrapType = BootstrapType.INFO,
+    autoHideDurationMs: Long = 4000L,
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker Toast).() -> Unit = {}
+): Toast = mountDslComponent(
+    this,
+    Toast(title = title, message = message, type = type, autoHideDurationMs = autoHideDurationMs),
+    classes,
+    id,
+    block
+)
+
+/**
+ * In-place Bootstrap [Jumbotron] builder.
+ */
+inline fun AbstractContainer.jumbotron(
+    type: BootstrapType = BootstrapType.NONE,
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker Jumbotron).() -> Unit = {}
+): Jumbotron = mountDslComponent(this, Jumbotron(type = type), classes, id, block)
+
+/**
+ * In-place Bootstrap [Well] builder.
+ */
+inline fun AbstractContainer.well(
+    type: BootstrapType = BootstrapType.NONE,
+    classes: String? = null,
+    id: String? = null,
+    block: (@GenericUiDslMarker Well).() -> Unit = {}
+): Well = mountDslComponent(this, Well(type = type), classes, id, block)
+
+/**
  * In-place [ProgressBar] builder.
  */
 inline fun AbstractContainer.progressBar(
     progress: Float = 0f,
     indeterminate: Boolean = false,
     busy: Boolean = false,
-    type: BootstrapType = BootstrapType.PRIMARY,
+    label: String? = null,
     classes: String? = null,
     id: String? = null,
     block: (@GenericUiDslMarker ProgressBar).() -> Unit = {}
 ): ProgressBar = mountDslComponent(
     this,
-    ProgressBar(progress = progress, indeterminate = indeterminate, busy = busy, type = type),
+    ProgressBar(progress = progress, indeterminate = indeterminate, busy = busy, label = label),
     classes,
     id,
     block
@@ -214,13 +271,12 @@ inline fun AbstractContainer.progressBar(
 inline fun AbstractContainer.spinner(
     growStyle: Boolean = false,
     label: String? = "Loading...",
-    type: BootstrapType = BootstrapType.PRIMARY,
     classes: String? = null,
     id: String? = null,
     block: (@GenericUiDslMarker Spinner).() -> Unit = {}
 ): Spinner = mountDslComponent(
     this,
-    Spinner(growStyle = growStyle, label = label, type = type),
+    Spinner(growStyle = growStyle, label = label),
     classes,
     id,
     block

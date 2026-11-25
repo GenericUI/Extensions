@@ -35,6 +35,7 @@ open class OverlayFullscreenButton(
         }
 
     init {
+        addClass("gui-overlay-control-btn")
         syncFullscreenIcon()
         onClick = {
             toggle()

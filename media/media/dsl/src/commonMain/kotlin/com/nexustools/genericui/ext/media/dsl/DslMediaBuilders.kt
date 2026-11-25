@@ -5,12 +5,14 @@ import com.nexustools.genericui.component.media.AudioAnalyzerConfig
 import com.nexustools.genericui.component.media.AudioPlayer
 import com.nexustools.genericui.component.media.ExpandingVolumeSlider
 import com.nexustools.genericui.component.media.SeekBar
+import com.nexustools.genericui.component.media.VideoFragment
 import com.nexustools.genericui.component.media.VideoPlayer
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.ext.dsl.GenericUiDslMarker
 import com.nexustools.genericui.ext.media.overlay.VideoOverlayHost
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
+import com.nexustools.genericui.ext.overlay.OverlayWindowTitleBarConfig
 
 /**
  * In-place [VideoPlayer] builder.
@@ -173,6 +175,7 @@ fun AbstractContainer.videoOverlayHost(
     resizeMode: VideoResizeMode = VideoResizeMode.FIT,
     keepScreenOn: Boolean = true,
     themeColorHex: String? = null,
+    windowDragEnabled: Boolean = false,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker VideoOverlayHost.() -> Unit)? = null
@@ -184,6 +187,9 @@ fun AbstractContainer.videoOverlayHost(
     player.resizeMode = resizeMode
     player.keepScreenOn = keepScreenOn
     val host = VideoOverlayHost(videoPlayer = player, initialOverlay = overlay)
+    if (windowDragEnabled) {
+        host.windowDragEnabled = true
+    }
     if (!themeColorHex.isNullOrBlank()) {
         host.themeColorHex = themeColorHex
     }
@@ -207,11 +213,15 @@ fun AbstractContainer.videoOverlayHost(
     videoPlayer: VideoPlayer,
     overlay: AbstractOverlay? = null,
     themeColorHex: String? = null,
+    windowDragEnabled: Boolean = false,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker VideoOverlayHost.() -> Unit)? = null
 ): VideoOverlayHost {
     val host = VideoOverlayHost(videoPlayer = videoPlayer, initialOverlay = overlay)
+    if (windowDragEnabled) {
+        host.windowDragEnabled = true
+    }
     if (!themeColorHex.isNullOrBlank()) {
         host.themeColorHex = themeColorHex
     }
@@ -240,6 +250,7 @@ fun videoOverlayHost(
     resizeMode: VideoResizeMode = VideoResizeMode.FIT,
     keepScreenOn: Boolean = true,
     themeColorHex: String? = null,
+    windowDragEnabled: Boolean = false,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker VideoOverlayHost.() -> Unit)? = null
@@ -251,6 +262,9 @@ fun videoOverlayHost(
     player.resizeMode = resizeMode
     player.keepScreenOn = keepScreenOn
     val host = VideoOverlayHost(videoPlayer = player, initialOverlay = overlay)
+    if (windowDragEnabled) {
+        host.windowDragEnabled = true
+    }
     if (!themeColorHex.isNullOrBlank()) {
         host.themeColorHex = themeColorHex
     }
@@ -273,11 +287,15 @@ fun videoOverlayHost(
     videoPlayer: VideoPlayer,
     overlay: AbstractOverlay? = null,
     themeColorHex: String? = null,
+    windowDragEnabled: Boolean = false,
     id: String? = null,
     classes: String? = null,
     block: (@GenericUiDslMarker VideoOverlayHost.() -> Unit)? = null
 ): VideoOverlayHost {
     val host = VideoOverlayHost(videoPlayer = videoPlayer, initialOverlay = overlay)
+    if (windowDragEnabled) {
+        host.windowDragEnabled = true
+    }
     if (!themeColorHex.isNullOrBlank()) {
         host.themeColorHex = themeColorHex
     }
@@ -352,4 +370,47 @@ fun buildExpandingVolumeSlider(
     if (block != null) {
         block()
     }
+}
+
+/**
+ * Standalone [VideoFragment] builder with undecorated windowed chrome and an embedded
+ * [com.nexustools.genericui.ext.overlay.OverlayWindowTitleBar] enabled by default.
+ */
+fun videoFragment(
+    sourceUrl: String? = null,
+    overlay: AbstractOverlay? = null,
+    volume: Float = 1.0f,
+    muted: Boolean = false,
+    playbackSpeed: Float = 1.0f,
+    resizeMode: VideoResizeMode = VideoResizeMode.FIT,
+    keepScreenOn: Boolean = true,
+    windowTitleBarEnabled: Boolean = true,
+    windowTitleBarConfig: OverlayWindowTitleBarConfig? = null,
+    windowDragEnabled: Boolean = true,
+    id: String? = null,
+    classes: String? = null,
+    block: (@GenericUiDslMarker VideoFragment.() -> Unit)? = null
+): VideoFragment {
+    val fragment = VideoFragment(sourceUrl = sourceUrl, initialOverlay = overlay)
+    fragment.volume = volume
+    fragment.isMuted = muted
+    fragment.playbackSpeed = playbackSpeed
+    fragment.resizeMode = resizeMode
+    fragment.keepScreenOn = keepScreenOn
+    fragment.windowDragEnabled = windowDragEnabled
+    if (windowTitleBarConfig != null) {
+        fragment.windowTitleBarConfig = windowTitleBarConfig
+    } else {
+        fragment.windowTitleBarEnabled = windowTitleBarEnabled
+    }
+    if (!classes.isNullOrBlank()) {
+        fragment.addClass(classes)
+    }
+    if (!id.isNullOrBlank()) {
+        fragment.id = id
+    }
+    if (block != null) {
+        fragment.block()
+    }
+    return fragment
 }

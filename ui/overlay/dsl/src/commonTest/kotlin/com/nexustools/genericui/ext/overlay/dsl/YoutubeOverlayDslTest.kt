@@ -4,9 +4,11 @@ import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.ext.overlay.HybridOverlayLayoutMode
 import com.nexustools.genericui.ext.overlay.OverlayActions
 import com.nexustools.genericui.ext.overlay.OverlayButtonVariant
+import com.nexustools.genericui.ext.overlay.OverlayExtension
 import com.nexustools.genericui.ext.overlay.OverlayHostBox
 import com.nexustools.genericui.ext.overlay.OverlayIconType
 import com.nexustools.genericui.ext.overlay.OverlayState
+import com.nexustools.genericui.ext.overlay.OverlayWindowTitleBarConfig
 import com.nexustools.genericui.ext.overlay.YoutubeTimelinePlacement
 import com.nexustools.genericui.ext.overlay.res.R
 import com.nexustools.genericui.style.css.CssFilter
@@ -70,9 +72,11 @@ class YoutubeOverlayDslTest {
         }
         assertEquals("DSL Video", standalone.titleLabel.text)
         assertEquals(YoutubeTimelinePlacement.BELOW_CONTROLS, standalone.timelinePlacement)
+        standalone.applyStyleSheet(OverlayExtension.defaultStyleSheet())
+        assertTrue(standalone.centerPlayPauseButton.isFrosted)
         assertEquals(
             CssFilter(blur = CssLength.px(16f), saturate = 1.2f),
-            standalone.centerPlayPauseButton.backdropFilter
+            standalone.centerPlayPauseButton.computedStyle?.backdropFilter
         )
         assertFalse(standalone.playPauseButton.isVisible)
 
@@ -83,8 +87,15 @@ class YoutubeOverlayDslTest {
         assertEquals(4, root.children.size)
 
         val host = OverlayHostBox(content = Container("video-surface"))
-        val attached = host.attachYoutubePlayerOverlay(id = "host-yt")
+        val attached = host.attachYoutubePlayerOverlay(
+            windowTitleBarEnabled = true,
+            windowTitleBarConfig = OverlayWindowTitleBarConfig(enabled = true, heightPx = 32, title = "Attached YT"),
+            id = "host-yt"
+        )
         assertSame(attached, host.overlay)
+        assertTrue(attached.windowTitleBarEnabled)
+        assertTrue(host.windowTitleBarEnabled)
+        assertEquals("Attached YT", attached.windowTitleBarConfig.title)
         assertEquals("0:00 / --:--", attached.timeReadoutLabel.text)
 
         standalone.dispose()

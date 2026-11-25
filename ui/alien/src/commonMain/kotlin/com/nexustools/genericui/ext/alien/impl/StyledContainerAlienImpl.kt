@@ -21,11 +21,7 @@ class StyledContainerAlienImpl(
 
     override fun setStyledVisuals(visuals: StyledVisualSpec) {
         styledVisuals = visuals
-        visuals.backgroundGradient?.let { node.backgroundGradient = it }
-        visuals.opacity?.let { node.opacity = it.coerceIn(0f, 1f) }
-        visuals.padding?.let { node.padding = it }
-        node.markLayoutDirty()
-        node.invalidateBounds()
+        AlienStyledVisualSyncUtil.applyVisualsToNode(node, getStyledVisuals())
     }
 
     override fun getStyledVisuals(): StyledVisualSpec {

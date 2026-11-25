@@ -6,7 +6,6 @@ import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.ext.media.MediaPlayerSettingsProvider
 import com.nexustools.genericui.nativeimpl.media.AudioAnalyzerNativeImpl
 import com.nexustools.genericui.nativeimpl.media.AudioPlayerNativeImpl
-import com.nexustools.genericui.nativeimpl.media.SeekBarNativeImpl
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import com.nexustools.genericui.nativeimpl.system.MediaSessionManagerNativeImpl
 import com.nexustools.genericui.nativeimpl.system.ScreenWakeLockNativeImpl
@@ -25,7 +24,6 @@ object MobileMediaExtensionProvider {
         audioPlayer: (() -> AudioPlayerNativeImpl)? = null,
         audioAnalyzer: ((Int) -> AudioAnalyzerNativeImpl)? = null,
         mediaSessionManager: (() -> MediaSessionManagerNativeImpl)? = null,
-        seekBar: (() -> SeekBarNativeImpl<*>)? = null,
         screenWakeLock: (() -> ScreenWakeLockNativeImpl)? = null,
         codecSupportProvider: MediaCodecSupportProvider? = null,
         playerSettingsProvider: MediaPlayerSettingsProvider? = null
@@ -38,7 +36,6 @@ object MobileMediaExtensionProvider {
             audioPlayer = audioPlayer,
             audioAnalyzer = audioAnalyzer,
             mediaSessionManager = mediaSessionManager,
-            seekBar = seekBar,
             screenWakeLock = screenWakeLock,
             codecSupportProvider = codecSupportProvider,
             playerSettingsProvider = playerSettingsProvider
@@ -50,7 +47,6 @@ object MobileMediaExtensionProvider {
         audioPlayer: (() -> AudioPlayerNativeImpl)? = null,
         audioAnalyzer: ((Int) -> AudioAnalyzerNativeImpl)? = null,
         mediaSessionManager: (() -> MediaSessionManagerNativeImpl)? = null,
-        seekBar: (() -> SeekBarNativeImpl<*>)? = null,
         screenWakeLock: (() -> ScreenWakeLockNativeImpl)? = null,
         codecSupportProvider: MediaCodecSupportProvider? = null,
         playerSettingsProvider: MediaPlayerSettingsProvider? = null
@@ -60,7 +56,6 @@ object MobileMediaExtensionProvider {
             audioPlayer = audioPlayer,
             audioAnalyzer = audioAnalyzer,
             mediaSessionManager = mediaSessionManager,
-            seekBar = seekBar,
             screenWakeLock = screenWakeLock,
             codecSupportProvider = codecSupportProvider,
             playerSettingsProvider = playerSettingsProvider
@@ -72,7 +67,6 @@ object MobileMediaExtensionProvider {
         audioPlayerFactory: () -> AudioPlayerNativeImpl,
         audioAnalyzerFactory: () -> AudioAnalyzerNativeImpl,
         mediaSessionManagerFactory: () -> MediaSessionManagerNativeImpl,
-        seekBarFactory: (() -> SeekBarNativeImpl<*>)? = null,
         screenWakeLockFactory: (() -> ScreenWakeLockNativeImpl)? = null,
         codecSupportProvider: MediaCodecSupportProvider? = null,
         playerSettingsProvider: MediaPlayerSettingsProvider? = null
@@ -84,7 +78,6 @@ object MobileMediaExtensionProvider {
                 audioAnalyzerFactory().also { it.fftSize = fftSize }
             },
             mediaSessionManager = mediaSessionManagerFactory,
-            seekBar = seekBarFactory,
             screenWakeLock = screenWakeLockFactory,
             codecSupportProvider = codecSupportProvider,
             playerSettingsProvider = playerSettingsProvider

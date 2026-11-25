@@ -1,6 +1,8 @@
 package com.nexustools.genericui.ext.serviceworker
 
 import java.io.File
+import java.io.IOException
+import java.net.URISyntaxException
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
@@ -14,14 +16,18 @@ internal actual object DesktopOsHelpers {
 
     private val secureRandom = SecureRandom()
     private val lockSync = Any()
-    private var heldChannel: FileChannel? = null
-    private var heldLock: FileLock? = null
-    private var heldLockKey: String? = null
+    private val heldLocks = linkedMapOf<String, Pair<FileChannel, FileLock>>()
+    private val shutdownHooks = mutableListOf<() -> Unit>()
+    private var shutdownHookRegistered: Boolean = false
 
     actual fun currentExecutablePath(): String? {
-        val codeSource = runCatching {
+        val codeSource = try {
             DesktopOsHelpers::class.java.protectionDomain?.codeSource?.location?.toURI()?.let { File(it) }
-        }.getOrNull()
+        } catch (_: URISyntaxException) {
+            null
+        } catch (_: SecurityException) {
+            null
+        }
         if (codeSource != null && codeSource.exists()) {
             return codeSource.absolutePath
         }
@@ -29,7 +35,11 @@ internal actual object DesktopOsHelpers {
     }
 
     actual fun currentProcessId(): Long =
-        runCatching { ProcessHandle.current().pid() }.getOrDefault(0L)
+        try {
+            ProcessHandle.current().pid()
+        } catch (_: UnsupportedOperationException) {
+            0L
+        }
 
     actual fun runtimeDataDirectory(appId: String): String {
         val cleanId = sanitizeId(appId)
@@ -68,9 +78,11 @@ internal actual object DesktopOsHelpers {
             val tmp = File(target.parentFile, ".${target.name}.${System.nanoTime()}.tmp")
             tmp.writeText(content, Charsets.UTF_8)
             if (ownerOnlyPermissions) {
-                runCatching {
+                try {
                     val perms = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
                     Files.setPosixFilePermissions(tmp.toPath(), perms)
+                } catch (_: UnsupportedOperationException) {
+                    // Windows/non-POSIX filesystems do not support POSIX file permissions.
                 }
             }
             try {
@@ -80,7 +92,7 @@ internal actual object DesktopOsHelpers {
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE
                 )
-            } catch (_: Throwable) {
+            } catch (_: IOException) {
                 Files.move(
                     tmp.toPath(),
                     target.toPath(),
@@ -88,29 +100,37 @@ internal actual object DesktopOsHelpers {
                 )
             }
             if (ownerOnlyPermissions) {
-                runCatching {
+                try {
                     val perms = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
                     Files.setPosixFilePermissions(target.toPath(), perms)
+                } catch (_: UnsupportedOperationException) {
+                    // Windows/non-POSIX filesystems do not support POSIX file permissions.
                 }
             }
             true
-        } catch (_: Throwable) {
+        } catch (_: IOException) {
             false
         }
     }
 
     actual fun readTextFileOrNull(path: String): String? =
-        runCatching {
+        try {
             val f = File(path)
             if (f.isFile) f.readText(Charsets.UTF_8) else null
-        }.getOrNull()
+        } catch (_: IOException) {
+            null
+        }
 
     actual fun deleteFileIfExists(path: String): Boolean =
-        runCatching { File(path).delete() }.getOrDefault(false)
+        try {
+            File(path).delete()
+        } catch (_: SecurityException) {
+            false
+        }
 
     actual fun acquireSingleInstanceLock(lockKey: String, lockFilePath: String): Boolean {
         synchronized(lockSync) {
-            if (heldLock != null && heldLockKey == lockKey) {
+            if (heldLocks.containsKey(lockKey)) {
                 return false
             }
             return try {
@@ -131,9 +151,7 @@ internal actual object DesktopOsHelpers {
                     channel.close()
                     false
                 } else {
-                    heldChannel = channel
-                    heldLock = lock
-                    heldLockKey = lockKey
+                    heldLocks[lockKey] = channel to lock
                     true
                 }
             } catch (_: Throwable) {
@@ -142,13 +160,63 @@ internal actual object DesktopOsHelpers {
         }
     }
 
+    actual fun releaseSingleInstanceLock(lockKey: String) {
+        synchronized(lockSync) {
+            val pair = heldLocks.remove(lockKey) ?: return
+            try {
+                pair.second.release()
+            } catch (_: IOException) {
+                // Lock release during teardown.
+            }
+            try {
+                pair.first.close()
+            } catch (_: IOException) {
+                // Channel close during teardown.
+            }
+        }
+    }
+
     actual fun releaseSingleInstanceLock() {
         synchronized(lockSync) {
-            runCatching { heldLock?.release() }
-            runCatching { heldChannel?.close() }
-            heldLock = null
-            heldChannel = null
-            heldLockKey = null
+            for ((channel, lock) in heldLocks.values.toList()) {
+                try {
+                    lock.release()
+                } catch (_: IOException) {
+                    // Lock release during teardown.
+                }
+                try {
+                    channel.close()
+                } catch (_: IOException) {
+                    // Channel close during teardown.
+                }
+            }
+            heldLocks.clear()
+        }
+    }
+
+    actual fun registerShutdownHook(hook: () -> Unit) {
+        synchronized(lockSync) {
+            if (!shutdownHooks.contains(hook)) {
+                shutdownHooks.add(hook)
+            }
+            if (!shutdownHookRegistered) {
+                shutdownHookRegistered = true
+                try {
+                    Runtime.getRuntime().addShutdownHook(
+                        Thread(
+                            {
+                                val hooks = synchronized(lockSync) { shutdownHooks.toList() }
+                                for (entry in hooks) {
+                                    entry()
+                                }
+                            },
+                            "GenericUI-ServiceWorker-Shutdown"
+                        )
+                    )
+                } catch (_: IllegalStateException) {
+                    // JVM shutdown already in progress.
+                }
+            }
         }
     }
 
@@ -220,6 +288,11 @@ internal actual object DesktopOsHelpers {
     <array>
         $progArgs
     </array>
+    <key>MachServices</key>
+    <dict>
+        <key>${escapeXml(label)}</key>
+        <true/>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
 </dict>
@@ -266,7 +339,11 @@ X-GNOME-Autostart-enabled=true
 
     actual fun sleepMillis(ms: Long) {
         if (ms > 0) {
-            runCatching { Thread.sleep(ms) }
+            try {
+                Thread.sleep(ms)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
         }
     }
 
@@ -293,6 +370,8 @@ X-GNOME-Autostart-enabled=true
         }
         return javaBin.absolutePath to args
     }
+
+    actual fun tryWakeRegisteredBackgroundService(appId: String): Boolean = false
 
     private fun autostartTargetFile(appId: String, appName: String): File {
         val cleanId = sanitizeId(appId)

@@ -1,0 +1,13 @@
+// Theme-independent default styling for `:extensions:ui:codeeditor`.
+// Consumer theme overrides live separately in the raw theme stylesheet template.
+
+.ide-code-editor {
+    overflow: hidden;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 4px;
+}
+
+.code-minimap {
+    flex-shrink: 0;
+    cursor: pointer;
+}

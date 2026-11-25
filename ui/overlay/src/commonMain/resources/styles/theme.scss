@@ -1,0 +1,58 @@
+// Consumer Theme Template Stylesheet (`theme.scss`) for `:extensions:ui:overlay`.
+// NEVER compiled inside `:extensions:ui:overlay` itself; packaged raw in module resources and
+// compiled solely into consumer apps against their active `genericui { theme { ... } }` tokens.
+
+$primary: #3b82f6 !default;
+$accent: #60a5fa !default;
+$surface: #0f172a !default;
+$text: #f8fafc !default;
+$border: #334155 !default;
+$on-primary: #ffffff !default;
+
+.player-btn:hover:not(:disabled) {
+    background-color: rgba($accent, 0.27);
+    border-color: rgba($accent, 0.82);
+    color: $on-primary;
+}
+
+.player-pill-inner-btn:hover:not(:disabled) {
+    background-color: rgba($accent, 0.27);
+    border-color: transparent;
+    color: $on-primary;
+}
+
+.player-btn:focus:not(:disabled),
+.player-btn:focus-visible:not(:disabled) {
+    background-color: rgba($accent, 0.32);
+    border-color: rgba($accent, 0.96);
+    color: $on-primary;
+    outline: 2px solid rgba($accent, 0.45);
+}
+
+.player-pill-inner-btn:focus:not(:disabled),
+.player-pill-inner-btn:focus-visible:not(:disabled) {
+    background-color: rgba($accent, 0.32);
+    border-color: transparent;
+    color: $on-primary;
+    outline: none;
+}
+
+.player-btn:active:not(:disabled) {
+    background-color: rgba($primary, 0.40);
+    border-color: $accent;
+    color: $on-primary;
+}
+
+.gui-overlay-titlebar-btn:focus-visible {
+    outline: 2px solid rgba($accent, 0.65);
+}
+
+.seek-hover-bubble {
+    border-color: rgba($accent, 0.45);
+}
+
+.overlay-active-feature-badge.active,
+[data-overlay-role="outlined-feature-badge"].active {
+    border-color: $accent;
+    color: $accent;
+}

@@ -10,7 +10,7 @@
 
 `Canvas2D` (extending `:common`'s `AbstractCanvas<ImageBuffer2DContext>`) uses a double-buffered [`:extensions:graphics:imageprocessing`](imageprocessing.md) `ImageBuffer` (`doubleBuffer = true` by default) as its backing surface, and `canvas2D.getContext()` returns an instance of `ImageBuffer2DContext` directly (`imageBuffer.getContext()`).
 
-- **System Targets (`systemMain`: Windows, macOS, Linux GTK4, Linux Qt6, Desktop Swing, Android, iOS)**:
+- **System Targets (`systemMain`: Windows, macOS, Linux GTK4, Linux KDE, Desktop Swing, Android, iOS)**:
   - Backed by `SystemGpuImageBuffer(doubleBuffer = true)` and `GpuAcceleratedContext2DBackend` (`ImageBuffer2DContext`).
   - `Canvas2D` attaches an `ImageBufferDirtyListener` to its `ImageBuffer` and coordinates with `:extensions:graphics:gpu`'s `VBlankWatcher`:
     - When `ImageBuffer` is dirtied inside or outside a VBlank callback, `VBlankWatcher.notifySurfaceDirty` schedules presentation and swaps double buffers seamlessly.

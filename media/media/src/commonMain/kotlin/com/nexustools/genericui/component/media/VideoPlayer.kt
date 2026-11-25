@@ -21,7 +21,7 @@ import kotlin.coroutines.resume
 /**
  * Hardware-accelerated cross-platform video player component.
  *
- * On desktop backends (`:windows`, `:macos`, `:gtk`, `:qt`), powered by `:desktop`'s VLC video playback,
+ * On desktop backends (`:windows`, `:macos`, `:gtk`, `:kde`), powered by `:desktop`'s VLC video playback,
  * HDR10/HLG/Dolby Vision tone-mapping (using Vulkan shaders as primary and OpenGL ES shaders as fallback),
  * and hardware/software decoding engine (`DesktopVlcVideoPlayerImpl`).
  */
@@ -130,6 +130,9 @@ open class VideoPlayer(
     private val screenWakeToken: Long = MediaScreenWakeController.allocateToken()
     private var playerDisposed: Boolean = false
 
+    override val isDisposed: Boolean
+        get() = playerDisposed || super<AbstractComponent>.isDisposed
+
     /**
      * Prevents the display from dimming/turning off, inhibits the system screensaver,
      * and prevents OS idle sleep while this player is actively playing media.
@@ -156,6 +159,7 @@ open class VideoPlayer(
             notifyStateChangeObservers()
         }
 
+    private var internalSubtitlesEnabledState: Boolean = true
     private var mediaReadyFallbackState: Boolean = false
     private val mediaReadyWaiters = mutableListOf<() -> Unit>()
 
@@ -167,6 +171,7 @@ open class VideoPlayer(
     init {
         setAttribute("data-antialiasing", antialiasing.toString())
         setAttribute("data-keep-screen-on", keepScreenOn.toString())
+        setAttribute("data-internal-subtitles-enabled", internalSubtitlesEnabledState.toString())
     }
 
     private fun syncScreenWakeLockState() {
@@ -521,12 +526,11 @@ open class VideoPlayer(
         return selectAudioTrack(targetId)
     }
 
-    private var internalSubtitlesEnabledState: Boolean = true
-
     var internalSubtitlesEnabled: Boolean
         get() = typedNative<VideoPlayerNativeImpl<*>>()?.isInternalSubtitlesEnabled() ?: internalSubtitlesEnabledState
         set(value) {
             internalSubtitlesEnabledState = value
+            setAttribute("data-internal-subtitles-enabled", value.toString())
             if (!value) {
                 subtitlesExplicitlyDisabled = true
             }

@@ -1,13 +1,20 @@
 package com.nexustools.genericui.ext.media
 
+import com.nexustools.genericui.animation.Animator
+import com.nexustools.genericui.component.composite.Composite
+import com.nexustools.genericui.component.form.StyledSlider
 import com.nexustools.genericui.component.media.ExpandingVolumeSlider
 import com.nexustools.genericui.component.media.MediaCapabilitiesReport
 import com.nexustools.genericui.component.media.MediaVolumeIcons
+import com.nexustools.genericui.component.media.SeekBar
 import com.nexustools.genericui.component.media.res.R
+import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.core.UiTimerScheduler
 import com.nexustools.genericui.enums.media.AudioCodec
 import com.nexustools.genericui.enums.media.CodecSupportLevel
 import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.VideoCodec
+import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.ext.media.overlay.YoutubeMediaOverlayHelper
 import com.nexustools.genericui.ext.media.vlc.VlcAudioOutputDevice
 import com.nexustools.genericui.ext.media.vlc.VlcAudioOutputModule
@@ -34,12 +41,20 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class MediaExtensionCodecAndSettingsSchemaTest {
+
+    @BeforeTest
+    @AfterTest
+    fun resetSchedulers() {
+        Animator.cancelAllAnimations()
+        UiTimerScheduler.clearAllTimers()
+    }
 
     private class CountingCachingCodecSupportProvider : CachingMediaCodecSupportProvider() {
         var capabilitiesProbeCount: Int = 0
@@ -77,11 +92,13 @@ class MediaExtensionCodecAndSettingsSchemaTest {
 
     @BeforeTest
     fun setUp() {
+        Animator.cancelAllAnimations()
         MediaExtension.resetProvidersForTest()
     }
 
     @AfterTest
     fun tearDown() {
+        Animator.cancelAllAnimations()
         MediaExtension.resetProvidersForTest()
     }
 
@@ -283,6 +300,7 @@ class MediaExtensionCodecAndSettingsSchemaTest {
 
     @Test
     fun testVolumeSvgResourcesArePureBezierInComponentMediaRClass() {
+        MediaExtension.rawDefaultStyleScss()
         val resources = listOf(
             R.drawable.ic_volume_speaker to MediaVolumeIcons.speaker,
             R.drawable.ic_volume_mute_cross to MediaVolumeIcons.muteCross,
@@ -332,53 +350,80 @@ class MediaExtensionCodecAndSettingsSchemaTest {
     @Test
     fun testExpandingVolumeSliderThreeWaveAndMuteCrossTransitionsAndNoDefaultTooltip() {
         val slider = ExpandingVolumeSlider(value = 100.0, muted = false)
-        assertSame(slider.muteButton, slider.children[0])
-        assertSame(slider.sliderContainer, slider.children[1])
-        assertSame(slider.muteIconOverlay, slider.children[2])
+        assertIs<Composite>(slider)
+        assertFalse((slider as Any) is AbstractContainer)
+        val internalChildren = slider.mediaCompositeChildren()
+        assertEquals(3, internalChildren.size)
+        val muteButton = slider.internalMuteButton()
+        val innerSlider = slider.internalVolumeSlider()
+        val iconStack = slider.internalIconStack()
+        val layers = slider.internalIconLayers()
+        assertSame(muteButton, internalChildren[0])
+        assertSame(innerSlider, internalChildren[1])
+        assertSame(iconStack, internalChildren[2])
+        assertIs<StyledSlider>(innerSlider)
+        assertFalse((innerSlider as Any) is SeekBar)
         assertNull(slider.tooltipText)
-        assertNull(slider.muteButton.tooltipText)
-        assertNull(slider.slider.tooltipText)
-        assertEquals(1f, slider.speakerIconLayer.opacity, 0.001f)
-        assertEquals(1f, slider.wave1Layer.opacity, 0.001f)
-        assertEquals(1f, slider.wave2Layer.opacity, 0.001f)
-        assertEquals(1f, slider.wave3Layer.opacity, 0.001f)
-        assertEquals(0f, slider.muteCrossLayer.opacity, 0.001f)
+        assertNull(muteButton.tooltipText)
+        assertNull(innerSlider.tooltipText)
+
+        val mediaCss = MediaExtension.defaultStyleSheet()
+        assertTrue(mediaCss.rules.isNotEmpty())
+        slider.applyStyleSheet(mediaCss)
+
+        val speaker = layers[0]
+        val wave1 = layers[1]
+        val wave2 = layers[2]
+        val wave3 = layers[3]
+        val muteCross = layers[4]
+
+        fun assertLayerTargetsAndFlushOpacity(
+            speakerExpected: Float,
+            wave1Expected: Float,
+            wave2Expected: Float,
+            wave3Expected: Float,
+            muteExpected: Float
+        ) {
+            assertEquals(speakerExpected, speaker.computedStyle?.opacity ?: -1f, 0.001f)
+            assertEquals(wave1Expected, wave1.computedStyle?.opacity ?: -1f, 0.001f)
+            assertEquals(wave2Expected, wave2.computedStyle?.opacity ?: -1f, 0.001f)
+            assertEquals(wave3Expected, wave3.computedStyle?.opacity ?: -1f, 0.001f)
+            assertEquals(muteExpected, muteCross.computedStyle?.opacity ?: -1f, 0.001f)
+            Animator.flushAll()
+            assertEquals(speakerExpected, speaker.opacity, 0.001f)
+            assertEquals(wave1Expected, wave1.opacity, 0.001f)
+            assertEquals(wave2Expected, wave2.opacity, 0.001f)
+            assertEquals(wave3Expected, wave3.opacity, 0.001f)
+            assertEquals(muteExpected, muteCross.opacity, 0.001f)
+        }
+
+        assertTrue(slider.hasClass(ExpandingVolumeSlider.CLASS_VOLUME_HIGH))
+        assertLayerTargetsAndFlushOpacity(1f, 1f, 1f, 1f, 0f)
 
         slider.updateVolumeState(0.0, muted = false)
-        assertEquals(1f, slider.speakerIconLayer.opacity, 0.001f)
-        assertEquals(0f, slider.wave1Layer.opacity, 0.001f)
-        assertEquals(0f, slider.wave2Layer.opacity, 0.001f)
-        assertEquals(0f, slider.wave3Layer.opacity, 0.001f)
-        assertEquals(0f, slider.muteCrossLayer.opacity, 0.001f)
-        assertEquals("0", slider.getAttribute("data-mute-cross-opacity"))
+        assertTrue(slider.hasClass(ExpandingVolumeSlider.CLASS_VOLUME_ZERO))
+        assertFalse(slider.hasClass(ExpandingVolumeSlider.CLASS_MUTED))
+        assertLayerTargetsAndFlushOpacity(1f, 0f, 0f, 0f, 0f)
 
-        slider.updateVolumeState(5.0, muted = false)
-        assertEquals(0.5f, slider.wave1Layer.opacity, 0.01f)
-        assertEquals(0f, slider.wave2Layer.opacity, 0.001f)
-        assertEquals(0f, slider.wave3Layer.opacity, 0.001f)
+        slider.updateVolumeState(20.0, muted = false)
+        assertTrue(slider.hasClass(ExpandingVolumeSlider.CLASS_VOLUME_LOW))
+        assertLayerTargetsAndFlushOpacity(1f, 1f, 0f, 0f, 0f)
 
-        slider.updateVolumeState(39.0, muted = false)
-        assertEquals(1f, slider.wave1Layer.opacity, 0.001f)
-        assertEquals(0.5f, slider.wave2Layer.opacity, 0.01f)
-        assertEquals(0f, slider.wave3Layer.opacity, 0.001f)
+        slider.updateVolumeState(50.0, muted = false)
+        assertTrue(slider.hasClass(ExpandingVolumeSlider.CLASS_VOLUME_MEDIUM))
+        assertLayerTargetsAndFlushOpacity(1f, 1f, 1f, 0f, 0f)
 
-        slider.updateVolumeState(73.0, muted = false)
-        assertEquals(1f, slider.wave1Layer.opacity, 0.001f)
-        assertEquals(1f, slider.wave2Layer.opacity, 0.001f)
-        assertEquals(0.5f, slider.wave3Layer.opacity, 0.01f)
+        slider.updateVolumeState(85.0, muted = false)
+        assertTrue(slider.hasClass(ExpandingVolumeSlider.CLASS_VOLUME_HIGH))
+        assertLayerTargetsAndFlushOpacity(1f, 1f, 1f, 1f, 0f)
 
         slider.isMuted = true
-        assertEquals(1f, slider.speakerIconLayer.opacity, 0.001f)
-        assertEquals(1f, slider.muteCrossLayer.opacity, 0.001f)
-        assertEquals(0f, slider.wave1Layer.opacity, 0.001f)
-        assertEquals(0f, slider.wave2Layer.opacity, 0.001f)
-        assertEquals(0f, slider.wave3Layer.opacity, 0.001f)
-        assertEquals("1", slider.getAttribute("data-mute-cross-opacity"))
-        assertEquals("0", slider.getAttribute("data-wave-1-opacity"))
+        assertTrue(slider.hasClass(ExpandingVolumeSlider.CLASS_MUTED))
+        assertLayerTargetsAndFlushOpacity(1f, 0f, 0f, 0f, 1f)
 
         slider.setVolumeIcons(MediaVolumeIcons.wave3, MediaVolumeIcons.muteCross)
-        assertFalse(slider.muteIconOverlay.isVisible)
-        assertEquals(MediaVolumeIcons.muteCross, slider.muteButton.iconRes)
+        assertFalse(iconStack.isVisible)
+        assertEquals(MediaVolumeIcons.muteCross, muteButton.iconRes)
         slider.dispose()
     }
 
@@ -402,7 +447,7 @@ class MediaExtensionCodecAndSettingsSchemaTest {
         assertTrue(helper.volumeSlider in overlay.leftAccessoryContainer.children)
         assertNull(helper.seekBar.tooltipText)
         assertNull(helper.volumeSlider.tooltipText)
-        assertNull(helper.volumeSlider.muteButton.tooltipText)
+        assertNull(helper.volumeSlider.internalMuteButton().tooltipText)
 
         overlay.updateState(
             OverlayState(
@@ -420,24 +465,24 @@ class MediaExtensionCodecAndSettingsSchemaTest {
 
         helper.seekBar.notifyTrackHover(0.5, isOverKnob = false)
         assertTrue(overlay.seekHoverBubble.isVisible)
-        assertEquals("1:00", overlay.seekHoverBubble.text)
-        assertEquals("50.0", overlay.seekHoverBubble.getAttribute("layerLeftPercent"))
+        assertEquals("1:00", overlay.seekHoverLabel.text)
+        assertEquals(50.0, overlay.seekHoverBubble.getAttribute("layerLeftPercent")?.toDoubleOrNull() ?: -1.0, 0.001)
 
         helper.seekBar.notifyTrackHover(0.0, isOverKnob = false)
-        assertEquals("2.0", overlay.seekHoverBubble.getAttribute("layerLeftPercent"))
+        assertEquals(2.0, overlay.seekHoverBubble.getAttribute("layerLeftPercent")?.toDoubleOrNull() ?: -1.0, 0.001)
         helper.seekBar.notifyTrackHover(1.0, isOverKnob = false)
-        assertEquals("98.0", overlay.seekHoverBubble.getAttribute("layerLeftPercent"))
+        assertEquals(98.0, overlay.seekHoverBubble.getAttribute("layerLeftPercent")?.toDoubleOrNull() ?: -1.0, 0.001)
 
         helper.seekBar.notifyTrackHoverExit()
         assertFalse(overlay.seekHoverBubble.isVisible)
 
-        helper.volumeSlider.muteButton.onClick?.invoke()
+        helper.volumeSlider.toggleMute()
         assertEquals(1, muteToggleCount)
 
         helper.seekBar.beginKnobDrag(0.625)
         assertEquals(75.0, lastSeekSec, 0.001)
         assertTrue(overlay.seekHoverBubble.isVisible)
-        assertEquals("1:15", overlay.seekHoverBubble.text)
+        assertEquals("1:15", overlay.seekHoverLabel.text)
         helper.seekBar.endKnobDrag(commit = true)
         assertFalse(overlay.seekHoverBubble.isVisible)
 

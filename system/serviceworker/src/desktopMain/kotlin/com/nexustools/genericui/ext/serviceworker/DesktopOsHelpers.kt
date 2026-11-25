@@ -25,7 +25,11 @@ internal expect object DesktopOsHelpers {
 
     fun acquireSingleInstanceLock(lockKey: String, lockFilePath: String): Boolean
 
+    fun releaseSingleInstanceLock(lockKey: String)
+
     fun releaseSingleInstanceLock()
+
+    fun registerShutdownHook(hook: () -> Unit)
 
     fun spawnDetachedProcess(
         executablePath: String,
@@ -51,4 +55,6 @@ internal expect object DesktopOsHelpers {
         siblingBaseName: String,
         jvmMainClassFqn: String
     ): Pair<String, List<String>>?
+
+    fun tryWakeRegisteredBackgroundService(appId: String): Boolean
 }

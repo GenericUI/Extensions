@@ -1,6 +1,12 @@
 package com.nexustools.genericui.ext.dsl
 
 import com.nexustools.genericui.component.action.Button
+import com.nexustools.genericui.component.action.DropdownButton
+import com.nexustools.genericui.component.feedback.Alert
+import com.nexustools.genericui.component.feedback.Banner
+import com.nexustools.genericui.component.feedback.ProgressBar
+import com.nexustools.genericui.component.feedback.Spinner
+import com.nexustools.genericui.component.feedback.Toast
 import com.nexustools.genericui.component.form.Select
 import com.nexustools.genericui.component.htmlcompat.Div
 import com.nexustools.genericui.component.htmlcompat.H1
@@ -17,6 +23,12 @@ import com.nexustools.genericui.component.htmlcompat.Ul
 import com.nexustools.genericui.component.layout.Column
 import com.nexustools.genericui.component.layout.ColumnContainer
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.surface.Card
+import com.nexustools.genericui.component.surface.Jumbotron
+import com.nexustools.genericui.component.surface.ListGroup
+import com.nexustools.genericui.component.surface.ListGroupItem
+import com.nexustools.genericui.component.surface.Well
+import com.nexustools.genericui.component.typography.Badge
 import com.nexustools.genericui.component.typography.Heading
 import com.nexustools.genericui.component.typography.Text
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
@@ -259,5 +271,67 @@ class GenericUiDslTest {
         assertEquals(BootstrapWidth.W_50, btn.getBootstrap().width)
         assertEquals(CssCursor.POINTER, btn.getStyle().cursor)
         assertEquals(RgbaColor.fromHex("#38bdf8"), btn.getStyle().accentColor)
+    }
+
+    @Test
+    fun testBootstrapTypeParityAcrossNonControlAndControlDslBuilders() {
+        val root = buildDiv {
+            dropdownButton("Actions", id = "dd-btn")
+            progressBar(progress = 0.65f, label = "Loading 65%", id = "pb")
+            spinner(growStyle = true, label = "Syncing...", id = "spin")
+
+            alert("Saved", type = BootstrapType.SUCCESS, dismissible = true)
+            badge("New", type = BootstrapType.INFO, pill = true)
+            card(title = "Summary", type = BootstrapType.PRIMARY) {
+                p("Body")
+            }
+            banner("Heads up", type = BootstrapType.WARNING)
+            toast(title = "Done", message = "Uploaded", type = BootstrapType.SUCCESS, autoHideDurationMs = 2500L)
+            listGroup(type = BootstrapType.SECONDARY) {
+                listGroupItem("Item A", active = true, type = BootstrapType.INFO)
+            }
+            jumbotron(type = BootstrapType.DARK)
+            well(type = BootstrapType.LIGHT)
+        }
+
+        val dd = assertIs<DropdownButton>(root.children[0])
+        assertEquals("Actions", dd.label)
+
+        val pb = assertIs<ProgressBar>(root.children[1])
+        assertEquals(0.65f, pb.progress)
+        assertEquals("Loading 65%", pb.label)
+
+        val spin = assertIs<Spinner>(root.children[2])
+        assertTrue(spin.growStyle)
+        assertEquals("Syncing...", spin.label)
+
+        val alertComp = assertIs<Alert>(root.children[3])
+        assertEquals(BootstrapType.SUCCESS, alertComp.type)
+
+        val badgeComp = assertIs<Badge>(root.children[4])
+        assertEquals(BootstrapType.INFO, badgeComp.type)
+        assertEquals("New", badgeComp.text)
+
+        val cardComp = assertIs<Card>(root.children[5])
+        assertEquals(BootstrapType.PRIMARY, cardComp.type)
+
+        val bannerComp = assertIs<Banner>(root.children[6])
+        assertEquals(BootstrapType.WARNING, bannerComp.type)
+
+        val toastComp = assertIs<Toast>(root.children[7])
+        assertEquals(BootstrapType.SUCCESS, toastComp.type)
+        assertEquals(2500L, toastComp.autoHideDurationMs)
+
+        val listGroupComp = assertIs<ListGroup>(root.children[8])
+        assertEquals(BootstrapType.SECONDARY, listGroupComp.type)
+        val itemComp = assertIs<ListGroupItem>(listGroupComp.children[0])
+        assertEquals(BootstrapType.INFO, itemComp.type)
+        assertTrue(itemComp.isActive)
+
+        val jumboComp = assertIs<Jumbotron>(root.children[9])
+        assertEquals(BootstrapType.DARK, jumboComp.type)
+
+        val wellComp = assertIs<Well>(root.children[10])
+        assertEquals(BootstrapType.LIGHT, wellComp.type)
     }
 }

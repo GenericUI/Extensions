@@ -6,7 +6,7 @@ import com.nexustools.njs.compiler.NativeJitCompiler
 
 /**
  * Installs the Desktop Chromium + NJS Native JIT provider into [WebViewExtension]
- * for `:windows`, `:macos`, `:gtk`, and `:qt`.
+ * for `:windows`, `:macos`, `:gtk`, and `:kde`.
  */
 object DesktopWebViewExtensionProvider {
     fun install() {

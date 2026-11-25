@@ -4,11 +4,14 @@ import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.LayerAlignment
 import com.nexustools.genericui.component.layout.LayerSizingMode
 import com.nexustools.genericui.ext.overlay.Overlay
+import com.nexustools.genericui.ext.overlay.OverlayExtension
 import com.nexustools.genericui.ext.overlay.OverlayHostBox
 import com.nexustools.genericui.ext.overlay.OverlayState
+import com.nexustools.genericui.ext.overlay.OverlayWindowTitleBarConfig
 import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -35,9 +38,10 @@ class OverlayDslTest {
             )
         }
 
+        standaloneOverlay.applyStyleSheet(OverlayExtension.defaultStyleSheet())
         assertEquals("Overlay Title", standaloneOverlay.state.title)
         assertEquals("#38bdf8", standaloneOverlay.themeColorHex)
-        assertEquals(RgbaColor.TRANSPARENT, standaloneOverlay.style.backgroundColor)
+        assertEquals(RgbaColor.TRANSPARENT, standaloneOverlay.computedStyle?.backgroundColor)
         assertEquals(2, standaloneOverlay.elements.size)
         assertEquals(LayerSizingMode.FILL, standaloneOverlay.getLayerConstraint(fillChild)?.sizingMode)
         assertEquals(LayerSizingMode.FLOAT, standaloneOverlay.getLayerConstraint(floatChild)?.sizingMode)
@@ -55,6 +59,7 @@ class OverlayDslTest {
             id = "boundHost"
         )
         val inlineOverlay = root.overlay(id = "inlineOverlay")
+        inlineOverlay.applyStyleSheet(OverlayExtension.defaultStyleSheet())
 
         assertEquals(3, root.children.size)
         assertNull(emptyHost.overlay)
@@ -62,10 +67,30 @@ class OverlayDslTest {
         assertSame(standaloneOverlay, boundHost.overlay)
         assertEquals("#38bdf8", boundHost.themeColorHex)
         assertTrue(inlineOverlay.elements.isEmpty())
-        assertEquals(RgbaColor.TRANSPARENT, inlineOverlay.style.backgroundColor)
+        assertEquals(RgbaColor.TRANSPARENT, inlineOverlay.computedStyle?.backgroundColor)
 
         boundHost.dispose()
         emptyHost.dispose()
         inlineOverlay.dispose()
+
+        val titleBarHost = root.overlayHostBox(
+            content = Container("gui-titlebar-target"),
+            windowTitleBarEnabled = true,
+            windowTitleBarConfig = OverlayWindowTitleBarConfig(
+                enabled = true,
+                heightPx = 36,
+                title = "DSL Window Title"
+            ),
+            id = "titleBarHost"
+        )
+        assertTrue(titleBarHost.windowTitleBarEnabled)
+        assertTrue(titleBarHost.windowTitleBar.config.enabled)
+        assertEquals(36, titleBarHost.windowTitleBarConfig.heightPx)
+        assertEquals("DSL Window Title", titleBarHost.windowTitleBarConfig.title)
+        assertTrue(titleBarHost.overlayRoot.children.firstOrNull() != null)
+        val titledOverlay = root.overlay(windowTitleBarEnabled = true, id = "titledOverlay")
+        assertTrue(titledOverlay.windowTitleBarEnabled)
+        titleBarHost.dispose()
+        titledOverlay.dispose()
     }
 }

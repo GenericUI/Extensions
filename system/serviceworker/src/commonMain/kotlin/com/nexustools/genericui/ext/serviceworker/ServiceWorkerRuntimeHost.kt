@@ -7,6 +7,14 @@ import com.nexustools.genericui.resources.ResourceID
  * Platform runtime host callback surface attached to an active [ServiceWorker] instance.
  */
 internal interface ServiceWorkerRuntimeHost {
+    val backendName: String
+    val supportsMultipleWindows: Boolean
+    val supportsFragmentLaunch: Boolean
+    val supportsDialogFragments: Boolean
+    val supportsSystemTray: Boolean
+    val supportsOngoingNotification: Boolean
+    val supportsAutostart: Boolean
+
     fun updateNotification(
         title: String,
         text: String,
@@ -21,12 +29,17 @@ internal interface ServiceWorkerRuntimeHost {
         tooltip: String?,
         badgeText: String?,
         menu: ContextMenu?,
-        onClick: (() -> Unit)?
+        onClick: (() -> Unit)?,
+        macosIconPathOrUrl: String? = null
     )
 
     fun openMainWindow(route: String?)
 
     fun closeMainWindow()
+
+    fun requestLaunchFragment(request: ServiceWorkerFragmentLaunchRequest)
+
+    fun requestCloseFragment(fragmentId: String, instanceId: String? = null)
 
     fun stopSelf()
 

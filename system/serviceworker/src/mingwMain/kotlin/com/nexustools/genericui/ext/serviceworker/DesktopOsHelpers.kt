@@ -46,8 +46,7 @@ import kotlin.uuid.Uuid
 
 internal actual object DesktopOsHelpers {
 
-    private var heldMutexHandle: HANDLE? = null
-    private var heldMutexKey: String? = null
+    private val heldMutexHandles = linkedMapOf<String, HANDLE>()
 
     actual fun currentExecutablePath(): String? = memScoped {
         val buf = allocArray<UShortVar>(MAX_PATH * 2)
@@ -107,7 +106,7 @@ internal actual object DesktopOsHelpers {
         DeleteFileW(path.replace('/', '\\')) != 0
 
     actual fun acquireSingleInstanceLock(lockKey: String, lockFilePath: String): Boolean {
-        if (heldMutexHandle != null && heldMutexKey == lockKey) {
+        if (heldMutexHandles.containsKey(lockKey)) {
             return false
         }
         val mutexName = "Local\\$lockKey"
@@ -116,18 +115,23 @@ internal actual object DesktopOsHelpers {
             CloseHandle(handle)
             return false
         }
-        heldMutexHandle = handle
-        heldMutexKey = lockKey
+        heldMutexHandles[lockKey] = handle
         return true
     }
 
+    actual fun releaseSingleInstanceLock(lockKey: String) {
+        val h = heldMutexHandles.remove(lockKey) ?: return
+        CloseHandle(h)
+    }
+
     actual fun releaseSingleInstanceLock() {
-        val h = heldMutexHandle
-        heldMutexHandle = null
-        heldMutexKey = null
-        if (h != null) {
-            CloseHandle(h)
+        for (key in heldMutexHandles.keys.toList()) {
+            releaseSingleInstanceLock(key)
         }
+    }
+
+    actual fun registerShutdownHook(hook: () -> Unit) {
+        // OS automatically releases Win32 mutex handles upon process exit.
     }
 
     actual fun spawnDetachedProcess(
@@ -233,6 +237,8 @@ internal actual object DesktopOsHelpers {
         val candidate = "$dir\\$siblingBaseName.exe"
         return candidate to emptyList()
     }
+
+    actual fun tryWakeRegisteredBackgroundService(appId: String): Boolean = false
 
     private fun writeBytesAtomic(path: String, bytes: ByteArray): Boolean = memScoped {
         val normalized = path.replace('/', '\\')

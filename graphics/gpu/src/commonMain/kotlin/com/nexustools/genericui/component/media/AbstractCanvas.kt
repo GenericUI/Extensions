@@ -41,6 +41,9 @@ abstract class AbstractCanvas<C> : AbstractComponent() {
     val currentFps: Double
         get() = vblankTimer.smoothedFps
 
+    internal val hasActiveHeadlessVBlankRenders: Boolean
+        get() = !isDisposed && typedCanvasNative() == null && vblankCallbacks.any { it.active && !it.disposed }
+
     /**
      * Registers a [VBlankRenderCallback] that fires on every VBlank / VSync interval, passing
      * `(context, deltaMs, totalElapsedMs, frameNumber)`.
@@ -133,8 +136,18 @@ abstract class AbstractCanvas<C> : AbstractComponent() {
         nativeImpl as? AbstractCanvasNativeImpl<*, C>
 
     protected fun updateNativeVBlankLoopState() {
-        val shouldRun = vblankCallbacks.any { it.active && !it.disposed }
-        val impl = typedCanvasNative() ?: return
+        val shouldRun = !isDisposed && vblankCallbacks.any { it.active && !it.disposed }
+        val impl = typedCanvasNative()
+        if (impl == null) {
+            vblankLoopRunning = false
+            if (shouldRun) {
+                VBlankWatcher.registerCanvas(this)
+            } else {
+                VBlankWatcher.unregisterCanvas(this)
+            }
+            return
+        }
+        VBlankWatcher.unregisterCanvas(this)
         if (shouldRun != vblankLoopRunning) {
             vblankLoopRunning = shouldRun
             if (shouldRun) {
@@ -152,6 +165,16 @@ abstract class AbstractCanvas<C> : AbstractComponent() {
         impl.setPointerEventsPassThrough(pointerEventsPassThrough)
         vblankLoopRunning = false
         updateNativeVBlankLoopState()
+    }
+
+    override fun dispose() {
+        vblankCallbacks.clear()
+        VBlankWatcher.unregisterCanvas(this)
+        if (vblankLoopRunning) {
+            vblankLoopRunning = false
+            typedCanvasNative()?.setVBlankLoopActive(false) {}
+        }
+        super.dispose()
     }
 
     private class RegisteredCallback<C>(

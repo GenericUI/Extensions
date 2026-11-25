@@ -20,9 +20,9 @@
 - **Zero String-Keyed Style APIs**: Non-web backends operate on strongly-typed `ComponentStyle` fields and 64-bit `CssProperty` bitmasks (`activePropertiesBitmaskLow`/`High`, `importantBitmaskLow`/`High`), while `:web` translates `ComponentStyle` and `ComponentBootstrap` to DOM CSS strings via `WebCssStyleTranslator`.
 - **System Backend Typography vs. Aesthetic Style Restraints**:
   - **Text / Typography Elements (`Label`, `Text`, `Heading`, `Badge`, `Blockquote`, `CodeBlock`, `MarkdownView`)**: Honor typography and text-color properties (`color`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`, `lineHeight`, `letterSpacing`, `textAlign`, `textDecoration`, `textTransform`, `textOverflow`, `whiteSpace`, `wordBreak`, plus `bootstrap.*`).
-  - **Standard Controls & Standard Containers (`Button`, `IconButton`, `CheckBox`, `Select`, `TextField`, `Container`, `Card`, etc.)**: Aesthetic overrides on `ComponentStyle` are **silently ignored** on OS-native backends (standard components are tinted via `BootstrapType`).
-  - **`StyledContainer` & `StyledButton` (and `:extensions:ui:alien`)**: Honor **100% of `ComponentStyle` aesthetic properties** across all 9 backends — including hardware-accelerated `backdropFilter` (`CssFilter` / `setBackdropBlur(...)`) on **both `StyledButton` and `StyledContainer`**.
-- **Zero Pseudo-States on Inline `ComponentStyle`**: Pseudo-state rules (`:hover`, `:focus`, `:active`, etc.) belong in `.scss` stylesheets (`R.style.<name>` / `IApplication.addStyleSheet`).
+  - **Non-`Button` Controls, Standard Containers, vs. Strictly `Button`-Only Control `BootstrapType` & Bootstrap Non-Controls**: Aesthetic overrides on `ComponentStyle` are **silently ignored** on OS-native controls and standard containers. Among control components, **ONLY `Button` and its subclasses (`Button`, `IconButton`, `ToggleButton`, `FloatingActionButton`, `StyledButton`)** support `BootstrapType`; **`DropdownButton`, `SplitDropdownButton`, `ProgressBar`, `Spinner`, `StyledSlider`, `Composite`, and all other non-`Button` controls MUST NOT support `BootstrapType`**. Meanwhile, Bootstrap-specific non-control classes (**`Badge`, `Alert`, `Banner`, `Toast`, `Card`, `ListGroup`, `ListGroupItem`, `Jumbotron`, `Well`**) DO support `BootstrapType` (`type`, `backgroundType`, `textColorType`, `borderType`) across all 9 backends.
+  - **`StyledComponent`, `StyledContainer`, `StyledButton`, `Composite` / `StyledSlider`, & `:extensions:ui:alien`**: Honor **100% of CSS/SCSS aesthetic properties** across all 9 backends — including hardware-accelerated `backdropFilter` (`CssFilter` / `setBackdropBlur(...)`) on `StyledComponent`, `StyledButton`, and `StyledContainer` (`Composite` renders uniformly via `StyledContainerNativeImpl` with zero custom `*NativeImpl`, and `:system` matches proximal `position: relative` / `Window` containing blocks + `transform` / `z-index` / `pointer-events: none` / `Animator` `@keyframes`).
+- **Keep Static, Theme, & Interactive State Rules in `.scss`**: Static visuals, interactive states (`:hover`, `:focus`, `:active`, `:disabled`), layouts (`position`, `top`, `transform`, `z-index`, `pointer-events`, `cursor`), `@keyframes`, and theme-derived colors (`theme.scss` raw templates compiled solely in consumer builds) belong in `.scss` stylesheets (`R.style.<name>` / `IApplication.addStyleSheet`). Reserve Kotlin `style { ... }` strictly for runtime-dynamic per-frame/per-value offsets (`StyledSlider` / `SeekBar` `%`, scrub bubble `left`).
 - **Full `!important` Support**: Assign inside `important { ... }` or call `set<Property>(value, important = true)`.
 
 ### 1.2 `T.bootstrap { ... }` (Invisible Enum-Driven Bootstrap 5 Utilities)
@@ -176,7 +176,7 @@ fun createHeroDashboard() = buildContainer {
         }
 
         h1("GenericUI Native-First Workspace")
-        p("Compiled natively to Win32, Cocoa, GTK4, Qt6, Swing, Android, iOS, and Web.")
+        p("Compiled natively to Win32, Cocoa, GTK4, KDE, Swing, Android, iOS, and Web.")
         hstack {
             bootstrap { gap = SpacingScale.S2; marginTop = SpacingScale.S3 }
             button(text = "Launch Pipeline", type = BootstrapType.PRIMARY) {

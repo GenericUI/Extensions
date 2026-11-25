@@ -49,6 +49,7 @@ class AlienWidgetNode(
     var styleSnapshot: BootstrapStyleSnapshot = BootstrapStyleSnapshot(componentPrefix = componentClassPrefix)
     var inlineComponentStyle: ComponentStyle? = null
     var computedStyle: ComputedStyle? = null
+    var styledVisualOverride: com.nexustools.genericui.style.css.StyledVisualSpec? = null
     var customCursor: CssCursorValue? = null
     var visible: Boolean = true
     var enabled: Boolean = true

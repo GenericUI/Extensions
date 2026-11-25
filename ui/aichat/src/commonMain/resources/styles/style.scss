@@ -1,0 +1,72 @@
+// Theme-independent default styling for `:extensions:ui:aichat`.
+// Consumer theme overrides live separately in the raw theme stylesheet template.
+
+.ai-chat-container {
+    padding: 8px;
+}
+
+.ai-chat-message-view {
+    padding: 16px;
+    margin: 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.ai-chat-message-view.ai-message-role-user {
+    border-color: rgba(59, 130, 246, 0.48);
+}
+
+.ai-chat-message-view.ai-message-role-assistant {
+    border-color: rgba(14, 165, 233, 0.48);
+}
+
+.ai-chat-message-view.ai-message-role-tool {
+    border-color: rgba(34, 197, 94, 0.48);
+}
+
+.ai-chat-message-view.ai-message-role-system {
+    border-color: rgba(148, 163, 184, 0.48);
+}
+
+.ai-tool-call-card {
+    padding: 8px;
+    margin: 4px;
+    border-radius: 6px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.ai-tool-call-card.ai-tool-status-completed {
+    border-color: rgba(34, 197, 94, 0.55);
+}
+
+.ai-tool-call-card.ai-tool-status-failed {
+    border-color: rgba(239, 68, 68, 0.55);
+}
+
+.ai-tool-call-card.ai-tool-status-running {
+    border-color: rgba(14, 165, 233, 0.55);
+}
+
+.ai-tool-call-card.ai-tool-status-cancelled {
+    border-color: rgba(245, 158, 11, 0.55);
+}
+
+.ai-tool-call-card.ai-tool-status-pending {
+    border-color: rgba(148, 163, 184, 0.45);
+}
+
+.ai-reasoning-accordion {
+    padding: 8px;
+    margin: 4px;
+    border-radius: 6px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.ai-reasoning-header {
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.ai-chat-markdown-prose {
+    white-space: normal;
+}

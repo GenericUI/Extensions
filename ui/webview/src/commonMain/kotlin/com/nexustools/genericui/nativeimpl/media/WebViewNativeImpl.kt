@@ -5,7 +5,7 @@ import com.nexustools.genericui.core.NativeImpl
 /**
  * Low-level native bridge contract used by the `:extensions:webview` extension (`WebView`).
  *
- * - On Desktop (`:desktop` / `:windows`, `:macos`, `:gtk`, `:qt`, `:swing`), backed by the
+ * - On Desktop (`:desktop` / `:windows`, `:macos`, `:gtk`, `:kde`, `:swing`), backed by the
  *   Chromium project (`ChromiumBlinkEngine`) coupled with `NJS` (`lib/NJS` Native JIT) for the
  *   JavaScript runtime.
  * - On Mobile (`:android` `android.webkit.WebView`, `:ios` `WKWebView`) and `:web` (`<iframe>`),

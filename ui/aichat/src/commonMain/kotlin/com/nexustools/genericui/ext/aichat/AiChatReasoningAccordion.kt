@@ -3,10 +3,6 @@ package com.nexustools.genericui.ext.aichat
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.HStack
 import com.nexustools.genericui.component.layout.VStack
-import com.nexustools.genericui.enums.bootstrap.BorderRadiusStyle
-import com.nexustools.genericui.enums.bootstrap.BootstrapType
-import com.nexustools.genericui.enums.bootstrap.FontWeight
-import com.nexustools.genericui.enums.bootstrap.SpacingScale
 
 /**
  * Collapsible accordion widget that displays an AI model's chain-of-thought / reasoning stream
@@ -31,13 +27,10 @@ class AiChatReasoningAccordion(
     private val bodyContainer = Container("ai-reasoning-body")
 
     init {
+        AiChatExtension.ensureStyleSheetRegistered()
         addClass("ai-reasoning-accordion")
-        setBorderType(BootstrapType.SECONDARY)
-        setBorderRadius(BorderRadiusStyle.ROUNDED)
-        setPaddingAll(SpacingScale.S2)
-        setMarginAll(SpacingScale.S1)
 
-        headerBar.setFontWeight(FontWeight.MEDIUM)
+        headerBar.addClass("ai-reasoning-header")
         headerBar.setOnClick {
             toggleExpanded()
         }

@@ -1,0 +1,25 @@
+// Consumer Theme Template Stylesheet (`theme.scss`) for `:extensions:ui:aichat`.
+// NEVER compiled inside `:extensions:ui:aichat` itself; packaged raw in module resources and
+// compiled solely into consumer apps against active theme tokens.
+
+$primary: #3b82f6 !default;
+$accent: #60a5fa !default;
+$surface: #0f172a !default;
+$text: #f8fafc !default;
+$border: #334155 !default;
+
+.ai-chat-message-view.ai-message-role-user {
+    border-color: $primary;
+}
+
+.ai-chat-message-view.ai-message-role-assistant {
+    border-color: $accent;
+}
+
+.ai-reasoning-header:hover {
+    color: $accent;
+}
+
+.ai-tool-call-card {
+    border-color: $border;
+}

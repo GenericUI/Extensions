@@ -10,8 +10,12 @@ import com.nexustools.genericui.enums.system.BackendTarget
 internal class AndroidServiceWorkerRuntime : ServiceWorkerPlatformRuntime {
 
     override val isSupported: Boolean = true
-
-    override val isAutostartSupported: Boolean = true
+    override val supportsMultipleWindows: Boolean = false
+    override val supportsFragmentLaunch: Boolean = true
+    override val supportsDialogFragments: Boolean = true
+    override val supportsSystemTray: Boolean = false
+    override val supportsOngoingNotification: Boolean = true
+    override val supportsAutostart: Boolean = true
 
     override fun configure(options: ServiceWorkerOptions) {
         AndroidServiceWorkerController.updateOptions(options)
@@ -21,7 +25,7 @@ internal class AndroidServiceWorkerRuntime : ServiceWorkerPlatformRuntime {
     }
 
     override fun isClientConnected(): Boolean =
-        AndroidServiceWorkerController.activeWorker() != null
+        AndroidServiceWorkerController.isInProcessClientConnected()
 
     override suspend fun connectClient(
         options: ServiceWorkerOptions,

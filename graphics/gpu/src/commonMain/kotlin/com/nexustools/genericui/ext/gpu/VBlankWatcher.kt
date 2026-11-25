@@ -1,5 +1,7 @@
 package com.nexustools.genericui.ext.gpu
 
+import com.nexustools.genericui.animation.Animator
+import com.nexustools.genericui.component.media.AbstractCanvas
 import com.nexustools.genericui.component.media.VBlankSubscription
 import com.nexustools.genericui.component.media.VBlankTimer
 
@@ -43,6 +45,9 @@ object VBlankWatcher {
     private val listeners = mutableListOf<RegisteredWatcherEntry>()
     private val oneShotCallbacks = mutableListOf<(Double, Double, Long) -> Unit>()
     private val endOfCallbackActions = mutableListOf<() -> Unit>()
+    private val activeCanvases = mutableListOf<AbstractCanvas<*>>()
+    private var animatorVBlankId: Int = -1
+    private var lastSyncedActiveState: Boolean = false
 
     /**
      * Optional platform hook invoked whenever the watcher transitions between idle and active.
@@ -50,47 +55,63 @@ object VBlankWatcher {
     var onActiveStateChanged: ((Boolean) -> Unit)? = null
 
     val hasActiveWatchers: Boolean
-        get() = listeners.any { it.active && !it.disposed } || oneShotCallbacks.isNotEmpty()
+        get() = listeners.any { it.active && !it.disposed } ||
+            oneShotCallbacks.isNotEmpty() ||
+            activeCanvases.any { it.hasActiveHeadlessVBlankRenders }
+
+    val isAnimatorWatchActive: Boolean
+        get() = animatorVBlankId > 0
+
+    internal fun registerCanvas(canvas: AbstractCanvas<*>) {
+        if (!activeCanvases.contains(canvas)) {
+            activeCanvases.add(canvas)
+        }
+        if (!isInVBlankCallback) {
+            syncActiveStateAndAnimator()
+        }
+    }
+
+    internal fun unregisterCanvas(canvas: AbstractCanvas<*>) {
+        if (activeCanvases.remove(canvas) && !isInVBlankCallback) {
+            syncActiveStateAndAnimator()
+        }
+    }
 
     /**
      * Registers a continuous [VBlankFrameListener] that is invoked on every VBlank tick.
      */
     fun watch(listener: VBlankFrameListener): VBlankSubscription {
-        val wasActive = hasActiveWatchers
         val entry = RegisteredWatcherEntry(listener)
         listeners.add(entry)
-        if (!wasActive && hasActiveWatchers) {
-            onActiveStateChanged?.invoke(true)
+        if (!isInVBlankCallback) {
+            syncActiveStateAndAnimator()
         }
         return object : VBlankSubscription {
             override val isActive: Boolean
                 get() = entry.active && !entry.disposed
 
             override fun pause() {
-                val prev = hasActiveWatchers
                 entry.active = false
-                if (prev != hasActiveWatchers) {
-                    onActiveStateChanged?.invoke(hasActiveWatchers)
+                if (!isInVBlankCallback) {
+                    syncActiveStateAndAnimator()
                 }
             }
 
             override fun resume() {
                 if (!entry.disposed) {
-                    val prev = hasActiveWatchers
                     entry.active = true
-                    if (prev != hasActiveWatchers) {
-                        onActiveStateChanged?.invoke(hasActiveWatchers)
+                    if (!isInVBlankCallback) {
+                        syncActiveStateAndAnimator()
                     }
                 }
             }
 
             override fun dispose() {
-                val prev = hasActiveWatchers
                 entry.disposed = true
                 entry.active = false
                 listeners.remove(entry)
-                if (prev != hasActiveWatchers) {
-                    onActiveStateChanged?.invoke(hasActiveWatchers)
+                if (!isInVBlankCallback) {
+                    syncActiveStateAndAnimator()
                 }
             }
         }
@@ -100,10 +121,9 @@ object VBlankWatcher {
      * Schedules a one-shot callback to run on the next VBlank tick.
      */
     fun requestNextVBlank(callback: (deltaMs: Double, totalElapsedMs: Double, frameNumber: Long) -> Unit) {
-        val wasActive = hasActiveWatchers
         oneShotCallbacks.add(callback)
-        if (!wasActive && hasActiveWatchers) {
-            onActiveStateChanged?.invoke(true)
+        if (!isInVBlankCallback) {
+            syncActiveStateAndAnimator()
         }
     }
 
@@ -169,11 +189,13 @@ object VBlankWatcher {
     }
 
     /**
-     * Advances the global VBlank watcher by one frame, invoking all registered [watch] listeners
-     * and queued [requestNextVBlank] callbacks, and flushing end-of-callback presentation actions.
+     * Advances the global VBlank watcher by one frame, invoking all registered [watch] listeners,
+     * active GPU canvases, and queued [requestNextVBlank] callbacks, and flushing end-of-callback
+     * presentation actions.
      */
     fun stepFrame(explicitTimestampMs: Double? = null) {
         val activeListeners = listeners.filter { it.active && !it.disposed }
+        val pendingCanvases = activeCanvases.filter { it.hasActiveHeadlessVBlankRenders }
         val pendingOneShots = if (oneShotCallbacks.isNotEmpty()) {
             val copy = oneShotCallbacks.toList()
             oneShotCallbacks.clear()
@@ -182,7 +204,8 @@ object VBlankWatcher {
             emptyList()
         }
 
-        if (activeListeners.isEmpty() && pendingOneShots.isEmpty() && endOfCallbackActions.isEmpty()) {
+        if (activeListeners.isEmpty() && pendingCanvases.isEmpty() && pendingOneShots.isEmpty() && endOfCallbackActions.isEmpty()) {
+            syncActiveStateAndAnimator()
             return
         }
 
@@ -198,6 +221,12 @@ object VBlankWatcher {
                     flushEndOfCallbackActions()
                 }
             }
+            for (canvas in pendingCanvases) {
+                if (canvas.hasActiveHeadlessVBlankRenders) {
+                    canvas.dispatchVBlankFrame(explicitTimestampMs)
+                    flushEndOfCallbackActions()
+                }
+            }
             for (oneShot in pendingOneShots) {
                 oneShot(deltaMs, totalElapsedMs, frameNum)
                 flushEndOfCallbackActions()
@@ -207,20 +236,56 @@ object VBlankWatcher {
             isInVBlankCallback = previousInVBlank
         }
 
-        if (!hasActiveWatchers) {
-            onActiveStateChanged?.invoke(false)
+        if (!isInVBlankCallback) {
+            syncActiveStateAndAnimator()
         }
     }
 
     /**
-     * Resets all listeners, one-shot callbacks, and timer state (useful in tests).
+     * Resets all listeners, active canvases, one-shot callbacks, and timer state (useful in tests).
      */
     fun reset() {
+        val wasActive = lastSyncedActiveState
         listeners.clear()
         oneShotCallbacks.clear()
         endOfCallbackActions.clear()
+        activeCanvases.clear()
         isInVBlankCallback = false
         timer.reset()
+        val id = animatorVBlankId
+        animatorVBlankId = -1
+        if (id > 0) {
+            Animator.unwatchVBlank(id)
+        }
+        lastSyncedActiveState = false
+        if (wasActive) {
+            onActiveStateChanged?.invoke(false)
+        }
+    }
+
+    private fun syncActiveStateAndAnimator() {
+        val active = hasActiveWatchers
+        if (active) {
+            if (animatorVBlankId <= 0) {
+                animatorVBlankId = Animator.watchVBlank { _, timestampMs, _ ->
+                    if (hasActiveWatchers) {
+                        stepFrame(timestampMs)
+                    } else {
+                        syncActiveStateAndAnimator()
+                    }
+                }
+            }
+        } else {
+            val id = animatorVBlankId
+            animatorVBlankId = -1
+            if (id > 0) {
+                Animator.unwatchVBlank(id)
+            }
+        }
+        if (lastSyncedActiveState != active) {
+            lastSyncedActiveState = active
+            onActiveStateChanged?.invoke(active)
+        }
     }
 
     private class RegisteredWatcherEntry(

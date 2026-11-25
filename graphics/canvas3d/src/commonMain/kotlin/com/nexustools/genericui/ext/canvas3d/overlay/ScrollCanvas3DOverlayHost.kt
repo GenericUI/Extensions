@@ -1,13 +1,11 @@
 package com.nexustools.genericui.ext.canvas3d.overlay
 
 import com.nexustools.genericui.component.media.Canvas3D
-import com.nexustools.genericui.enums.bootstrap.PositionMode
-import com.nexustools.genericui.enums.css.CssPosition
+import com.nexustools.genericui.ext.canvas3d.Canvas3DExtension
 import com.nexustools.genericui.ext.canvas3d.ScrollCanvas3D
 import com.nexustools.genericui.ext.canvas3d.ScrollCanvas3DListener
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.ext.overlay.OverlayHostBox
-import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Generic overlay host wrapping a [ScrollCanvas3D] and extending [OverlayHostBox] where [overlayRoot]
@@ -53,8 +51,10 @@ open class ScrollCanvas3DOverlayHost(
     }
 
     init {
+        Canvas3DExtension.ensureStyleSheetRegistered()
         htmlTag = "genericui:scroll-canvas-3d-overlay-host"
         addClass("scroll-canvas-3d-overlay-host")
+        overlayRoot.addClass("canvas-3d-overlay-root")
         syncOverlayBoundsToViewport()
         scrollCanvas.addScrollListener(viewportSyncListener)
         if (initialOverlay != null) {
@@ -73,10 +73,6 @@ open class ScrollCanvas3DOverlayHost(
     private fun applyViewportOverlayBounds(viewportWidth: Int, viewportHeight: Int) {
         val safeW = viewportWidth.coerceAtLeast(1)
         val safeH = viewportHeight.coerceAtLeast(1)
-        overlayRoot.positionMode = PositionMode.ABSOLUTE
-        overlayRoot.style.position = CssPosition.ABSOLUTE
-        overlayRoot.style.top = CssLength.ZERO
-        overlayRoot.style.left = CssLength.ZERO
         overlayRoot.setAttribute("data-overlay-region", "viewport-only")
         overlayRoot.setAttribute("data-excludes-scrollbars", "true")
         syncWithTargetResize(safeW, safeH)

@@ -1,0 +1,145 @@
+// Theme-independent default styling and chrome fade rules for `:extensions:ui:pip`.
+// Consumer theme overrides live separately in the raw theme stylesheet template.
+
+.gui-pip-overlay {
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+    border-radius: 0px;
+    opacity: 1;
+    pointer-events: auto !important;
+    cursor: auto;
+}
+
+.pip-drag-surface {
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+    border-radius: 0px;
+    cursor: grab;
+}
+
+.gui-pip-chrome {
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+    border-radius: 0px;
+    pointer-events: none !important;
+    opacity: 1;
+}
+
+.gui-pip-chrome:not(.hidden) {
+    opacity: 1;
+    pointer-events: none !important;
+    animation: overlayFadeIn 200ms ease-out forwards;
+}
+
+.gui-pip-chrome.hidden {
+    opacity: 0;
+    pointer-events: none !important;
+    animation: overlayFadeOut 280ms ease-in-out forwards;
+}
+
+.gui-pip-chrome.overlay-instant-fade:not(.hidden),
+.gui-pip-chrome.overlay-instant-fade.hidden {
+    animation-duration: 0ms;
+}
+
+.pip-top-scrim {
+    width: 100%;
+    height: 44px;
+    background-image: linear-gradient(180deg, rgba(0, 0, 0, 0.69), rgba(0, 0, 0, 0));
+    pointer-events: none !important;
+}
+
+.pip-bottom-scrim {
+    width: 100%;
+    height: 56px;
+    background-image: linear-gradient(0deg, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0));
+    pointer-events: none !important;
+}
+
+.pip-title {
+    color: #ffffff;
+    font-size: 12px;
+}
+
+.pip-top-bar {
+    width: 100%;
+    padding: 6px 8px 4px 8px;
+    pointer-events: auto;
+}
+
+.pip-bottom-bar {
+    width: 100%;
+    padding: 4px 8px 8px 8px;
+    pointer-events: auto;
+}
+
+.gui-pip-chrome.hidden .pip-top-bar,
+.gui-pip-chrome.hidden .pip-bottom-bar,
+.gui-pip-chrome.hidden .gui-overlay-titlebar,
+.pip-bar-inactive {
+    pointer-events: none !important;
+}
+
+.pip-chrome-btn {
+    color: #ffffff;
+    background-color: rgba(20, 20, 20, 0.73);
+    border-radius: 6px;
+    border-width: 0px;
+    border-style: none;
+    padding: 3px 7px;
+    cursor: pointer;
+}
+
+.pip-chrome-btn:hover:not(:disabled) {
+    background-color: rgba(45, 45, 52, 0.88);
+    color: #ffffff;
+}
+
+.pip-chrome-btn:focus-visible:not(:disabled) {
+    outline: 2px solid rgba(255, 255, 255, 0.45);
+}
+
+.pip-chrome-btn:disabled {
+    opacity: 0.40;
+    cursor: not-allowed;
+}
+
+@desktop {
+    .pip-restore-btn-titlebar {
+        width: 24px;
+        height: 22px;
+        padding: 0px;
+        border-radius: 6px;
+    }
+}
+
+.pip-overlay-host,
+.pip-content-slot,
+.pip-surface-mirror {
+    width: 100%;
+    height: 100%;
+    background-color: #000000;
+    border-radius: 0px;
+}
+
+@web {
+    .pip-web-floating-root {
+        width: 100%;
+        height: 100%;
+        background-color: #000000;
+        border-radius: 0px;
+    }
+
+    .pip-web-floating-root.pip-web-floating-pip {
+        border-radius: 12px;
+    }
+}
+
+.pip-reparent-placeholder {
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+}

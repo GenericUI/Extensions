@@ -3,12 +3,10 @@ package com.nexustools.genericui.ext.overlay
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.core.UiTimerScheduler
-import com.nexustools.genericui.enums.css.CssCursor
-import com.nexustools.genericui.enums.css.CssPointerEvents
-import com.nexustools.genericui.style.transition.CssTransitionSpec
 
 /**
- * Lifecycle-bound controller managing auto-hide timers, fade transitions (`200ms` default),
+ * Lifecycle-bound controller managing auto-hide timers, `.hidden` CSS class toggling on
+ * [targetComponent] (driving `@keyframes overlayFadeIn` / `overlayFadeOut` in `overlay/style.scss`),
  * generic pinning reasons (`setPinned(reason, pinned)`), and Picture-in-Picture suppression.
  */
 class AutoHideController(
@@ -18,6 +16,7 @@ class AutoHideController(
 ) : Disposable {
 
     private val pinnedReasons = linkedSetOf<String>()
+    internal val visibilityObservers = mutableListOf<(visible: Boolean, opacity: Float) -> Unit>()
     private var activeTimerId: Int = -1
 
     override var isDisposed: Boolean = false
@@ -39,6 +38,9 @@ class AutoHideController(
         private set
 
     var isInPictureInPictureMode: Boolean = false
+        private set
+
+    internal var lastTransitionDurationMs: Int = 0
         private set
 
     val isPinned: Boolean
@@ -63,8 +65,8 @@ class AutoHideController(
                 showOverlay(scheduleHide = false)
             }
         } else {
-            pinnedReasons.remove(normalized)
-            if (!isInPictureInPictureMode && !isPinned && isOverlayVisible) {
+            val removed = pinnedReasons.remove(normalized)
+            if (removed && !isInPictureInPictureMode && !isPinned && isOverlayVisible) {
                 scheduleAutoHideTimer()
             }
         }
@@ -72,8 +74,9 @@ class AutoHideController(
 
     fun clearAllPins() {
         if (isDisposed) return
+        val hadPins = pinnedReasons.isNotEmpty()
         pinnedReasons.clear()
-        if (!isInPictureInPictureMode && isOverlayVisible) {
+        if (hadPins && !isInPictureInPictureMode && isOverlayVisible) {
             scheduleAutoHideTimer()
         }
     }
@@ -87,15 +90,16 @@ class AutoHideController(
         isInPictureInPictureMode = inPip
         if (inPip) {
             cancelAutoHideTimer()
+            lastTransitionDurationMs = 0
             isOverlayVisible = false
             currentOpacity = 0.0f
             targetComponent?.let { target ->
-                target.style.setTransitions(null)
-                target.opacity = 0.0f
-                target.style.pointerEvents = CssPointerEvents.NONE
+                target.addClass(INSTANT_FADE_CLASS)
+                target.addClass(HIDDEN_CLASS)
+                target.setAttribute("data-hud-opacity", "0.0")
                 target.isVisible = false
             }
-            onVisibilityChanged?.invoke(false, 0.0f)
+            notifyVisibilityUpdate(visible = false, opacity = 0.0f)
         } else {
             targetComponent?.isVisible = true
             showOverlay(scheduleHide = !isPinned)
@@ -103,29 +107,34 @@ class AutoHideController(
     }
 
     /**
-     * Shows the overlay (with [fadeInMs] CSS transition) and optionally starts the [delayMs] auto-hide timer.
+     * Shows [targetComponent] by removing `"hidden"` cleanly and optionally starts the [delayMs]
+     * auto-hide countdown.
      */
     fun showOverlay(scheduleHide: Boolean = true) {
         if (isDisposed || isInPictureInPictureMode) return
         cancelAutoHideTimer()
-        val changed = !isOverlayVisible || currentOpacity < 1.0f
+        val changed = !isOverlayVisible || currentOpacity < 1.0f || targetComponent?.hasClass(HIDDEN_CLASS) == true
+        val fadeInDuration = spec.fadeInMs.coerceAtLeast(0)
+        lastTransitionDurationMs = fadeInDuration
         isOverlayVisible = true
         currentOpacity = 1.0f
         targetComponent?.let { target ->
             target.isVisible = true
-            if (spec.fadeInMs > 0) {
-                target.style.setTransitions(CssTransitionSpec.parseList("opacity ${spec.fadeInMs}ms ease"))
+            if (fadeInDuration <= 0) {
+                target.addClass(INSTANT_FADE_CLASS)
             } else {
-                target.style.setTransitions(null)
+                target.removeClass(INSTANT_FADE_CLASS)
             }
-            target.opacity = 1.0f
-            target.style.pointerEvents = CssPointerEvents.AUTO
-            if (spec.hideCursorWhenOverlayHidden) {
-                target.style.cursor = null
+            if (!spec.hideCursorWhenOverlayHidden) {
+                target.addClass(KEEP_CURSOR_CLASS)
+            } else {
+                target.removeClass(KEEP_CURSOR_CLASS)
             }
+            target.removeClass(HIDDEN_CLASS)
+            target.setAttribute("data-hud-opacity", "1.0")
         }
         if (changed) {
-            onVisibilityChanged?.invoke(true, 1.0f)
+            notifyVisibilityUpdate(visible = true, opacity = 1.0f)
         }
         if (scheduleHide && !isPinned && spec.delayMs > 0) {
             scheduleAutoHideTimer()
@@ -133,29 +142,36 @@ class AutoHideController(
     }
 
     /**
-     * Hides the overlay (immediately when [instant] is `true`, or with [fadeOutMs] CSS transition).
+     * Hides [targetComponent] by adding `"hidden"`, letting CSS `@keyframes overlayFadeOut`
+     * (or instant snap when [instant] is `true` or [AutoHideSpec.fadeOutMs] <= 0) handle opacity,
+     * pointer-events, and cursor hiding declaratively.
      */
     fun hideOverlay(instant: Boolean = false) {
         if (isDisposed) return
         cancelAutoHideTimer()
         if (isPinned && !isInPictureInPictureMode) return
-        val changed = isOverlayVisible || currentOpacity > 0.0f
+        val changed = isOverlayVisible || currentOpacity > 0.0f || targetComponent?.hasClass(HIDDEN_CLASS) != true
+        val fadeOutDuration = if (instant) 0 else spec.fadeOutMs.coerceAtLeast(0)
+        lastTransitionDurationMs = fadeOutDuration
         isOverlayVisible = false
         currentOpacity = 0.0f
         targetComponent?.let { target ->
-            if (!instant && spec.fadeOutMs > 0) {
-                target.style.setTransitions(CssTransitionSpec.parseList("opacity ${spec.fadeOutMs}ms ease"))
+            target.isVisible = true
+            if (fadeOutDuration <= 0) {
+                target.addClass(INSTANT_FADE_CLASS)
             } else {
-                target.style.setTransitions(null)
+                target.removeClass(INSTANT_FADE_CLASS)
             }
-            target.opacity = 0.0f
-            target.style.pointerEvents = CssPointerEvents.NONE
-            if (spec.hideCursorWhenOverlayHidden) {
-                target.style.cursor = CssCursor.NONE
+            if (!spec.hideCursorWhenOverlayHidden) {
+                target.addClass(KEEP_CURSOR_CLASS)
+            } else {
+                target.removeClass(KEEP_CURSOR_CLASS)
             }
+            target.addClass(HIDDEN_CLASS)
+            target.setAttribute("data-hud-opacity", "0.0")
         }
         if (changed) {
-            onVisibilityChanged?.invoke(false, 0.0f)
+            notifyVisibilityUpdate(visible = false, opacity = 0.0f)
         }
     }
 
@@ -192,6 +208,11 @@ class AutoHideController(
         }
     }
 
+    private fun notifyVisibilityUpdate(visible: Boolean, opacity: Float) {
+        onVisibilityChanged?.invoke(visible, opacity)
+        notifyVisibilityObservers(visible, opacity)
+    }
+
     private fun scheduleAutoHideTimer() {
         cancelAutoHideTimer()
         if (isDisposed || isInPictureInPictureMode || isPinned || spec.delayMs <= 0) return
@@ -214,10 +235,24 @@ class AutoHideController(
         }
     }
 
+    private fun notifyVisibilityObservers(visible: Boolean, opacity: Float) {
+        for (observer in visibilityObservers.toList()) {
+            observer(visible, opacity)
+        }
+    }
+
     override fun dispose() {
         if (isDisposed) return
         isDisposed = true
         cancelAutoHideTimer()
+        targetComponent?.cancelAnimations()
+        visibilityObservers.clear()
         pinnedReasons.clear()
+    }
+
+    companion object {
+        const val HIDDEN_CLASS: String = "hidden"
+        const val INSTANT_FADE_CLASS: String = "overlay-instant-fade"
+        const val KEEP_CURSOR_CLASS: String = "overlay-keep-cursor"
     }
 }

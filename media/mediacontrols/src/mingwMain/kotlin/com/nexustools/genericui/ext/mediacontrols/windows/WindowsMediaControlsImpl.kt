@@ -11,6 +11,7 @@ import com.nexustools.genericui.ext.mediacontrols.MediaControlsCapabilities
 import com.nexustools.genericui.ext.mediacontrols.MediaControlsNativeImpl
 import com.nexustools.genericui.ext.mediacontrols.MediaControlsStateSupport
 import com.nexustools.genericui.ext.mediacontrols.MediaPlaybackStatus
+import com.nexustools.genericui.threading.GenericUiThreading
 import com.nexustools.genericui.window.IWindow
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CFunction
@@ -93,9 +94,15 @@ private fun win32LowLevelKeyboardHookProc(nCode: Int, wParam: WPARAM, lParam: LP
         val kbStruct = lParam.toCPointer<KBDLLHOOKSTRUCT>()
         if (kbStruct != null) {
             val vkCode = kbStruct.pointed.vkCode.toInt()
-            val snapshot = activeWindowsMediaControlsInstances.toList()
-            for (instance in snapshot) {
-                instance.handleVirtualKey(vkCode)
+            if (WindowsMediaControlsImpl.isMappedMediaVirtualKey(vkCode)) {
+                val targets = activeWindowsMediaControlsInstances.filter { it.isKeyboardHookActive() }
+                if (targets.isNotEmpty()) {
+                    GenericUiThreading.runOnLogic {
+                        for (instance in targets) {
+                            instance.handleVirtualKey(vkCode)
+                        }
+                    }
+                }
             }
         }
     }
@@ -112,15 +119,16 @@ private fun win32SubclassedMediaWndProc(hwnd: HWND?, msg: UINT, wParam: WPARAM, 
         }
     } else if (msgInt == WindowsMediaControlsImpl.WM_APPCOMMAND) {
         val appCmd = ((lParam ushr 16) and 0x0FFFL).toInt()
-        val snapshot = activeWindowsMediaControlsInstances.toList()
-        var handled = false
-        for (instance in snapshot) {
-            if (instance.handleAppCommand(appCmd)) {
-                handled = true
+        if (WindowsMediaControlsImpl.isMappedMediaAppCommand(appCmd)) {
+            val targets = activeWindowsMediaControlsInstances.filter { it.isActive() }
+            if (targets.isNotEmpty()) {
+                GenericUiThreading.runOnLogic {
+                    for (instance in targets) {
+                        instance.handleAppCommand(appCmd)
+                    }
+                }
+                return 1L
             }
-        }
-        if (handled) {
-            return 1L
         }
     } else if (msgInt == WM_COMMAND) {
         val notifyCode = ((wParam.toLong() ushr 16) and 0xFFFFL).toInt()
@@ -192,6 +200,38 @@ class WindowsMediaControlsImpl : MediaControlsNativeImpl {
         private const val COINIT_APARTMENTTHREADED: UInt = 0x2u
         private const val CLSCTX_INPROC_SERVER: UInt = 0x1u
         private const val THUMBBUTTON_SIZE_X64: Int = 552
+
+        internal fun mapVirtualKeyToAction(vkCode: Int): MediaControlAction? = when (vkCode) {
+            VK_MEDIA_PLAY_PAUSE -> MediaControlAction.PLAY_PAUSE
+            VK_MEDIA_STOP -> MediaControlAction.STOP
+            VK_MEDIA_NEXT_TRACK -> MediaControlAction.NEXT
+            VK_MEDIA_PREV_TRACK -> MediaControlAction.PREVIOUS
+            VK_VOLUME_MUTE -> MediaControlAction.MUTE_TOGGLE
+            VK_VOLUME_DOWN -> MediaControlAction.VOLUME_DOWN
+            VK_VOLUME_UP -> MediaControlAction.VOLUME_UP
+            else -> null
+        }
+
+        internal fun isMappedMediaVirtualKey(vkCode: Int): Boolean =
+            mapVirtualKeyToAction(vkCode) != null
+
+        internal fun mapAppCommandToAction(appCommand: Int): MediaControlAction? = when (appCommand) {
+            APPCOMMAND_MEDIA_PLAY_PAUSE -> MediaControlAction.PLAY_PAUSE
+            APPCOMMAND_MEDIA_PLAY -> MediaControlAction.PLAY
+            APPCOMMAND_MEDIA_PAUSE -> MediaControlAction.PAUSE
+            APPCOMMAND_MEDIA_STOP -> MediaControlAction.STOP
+            APPCOMMAND_MEDIA_NEXTTRACK -> MediaControlAction.NEXT
+            APPCOMMAND_MEDIA_PREVIOUSTRACK -> MediaControlAction.PREVIOUS
+            APPCOMMAND_MEDIA_FAST_FORWARD -> MediaControlAction.FAST_FORWARD
+            APPCOMMAND_MEDIA_REWIND -> MediaControlAction.REWIND
+            APPCOMMAND_VOLUME_MUTE -> MediaControlAction.MUTE_TOGGLE
+            APPCOMMAND_VOLUME_DOWN -> MediaControlAction.VOLUME_DOWN
+            APPCOMMAND_VOLUME_UP -> MediaControlAction.VOLUME_UP
+            else -> null
+        }
+
+        internal fun isMappedMediaAppCommand(appCommand: Int): Boolean =
+            mapAppCommandToAction(appCommand) != null
     }
 
     override val capabilities: MediaControlsCapabilities = MediaControlsCapabilities(
@@ -352,38 +392,19 @@ class WindowsMediaControlsImpl : MediaControlsNativeImpl {
         state.dispatchEvent(action, source, seekPositionMs)
     }
 
+    internal fun isKeyboardHookActive(): Boolean =
+        isActive() && state.keyboardMediaKeysEnabled
+
     fun handleVirtualKey(vkCode: Int): Boolean {
-        if (!isActive() || !state.keyboardMediaKeysEnabled) return false
-        val action = when (vkCode) {
-            VK_MEDIA_PLAY_PAUSE -> MediaControlAction.PLAY_PAUSE
-            VK_MEDIA_STOP -> MediaControlAction.STOP
-            VK_MEDIA_NEXT_TRACK -> MediaControlAction.NEXT
-            VK_MEDIA_PREV_TRACK -> MediaControlAction.PREVIOUS
-            VK_VOLUME_MUTE -> MediaControlAction.MUTE_TOGGLE
-            VK_VOLUME_DOWN -> MediaControlAction.VOLUME_DOWN
-            VK_VOLUME_UP -> MediaControlAction.VOLUME_UP
-            else -> return false
-        }
-        return state.dispatchEvent(action, MediaControlEventSource.KEYBOARD_MEDIA_KEY)
+        if (!isKeyboardHookActive()) return false
+        val action = mapVirtualKeyToAction(vkCode) ?: return false
+        return state.dispatchWithCrossSourceDedupe(action, MediaControlEventSource.KEYBOARD_MEDIA_KEY)
     }
 
     fun handleAppCommand(appCommand: Int): Boolean {
         if (!isActive()) return false
-        val action = when (appCommand) {
-            APPCOMMAND_MEDIA_PLAY_PAUSE -> MediaControlAction.PLAY_PAUSE
-            APPCOMMAND_MEDIA_PLAY -> MediaControlAction.PLAY
-            APPCOMMAND_MEDIA_PAUSE -> MediaControlAction.PAUSE
-            APPCOMMAND_MEDIA_STOP -> MediaControlAction.STOP
-            APPCOMMAND_MEDIA_NEXTTRACK -> MediaControlAction.NEXT
-            APPCOMMAND_MEDIA_PREVIOUSTRACK -> MediaControlAction.PREVIOUS
-            APPCOMMAND_MEDIA_FAST_FORWARD -> MediaControlAction.FAST_FORWARD
-            APPCOMMAND_MEDIA_REWIND -> MediaControlAction.REWIND
-            APPCOMMAND_VOLUME_MUTE -> MediaControlAction.MUTE_TOGGLE
-            APPCOMMAND_VOLUME_DOWN -> MediaControlAction.VOLUME_DOWN
-            APPCOMMAND_VOLUME_UP -> MediaControlAction.VOLUME_UP
-            else -> return false
-        }
-        return state.dispatchEvent(action, MediaControlEventSource.SYSTEM_TRANSPORT)
+        val action = mapAppCommandToAction(appCommand) ?: return false
+        return state.dispatchWithCrossSourceDedupe(action, MediaControlEventSource.SYSTEM_TRANSPORT)
     }
 
     fun handleTaskbarButtonClick(buttonId: Int): Boolean {

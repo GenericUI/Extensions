@@ -114,6 +114,8 @@ class DesktopPipSurfaceMirror {
             "suppressDefaultBorder",
             "onBeforePresentFrame",
             "defaultAspectRatio",
+            "contentFitMode",
+            "contentAspectRatio",
             "captureBgraPtr",
             "captureBgra",
             "captureRgba",

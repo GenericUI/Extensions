@@ -1,46 +1,163 @@
 package com.nexustools.genericui.swing
 
+import com.nexustools.genericui.animation.Animator
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.ImageEncodeOptions
 import com.nexustools.genericui.image.ImageFormat
 import com.nexustools.genericui.image.ImageLoader
 import com.nexustools.genericui.image.PixelFormat
 import com.nexustools.genericui.nativeimpl.media.AbstractCanvasNativeImpl
+import com.nexustools.genericui.threading.GenericUiThreading
+import java.awt.GraphicsEnvironment
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
+import java.awt.event.HierarchyEvent
+import java.awt.event.HierarchyListener
 import java.awt.image.BufferedImage
 import javax.swing.JComponent
 import javax.swing.JPanel
-import javax.swing.Timer
+import javax.swing.SwingUtilities
 
 /**
- * Shared Swing base implementation for `SwingCanvas2DImpl`, `SwingGLCanvasImpl`, and `SwingVKCanvasImpl`.
+ * Shared Swing base implementation for `SwingCanvas2DImpl`, `SwingGLCanvasImpl`, and `SwingVKCanvasImpl`,
+ * driven by monitor-synchronized [Animator.watchVBlank] / [Animator.unwatchVBlank].
  */
 abstract class SwingAbstractCanvasImpl<C>(
     panel: JPanel = JPanel()
 ) : SwingBaseNativeImpl(panel, "canvas"), AbstractCanvasNativeImpl<JComponent, C> {
     override val nativeWidget: JPanel get() = super.nativeWidget as JPanel
 
+    @Volatile
+    private var canvasDisposed: Boolean = false
+
+    @Volatile
     protected var vblankActive: Boolean = false
+
+    @Volatile
     protected var vblankCallback: ((Double?) -> Unit)? = null
+
     protected var passThroughFlag: Boolean = false
-    private var vblankTimer: Timer? = null
+
+    private val vblankLock = Any()
+    private var vblankWatcherId: Int = -1
+    @Volatile
+    private var wasShowingInHierarchy: Boolean = false
+    @Volatile
+    private var wasAttachedToParent: Boolean = false
+
+    override val isDisposed: Boolean
+        get() = canvasDisposed
+
+    private val hierarchyListener = HierarchyListener { e ->
+        val flags = e.changeFlags
+        if ((flags and HierarchyEvent.SHOWING_CHANGED.toLong()) != 0L) {
+            if (nativeWidget.isShowing) {
+                wasShowingInHierarchy = true
+            }
+            syncVBlankSubscription()
+        }
+        if ((flags and HierarchyEvent.PARENT_CHANGED.toLong()) != 0L) {
+            if (nativeWidget.parent != null || nativeWidget.isDisplayable) {
+                wasAttachedToParent = true
+            } else if (wasAttachedToParent) {
+                wasShowingInHierarchy = false
+            }
+            syncVBlankSubscription()
+        }
+    }
+
+    private val componentVisibilityListener = object : ComponentAdapter() {
+        override fun componentShown(e: ComponentEvent?) {
+            syncVBlankSubscription()
+        }
+
+        override fun componentHidden(e: ComponentEvent?) {
+            syncVBlankSubscription()
+        }
+    }
+
+    init {
+        nativeWidget.addHierarchyListener(hierarchyListener)
+        nativeWidget.addComponentListener(componentVisibilityListener)
+    }
+
+    private fun shouldRunVBlankLoop(): Boolean {
+        if (canvasDisposed || !vblankActive || vblankCallback == null) return false
+        if (!nativeWidget.isVisible) return false
+        if (wasShowingInHierarchy && !nativeWidget.isShowing) return false
+        if (wasAttachedToParent && nativeWidget.parent == null && !nativeWidget.isDisplayable) return false
+        return true
+    }
+
+    private fun syncVBlankSubscription() {
+        val idToUnwatch: Int
+        val shouldStart: Boolean
+        synchronized(vblankLock) {
+            if (shouldRunVBlankLoop()) {
+                if (vblankWatcherId > 0) return
+                shouldStart = true
+                idToUnwatch = -1
+            } else {
+                shouldStart = false
+                idToUnwatch = vblankWatcherId
+                vblankWatcherId = -1
+            }
+        }
+        if (idToUnwatch > 0) {
+            Animator.unwatchVBlank(idToUnwatch)
+        }
+        if (shouldStart) {
+            val newId = Animator.watchVBlank { _, timestampMs, _ ->
+                if (!shouldRunVBlankLoop()) return@watchVBlank
+                vblankCallback?.invoke(timestampMs)
+                onAfterVBlankFrame()
+                if (GraphicsEnvironment.isHeadless() || SwingUtilities.isEventDispatchThread()) {
+                    nativeWidget.repaint()
+                } else {
+                    GenericUiThreading.runOnUi {
+                        nativeWidget.repaint()
+                    }
+                }
+            }
+            var undoNewId = false
+            synchronized(vblankLock) {
+                if (shouldRunVBlankLoop() && vblankWatcherId <= 0) {
+                    vblankWatcherId = newId
+                } else {
+                    undoNewId = true
+                }
+            }
+            if (undoNewId && newId > 0) {
+                Animator.unwatchVBlank(newId)
+            }
+        }
+    }
+
+    private fun stopVBlankWatcher() {
+        val idToUnwatch = synchronized(vblankLock) {
+            val current = vblankWatcherId
+            vblankWatcherId = -1
+            current
+        }
+        if (idToUnwatch > 0) {
+            Animator.unwatchVBlank(idToUnwatch)
+        }
+    }
+
+    override fun setVisible(visible: Boolean) {
+        super.setVisible(visible)
+        syncVBlankSubscription()
+    }
 
     override fun setVBlankLoopActive(active: Boolean, onVBlankFrame: (explicitTimestampMs: Double?) -> Unit) {
         vblankActive = active
         vblankCallback = if (active) onVBlankFrame else null
-        vblankTimer?.stop()
-        vblankTimer = null
         if (active) {
-            vblankTimer = Timer(16) {
-                if (vblankActive) {
-                    val nowMs = System.nanoTime() / 1_000_000.0
-                    vblankCallback?.invoke(nowMs)
-                    onAfterVBlankFrame()
-                    nativeWidget.repaint()
-                }
-            }.apply {
-                isRepeats = true
-                start()
-            }
+            wasShowingInHierarchy = nativeWidget.isShowing
+            wasAttachedToParent = nativeWidget.parent != null || nativeWidget.isDisplayable
+            syncVBlankSubscription()
+        } else {
+            stopVBlankWatcher()
         }
     }
 
@@ -103,10 +220,12 @@ abstract class SwingAbstractCanvasImpl<C>(
     }
 
     override fun dispose() {
+        canvasDisposed = true
         vblankActive = false
         vblankCallback = null
-        vblankTimer?.stop()
-        vblankTimer = null
+        stopVBlankWatcher()
+        nativeWidget.removeHierarchyListener(hierarchyListener)
+        nativeWidget.removeComponentListener(componentVisibilityListener)
         super.dispose()
     }
 }

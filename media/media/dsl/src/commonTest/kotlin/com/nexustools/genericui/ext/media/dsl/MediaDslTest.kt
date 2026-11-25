@@ -4,11 +4,13 @@ import com.nexustools.genericui.component.media.AudioPlayer
 import com.nexustools.genericui.component.media.ExpandingVolumeSlider
 import com.nexustools.genericui.component.media.Player
 import com.nexustools.genericui.component.media.SeekBar
+import com.nexustools.genericui.component.media.VideoFragment
 import com.nexustools.genericui.component.media.VideoPlayer
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.ext.dsl.buildDiv
 import com.nexustools.genericui.ext.media.overlay.VideoOverlayHost
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
+import com.nexustools.genericui.ext.overlay.OverlayWindowTitleBarConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -60,17 +62,15 @@ class MediaDslTest {
         assertEquals("seek", bar.id)
         assertEquals(12.5, bar.value)
         assertEquals(45.0, bar.bufferedValue)
-        assertEquals("vol", vol.id)
         assertTrue(vol.alwaysExpanded)
         assertTrue(vol.isExpanded)
-        assertEquals(1f, vol.wave1Layer.opacity, 0.001f)
-        assertEquals(1f, vol.wave2Layer.opacity, 0.001f)
-        assertEquals(0f, vol.wave3Layer.opacity, 0.001f)
-        assertEquals(0f, vol.muteCrossLayer.opacity, 0.001f)
+        assertTrue(vol.hasClass(ExpandingVolumeSlider.CLASS_VOLUME_MEDIUM))
+        assertEquals("vol", vol.id)
         assertEquals("standalone-vol", standaloneVol.id)
-        assertEquals(1f, standaloneVol.muteCrossLayer.opacity, 0.001f)
+        assertTrue(standaloneVol.hasClass(ExpandingVolumeSlider.CLASS_MUTED))
         assertSame(host, host.videoPlayer.attachedOverlayHost)
         assertSame(customOverlay, host.activeOverlay)
+        assertFalse(host.windowDragEnabled)
         assertTrue(vid.keepScreenOn)
         assertTrue(scopedAudio.keepScreenOn)
         assertTrue(standaloneAudio.keepScreenOn)
@@ -83,5 +83,29 @@ class MediaDslTest {
         optOutAudio.dispose()
         standaloneAudio.dispose()
         scopedAudio.dispose()
+
+        val frag = videoFragment(
+            sourceUrl = "https://example.com/movie.mp4",
+            volume = 0.75f,
+            windowTitleBarConfig = OverlayWindowTitleBarConfig(enabled = true, heightPx = 32, title = "DSL Movie"),
+            id = "dsl-video-frag"
+        )
+        assertIs<Player>(frag)
+        assertIs<VideoFragment>(frag)
+        assertTrue(frag.prefersUndecoratedWindow)
+        assertTrue(frag.windowTitleBarEnabled)
+        assertTrue(frag.windowDragEnabled)
+        assertEquals("https://example.com/movie.mp4", frag.sourceUrl)
+        assertEquals(0.75f, frag.volume)
+        assertEquals("DSL Movie", frag.windowTitleBarConfig.title)
+        assertEquals("dsl-video-frag", frag.id)
+        frag.dispose()
+
+        val noDragFrag = videoFragment(
+            sourceUrl = "https://example.com/nodrag.mp4",
+            windowDragEnabled = false
+        )
+        assertFalse(noDragFrag.windowDragEnabled)
+        noDragFrag.dispose()
     }
 }

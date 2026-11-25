@@ -39,7 +39,7 @@ import kotlin.math.roundToLong
  * Self-contained Linux MPRIS2 (`org.mpris.MediaPlayer2` + `org.mpris.MediaPlayer2.Player`)
  * D-Bus service over `libglib-2.0.so.0` / `libgobject-2.0.so.0` / `libgio-2.0.so.0` shared by
  * [com.nexustools.genericui.ext.mediacontrols.gtk.GtkMediaControlsImpl] and
- * [com.nexustools.genericui.ext.mediacontrols.qt.QtMediaControlsImpl].
+ * [com.nexustools.genericui.ext.mediacontrols.kde.KdeMediaControlsImpl].
  */
 internal class LinuxMprisDbusBridge(
     private val identity: String,

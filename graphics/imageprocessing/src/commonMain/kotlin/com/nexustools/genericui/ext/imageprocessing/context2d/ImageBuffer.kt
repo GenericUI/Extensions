@@ -174,7 +174,7 @@ abstract class ImageBuffer(
     abstract fun directRgbaBytes(): ByteArray
 
     /**
-     * Returns the direct BGRA8888 byte array view for native OS presentation (Win32/GDI/Direct2D/Qt).
+     * Returns the direct BGRA8888 byte array view for native OS presentation (Win32/GDI/Direct2D/KDE).
      */
     abstract fun directBgraBytes(): ByteArray
 

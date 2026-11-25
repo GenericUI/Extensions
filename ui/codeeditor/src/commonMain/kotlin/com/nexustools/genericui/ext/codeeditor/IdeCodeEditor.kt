@@ -83,6 +83,7 @@ class IdeCodeEditor(
     private val viewportRow = HStack()
 
     init {
+        CodeEditorExtension.ensureStyleSheetRegistered()
         setPreferredSize(Size(width, height))
         rebuildSyntaxAndFolding()
 

@@ -6,7 +6,9 @@ import com.nexustools.genericui.ext.mediacontrols.MediaControlAction
 import com.nexustools.genericui.ext.mediacontrols.MediaControlButtonConfig
 import com.nexustools.genericui.ext.mediacontrols.MediaControlEvent
 import com.nexustools.genericui.ext.mediacontrols.MediaControlEventSource
+import com.nexustools.genericui.ext.mediacontrols.MediaControlMetadata
 import com.nexustools.genericui.ext.mediacontrols.MediaPlaybackStatus
+import platform.windows.Sleep
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -105,6 +107,42 @@ class WindowsMediaControlsTest {
         val pauseIcon = impl.resolveTaskbarButtonIcon(WindowsMediaControlsImpl.THUMB_BUTTON_PLAY_PAUSE_ID)
         assertNotNull(pauseIcon)
         assertNotEquals(playIcon, pauseIcon)
+
+        session.dispose()
+    }
+
+    @Test
+    fun testWindowsCrossSourceDeduplicationBetweenKeyboardHookAndAppCommand() {
+        val session = WindowsMediaControlsProvider.createSession()
+        val impl = session.nativeImpl as WindowsMediaControlsImpl
+        val events = mutableListOf<MediaControlEvent>()
+        session.addListener { events.add(it) }
+        session.activate()
+
+        // Same-source rapid virtual key presses are not suppressed.
+        assertTrue(impl.handleVirtualKey(WindowsMediaControlsImpl.VK_MEDIA_PLAY_PAUSE))
+        assertTrue(impl.handleVirtualKey(WindowsMediaControlsImpl.VK_MEDIA_PLAY_PAUSE))
+        assertEquals(2, events.size)
+
+        // Opposite-source WM_APPCOMMAND within 150ms across {PLAY, PAUSE, PLAY_PAUSE} is dropped.
+        assertFalse(impl.handleAppCommand(WindowsMediaControlsImpl.APPCOMMAND_MEDIA_PLAY_PAUSE))
+        assertFalse(impl.handleAppCommand(WindowsMediaControlsImpl.APPCOMMAND_MEDIA_PLAY))
+        assertFalse(impl.handleAppCommand(WindowsMediaControlsImpl.APPCOMMAND_MEDIA_PAUSE))
+        assertEquals(2, events.size)
+
+        // simulateMediaKeyEvent bypasses cross-source dedupe.
+        session.simulateMediaKey(MediaControlAction.PAUSE, MediaControlEventSource.SYSTEM_TRANSPORT)
+        assertEquals(3, events.size)
+
+        // Distinct action from WM_APPCOMMAND succeeds, and duplicate virtual key within 150ms is dropped.
+        assertTrue(impl.handleAppCommand(WindowsMediaControlsImpl.APPCOMMAND_MEDIA_NEXTTRACK))
+        assertFalse(impl.handleVirtualKey(WindowsMediaControlsImpl.VK_MEDIA_NEXT_TRACK))
+        assertEquals(4, events.size)
+
+        // After >150ms, opposite-source WM_APPCOMMAND play/pause succeeds again.
+        Sleep(170u)
+        assertTrue(impl.handleAppCommand(WindowsMediaControlsImpl.APPCOMMAND_MEDIA_PLAY_PAUSE))
+        assertEquals(5, events.size)
 
         session.dispose()
     }

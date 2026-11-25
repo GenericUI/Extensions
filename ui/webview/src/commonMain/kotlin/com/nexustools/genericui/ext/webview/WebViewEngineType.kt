@@ -3,7 +3,7 @@ package com.nexustools.genericui.ext.webview
 /**
  * Identifies the underlying rendering and JavaScript execution engine powering [WebView].
  *
- * - On Desktop builds (`:desktop` / `:windows`, `:macos`, `:gtk`, `:qt`, `:swing`), uses the
+ * - On Desktop builds (`:desktop` / `:windows`, `:macos`, `:gtk`, `:kde`, `:swing`), uses the
  *   **Chromium** project (`ChromiumBlinkEngine`) for HTML/CSS layout & rendering coupled with
  *   **`NJS`** (`lib/NJS` with AsmJit/SLJIT Native JIT) for the JavaScript runtime.
  * - On Mobile (`:android`, `:ios`) and `:web`, uses the native platform implementation

@@ -1,11 +1,9 @@
 package com.nexustools.genericui.ext.canvas2d.overlay
 
 import com.nexustools.genericui.component.media.Canvas2D
-import com.nexustools.genericui.enums.bootstrap.PositionMode
-import com.nexustools.genericui.enums.css.CssPosition
+import com.nexustools.genericui.ext.canvas2d.Canvas2DExtension
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
 import com.nexustools.genericui.ext.overlay.OverlayHostBox
-import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Generic overlay host wrapping a [Canvas2D] and extending [OverlayHostBox].
@@ -22,8 +20,10 @@ open class Canvas2DOverlayHost(
 ) {
 
     init {
+        Canvas2DExtension.ensureStyleSheetRegistered()
         htmlTag = "genericui:canvas-2d-overlay-host"
         addClass("canvas-2d-overlay-host")
+        overlayRoot.addClass("canvas-2d-overlay-root")
         bindToFramePresentTarget(canvas)
         syncOverlayBoundsToCanvas()
         if (initialOverlay != null) {
@@ -35,10 +35,6 @@ open class Canvas2DOverlayHost(
      * Synchronizes [overlayRoot] and any attached [activeOverlay] dimensions to match [canvas].
      */
     fun syncOverlayBoundsToCanvas() {
-        overlayRoot.positionMode = PositionMode.ABSOLUTE
-        overlayRoot.style.position = CssPosition.ABSOLUTE
-        overlayRoot.style.top = CssLength.ZERO
-        overlayRoot.style.left = CssLength.ZERO
         val w = canvas.widthPx
         val h = canvas.heightPx
         if (w != null && h != null) {

@@ -1,7 +1,10 @@
+@file:OptIn(kotlin.concurrent.atomics.ExperimentalAtomicApi::class)
+
 package com.nexustools.genericui.ext.serviceworker
 
 import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.core.Disposable
+import com.nexustools.genericui.enums.window.WindowState
 import com.nexustools.genericui.threading.GenericUiThreading
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -9,8 +12,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlin.concurrent.Volatile
+import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.reflect.KClass
 
 /**
@@ -18,7 +26,7 @@ import kotlin.reflect.KClass
  * controllers) and the active `@MainServiceWorker`.
  *
  * On iOS / iPadOS, [isSupported] is `false` and [send] / [request] fail fast with
- * [UnsupportedOperationException] (or `Result.failure(...)` from [tryRequest]).
+ * [ServiceWorkerUnsupportedException] (or `Result.failure(...)` from [tryRequest]).
  */
 class ServiceWorkerChannel internal constructor(
     private val runtimeResolver: () -> ServiceWorkerPlatformRuntime,
@@ -27,12 +35,14 @@ class ServiceWorkerChannel internal constructor(
     private class ChannelMessageHandler(
         val typeId: String,
         val payloadClass: KClass<*>,
+        val targetFragmentId: String? = null,
         val handler: suspend (Any?) -> Unit
     )
 
     private class ChannelRequestHandler(
         val typeId: String,
         val payloadClass: KClass<*>,
+        val targetFragmentId: String? = null,
         val handler: suspend (Any?, ServiceWorkerReply) -> Unit
     )
 
@@ -42,12 +52,38 @@ class ServiceWorkerChannel internal constructor(
     )
 
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val inboundMessageQueue: Channel<suspend () -> Unit> = Channel(Channel.UNLIMITED)
+    private val connectionMutex = Mutex()
+    private val stateLock = AtomicBoolean(false)
+
     private val messageHandlers = mutableListOf<ChannelMessageHandler>()
     private val requestHandlers = mutableListOf<ChannelRequestHandler>()
     private val connectionListeners = mutableListOf<(Boolean) -> Unit>()
+    private val reconnectedListeners = mutableListOf<suspend () -> Unit>()
     private val pendingRequests = mutableListOf<PendingChannelRequest>()
+
     private var nextCorrelationId: Long = 1L
     private var lastClientId: String = "client-main"
+    private var lastKnownConnectedState: Boolean? = null
+    private var hasConnectedOnce: Boolean = false
+
+    @Volatile
+    internal var connectionEpoch: Long = 0L
+        private set
+
+    init {
+        scope.launch {
+            for (dispatchOp in inboundMessageQueue) {
+                try {
+                    dispatchOp()
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (_: Throwable) {
+                    // Keep the FIFO message dispatcher alive if a message handler throws.
+                }
+            }
+        }
+    }
 
     val isSupported: Boolean
         get() = runtimeResolver().isSupported
@@ -57,24 +93,39 @@ class ServiceWorkerChannel internal constructor(
 
     /**
      * Connects to the background Service Worker IPC endpoint (or in-process binder / Web Worker).
+     * Concurrent or repeated calls while connected/connecting are serialized and idempotent.
      * Returns `false` cleanly on unsupported platforms (iOS / iPadOS).
      */
-    suspend fun connect(): Boolean {
+    suspend fun connect(): Boolean = connectionMutex.withLock {
         val runtime = runtimeResolver()
         if (!runtime.isSupported) {
-            return false
+            return@withLock false
         }
-        return runtime.connectClient(
+        if (runtime.isClientConnected()) {
+            val needsConnectedNotification = withChannelLock { lastKnownConnectedState != true }
+            if (needsConnectedNotification) {
+                notifyConnectionChanged(true)
+            }
+            return@withLock true
+        }
+        val ok = runtime.connectClient(
             options = optionsResolver(),
             onIncomingEnvelope = ::handleIncomingEnvelope,
             onConnectionChanged = ::notifyConnectionChanged
         )
+        if (ok) {
+            val needsConnectedNotification = withChannelLock { lastKnownConnectedState != true }
+            if (needsConnectedNotification) {
+                notifyConnectionChanged(true)
+            }
+        }
+        ok
     }
 
     /**
      * Disconnects this client channel cleanly without stopping the background Service Worker.
      */
-    suspend fun disconnect() {
+    suspend fun disconnect() = connectionMutex.withLock {
         failPendingRequests("ServiceWorkerChannel disconnected.")
         runtimeResolver().disconnectClient()
         notifyConnectionChanged(false)
@@ -84,16 +135,22 @@ class ServiceWorkerChannel internal constructor(
      * Sends a one-way typed [message] to the active `@MainServiceWorker`.
      */
     suspend fun send(message: Any) {
+        sendInternal(message = message, targetFragmentId = null, sourceFragmentId = null)
+    }
+
+    internal suspend fun sendInternal(
+        message: Any,
+        targetFragmentId: String? = null,
+        sourceFragmentId: String? = null
+    ) {
         val runtime = runtimeResolver()
         if (!runtime.isSupported) {
-            throw UnsupportedOperationException(
-                "Background ServiceWorker is not supported on iOS/iPadOS."
-            )
+            throw ServiceWorkerUnsupportedException(backendName(runtime))
         }
         if (!runtime.isClientConnected()) {
             val connected = connect()
             if (!connected) {
-                throw IllegalStateException("Unable to connect ServiceWorkerChannel to background ServiceWorker.")
+                throw ServiceWorkerIpcException("Unable to connect ServiceWorkerChannel to background ServiceWorker.")
             }
         }
         val (typeId, payloadJson) = ServiceWorkerCodecRegistry.encodePayload(message)
@@ -102,10 +159,60 @@ class ServiceWorkerChannel internal constructor(
             correlationId = 0L,
             clientId = lastClientId,
             typeId = typeId,
-            payloadJson = payloadJson
+            payloadJson = payloadJson,
+            targetFragmentId = targetFragmentId,
+            sourceFragmentId = sourceFragmentId
         )
         if (!runtime.sendClientEnvelope(env)) {
-            throw IllegalStateException("Failed to send message of type '$typeId' to ServiceWorker.")
+            throw ServiceWorkerIpcException("Failed to send message of type '$typeId' to ServiceWorker.")
+        }
+    }
+
+    internal suspend fun sendControl(
+        typeId: String,
+        payloadJson: String,
+        targetFragmentId: String? = null,
+        sourceFragmentId: String? = null
+    ): Boolean {
+        val runtime = runtimeResolver()
+        if (!runtime.isSupported) {
+            throw ServiceWorkerUnsupportedException(backendName(runtime))
+        }
+        if (!runtime.isClientConnected()) {
+            if (!connect()) return false
+        }
+        val env = ServiceWorkerEnvelope(
+            kind = ServiceWorkerEnvelope.KIND_MESSAGE,
+            correlationId = 0L,
+            clientId = lastClientId,
+            typeId = typeId,
+            payloadJson = payloadJson,
+            targetFragmentId = targetFragmentId,
+            sourceFragmentId = sourceFragmentId
+        )
+        return runtime.sendClientEnvelope(env)
+    }
+
+    internal fun sendControlAsync(
+        typeId: String,
+        payloadJson: String,
+        targetFragmentId: String? = null,
+        sourceFragmentId: String? = null
+    ) {
+        scope.launch {
+            val runtime = runtimeResolver()
+            if (!runtime.isSupported || !runtime.isClientConnected()) return@launch
+            runtime.sendClientEnvelope(
+                ServiceWorkerEnvelope(
+                    kind = ServiceWorkerEnvelope.KIND_MESSAGE,
+                    correlationId = 0L,
+                    clientId = lastClientId,
+                    typeId = typeId,
+                    payloadJson = payloadJson,
+                    targetFragmentId = targetFragmentId,
+                    sourceFragmentId = sourceFragmentId
+                )
+            )
         }
     }
 
@@ -116,48 +223,65 @@ class ServiceWorkerChannel internal constructor(
         payload: Any,
         responseType: KClass<R>,
         timeoutMs: Long = 30_000L
+    ): R = requestInternal(
+        payload = payload,
+        responseType = responseType,
+        timeoutMs = timeoutMs,
+        targetFragmentId = null,
+        sourceFragmentId = null
+    )
+
+    internal suspend fun <R : Any> requestInternal(
+        payload: Any,
+        responseType: KClass<R>,
+        timeoutMs: Long = 30_000L,
+        targetFragmentId: String? = null,
+        sourceFragmentId: String? = null
     ): R {
         val runtime = runtimeResolver()
         if (!runtime.isSupported) {
-            throw UnsupportedOperationException(
-                "Background ServiceWorker is not supported on iOS/iPadOS."
-            )
+            throw ServiceWorkerUnsupportedException(backendName(runtime))
         }
         if (!runtime.isClientConnected()) {
             val connected = connect()
             if (!connected) {
-                throw IllegalStateException("Unable to connect ServiceWorkerChannel to background ServiceWorker.")
+                throw ServiceWorkerIpcException("Unable to connect ServiceWorkerChannel to background ServiceWorker.")
             }
         }
         val (typeId, payloadJson) = ServiceWorkerCodecRegistry.encodePayload(payload)
-        val corrId = nextCorrelationId++
         val deferred = CompletableDeferred<ServiceWorkerEnvelope>()
-        val entry = PendingChannelRequest(corrId, deferred)
-        pendingRequests.add(entry)
+        val entry = withChannelLock {
+            val corrId = nextCorrelationId++
+            PendingChannelRequest(corrId, deferred).also { pendingRequests.add(it) }
+        }
         try {
             val env = ServiceWorkerEnvelope(
                 kind = ServiceWorkerEnvelope.KIND_REQUEST,
-                correlationId = corrId,
+                correlationId = entry.correlationId,
                 clientId = lastClientId,
                 typeId = typeId,
-                payloadJson = payloadJson
+                payloadJson = payloadJson,
+                targetFragmentId = targetFragmentId,
+                sourceFragmentId = sourceFragmentId
             )
             if (!runtime.sendClientEnvelope(env)) {
-                throw IllegalStateException("Failed to send request '$typeId' to ServiceWorker.")
+                throw ServiceWorkerIpcException("Failed to send request '$typeId' to ServiceWorker.")
             }
             val response = withTimeout(timeoutMs) { deferred.await() }
             if (response.kind == ServiceWorkerEnvelope.KIND_RESPONSE_ERR) {
-                throw IllegalStateException(
+                throw ServiceWorkerIpcException(
                     response.error.ifEmpty { "ServiceWorker rejected request '$typeId'." }
                 )
             }
             return ServiceWorkerCodecRegistry.decodeAs(response.typeId, response.payloadJson, responseType)
         } catch (t: TimeoutCancellationException) {
-            throw IllegalStateException("Timed out waiting for ServiceWorker response for '$typeId'.", t)
+            throw ServiceWorkerIpcException("Timed out waiting for ServiceWorker response for '$typeId'.", t)
         } catch (ce: CancellationException) {
             throw ce
         } finally {
-            pendingRequests.remove(entry)
+            withChannelLock {
+                pendingRequests.remove(entry)
+            }
         }
     }
 
@@ -176,9 +300,7 @@ class ServiceWorkerChannel internal constructor(
     ): Result<R> {
         val runtime = runtimeResolver()
         if (!runtime.isSupported) {
-            return Result.failure(
-                UnsupportedOperationException("Background ServiceWorker is not supported on iOS/iPadOS.")
-            )
+            return Result.failure(ServiceWorkerUnsupportedException(backendName(runtime)))
         }
         return try {
             Result.success(request(payload, responseType, timeoutMs))
@@ -199,15 +321,36 @@ class ServiceWorkerChannel internal constructor(
     /**
      * Subscribes to messages of type [type] pushed from the active `@MainServiceWorker`.
      */
+    fun <T : Any> onMessage(type: KClass<T>, handler: suspend (T) -> Unit): Disposable =
+        registerMessageHandler(type = type, targetFragmentId = null, handler = handler)
+
+    internal fun <T : Any> onMessageForFragment(
+        fragmentId: String,
+        type: KClass<T>,
+        handler: suspend (T) -> Unit
+    ): ServiceWorkerDisposableHandle =
+        registerMessageHandler(type = type, targetFragmentId = fragmentId, handler = handler)
+
     @Suppress("UNCHECKED_CAST")
-    fun <T : Any> onMessage(type: KClass<T>, handler: suspend (T) -> Unit): Disposable {
+    private fun <T : Any> registerMessageHandler(
+        type: KClass<T>,
+        targetFragmentId: String?,
+        handler: suspend (T) -> Unit
+    ): ServiceWorkerDisposableHandle {
         val entry = ChannelMessageHandler(
             typeId = ServiceWorkerCodecRegistry.resolveTypeId(type),
             payloadClass = type,
+            targetFragmentId = targetFragmentId,
             handler = { decoded -> handler(decoded as T) }
         )
-        messageHandlers.add(entry)
-        return ServiceWorkerDisposableHandle { messageHandlers.remove(entry) }
+        withChannelLock {
+            messageHandlers.add(entry)
+        }
+        return ServiceWorkerDisposableHandle {
+            withChannelLock {
+                messageHandlers.remove(entry)
+            }
+        }
     }
 
     inline fun <reified T : Any> onMessage(noinline handler: suspend (T) -> Unit): Disposable =
@@ -216,18 +359,38 @@ class ServiceWorkerChannel internal constructor(
     /**
      * Registers a request handler allowing the `@MainServiceWorker` to issue requests to this UI client.
      */
-    @Suppress("UNCHECKED_CAST")
     fun <T : Any> onRequest(
         type: KClass<T>,
         handler: suspend (T, ServiceWorkerReply) -> Unit
-    ): Disposable {
+    ): Disposable = registerRequestHandler(type = type, targetFragmentId = null, handler = handler)
+
+    internal fun <T : Any> onRequestForFragment(
+        fragmentId: String,
+        type: KClass<T>,
+        handler: suspend (T, ServiceWorkerReply) -> Unit
+    ): ServiceWorkerDisposableHandle =
+        registerRequestHandler(type = type, targetFragmentId = fragmentId, handler = handler)
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : Any> registerRequestHandler(
+        type: KClass<T>,
+        targetFragmentId: String?,
+        handler: suspend (T, ServiceWorkerReply) -> Unit
+    ): ServiceWorkerDisposableHandle {
         val entry = ChannelRequestHandler(
             typeId = ServiceWorkerCodecRegistry.resolveTypeId(type),
             payloadClass = type,
+            targetFragmentId = targetFragmentId,
             handler = { decoded, reply -> handler(decoded as T, reply) }
         )
-        requestHandlers.add(entry)
-        return ServiceWorkerDisposableHandle { requestHandlers.remove(entry) }
+        withChannelLock {
+            requestHandlers.add(entry)
+        }
+        return ServiceWorkerDisposableHandle {
+            withChannelLock {
+                requestHandlers.remove(entry)
+            }
+        }
     }
 
     inline fun <reified T : Any> onRequest(
@@ -237,64 +400,150 @@ class ServiceWorkerChannel internal constructor(
     /**
      * Observes connection status changes (`true` = connected, `false` = disconnected).
      */
-    fun onConnectionStateChanged(listener: (Boolean) -> Unit): Disposable {
-        connectionListeners.add(listener)
-        return ServiceWorkerDisposableHandle { connectionListeners.remove(listener) }
+    fun onConnectionStateChanged(listener: (Boolean) -> Unit): Disposable =
+        addConnectionListener(listener)
+
+    /**
+     * Registers a connection state listener (`true` = connected, `false` = disconnected).
+     */
+    fun addConnectionListener(listener: (Boolean) -> Unit): ServiceWorkerDisposableHandle {
+        withChannelLock {
+            connectionListeners.add(listener)
+        }
+        return ServiceWorkerDisposableHandle {
+            withChannelLock {
+                connectionListeners.remove(listener)
+            }
+        }
+    }
+
+    /**
+     * Registers a callback invoked automatically whenever this channel reconnects after a prior
+     * connection/disconnect cycle.
+     */
+    fun onReconnected(listener: suspend () -> Unit): ServiceWorkerDisposableHandle {
+        withChannelLock {
+            reconnectedListeners.add(listener)
+        }
+        return ServiceWorkerDisposableHandle {
+            withChannelLock {
+                reconnectedListeners.remove(listener)
+            }
+        }
     }
 
     internal fun reset() {
         failPendingRequests("ServiceWorkerChannel reset.")
-        messageHandlers.clear()
-        requestHandlers.clear()
-        connectionListeners.clear()
+        withChannelLock {
+            messageHandlers.clear()
+            requestHandlers.clear()
+            connectionListeners.clear()
+            reconnectedListeners.clear()
+            lastKnownConnectedState = null
+            hasConnectedOnce = false
+            connectionEpoch = 0L
+        }
     }
 
     private fun handleIncomingEnvelope(envelope: ServiceWorkerEnvelope) {
         when (envelope.kind) {
             ServiceWorkerEnvelope.KIND_RESPONSE,
             ServiceWorkerEnvelope.KIND_RESPONSE_ERR -> {
-                val entry = pendingRequests.firstOrNull { it.correlationId == envelope.correlationId }
-                if (entry != null) {
-                    pendingRequests.remove(entry)
-                    entry.deferred.complete(envelope)
+                val entry = withChannelLock {
+                    val idx = pendingRequests.indexOfFirst { it.correlationId == envelope.correlationId }
+                    if (idx < 0) null else pendingRequests.removeAt(idx)
                 }
+                entry?.deferred?.complete(envelope)
             }
             ServiceWorkerEnvelope.KIND_MESSAGE -> {
-                if (envelope.typeId == "__genericui.sw.control.closeMainWindow") {
+                if (envelope.typeId == ServiceWorkerEnvelope.CONTROL_OPEN_MAIN_WINDOW) {
+                    val route = envelope.payloadJson.trim()
+                        .removeSurrounding("\"")
+                        .takeIf { it.isNotEmpty() && it != "null" }
+                    GenericUiThreading.runOnUi {
+                        val window = Application.current?.mainWindow
+                        if (window != null) {
+                            if (!window.isVisible) {
+                                window.show()
+                            }
+                            if (window.getWindowState() == WindowState.MINIMIZED) {
+                                window.restore()
+                            }
+                            window.bringToFront()
+                            window.focus()
+                        }
+                        ServiceWorkerExtension.dispatchOpenMainWindowRequested(route)
+                    }
+                    return
+                }
+                if (envelope.typeId == ServiceWorkerEnvelope.CONTROL_CLOSE_MAIN_WINDOW) {
                     GenericUiThreading.runOnUi {
                         Application.current?.mainWindow?.close()
                     }
                     return
                 }
-                if (envelope.typeId == "__genericui.sw.control.exitApp") {
+                if (envelope.typeId == ServiceWorkerEnvelope.CONTROL_EXIT_APP) {
                     GenericUiThreading.runOnUi {
                         Application.current?.exit(0)
                     }
                     return
                 }
-                val matching = messageHandlers.filter {
-                    it.typeId == envelope.typeId ||
-                        ServiceWorkerCodecRegistry.resolveTypeId(it.payloadClass) == envelope.typeId
+                if (envelope.typeId == ServiceWorkerEnvelope.CONTROL_LAUNCH_FRAGMENT) {
+                    val req = ServiceWorkerFragmentLaunchRequest.fromControlPayloadJson(envelope.payloadJson)
+                    if (req != null) {
+                        GenericUiThreading.runOnUi {
+                            ServiceWorkerUiWindowCoordinator.handleLaunchFragment(req)
+                        }
+                    }
+                    return
+                }
+                if (envelope.typeId == ServiceWorkerEnvelope.CONTROL_CLOSE_FRAGMENT) {
+                    val closeTarget = ServiceWorkerFragmentLaunchRequest.decodeCloseControlPayload(envelope.payloadJson)
+                    if (closeTarget != null) {
+                        GenericUiThreading.runOnUi {
+                            ServiceWorkerUiWindowCoordinator.handleCloseFragment(
+                                fragmentId = closeTarget.first,
+                                instanceId = closeTarget.second
+                            )
+                        }
+                    }
+                    return
+                }
+                val matching = withChannelLock {
+                    messageHandlers.filter { handler ->
+                        val typeMatches = handler.typeId == envelope.typeId ||
+                            ServiceWorkerCodecRegistry.resolveTypeId(handler.payloadClass) == envelope.typeId
+                        val fragmentMatches = handler.targetFragmentId == null ||
+                            envelope.targetFragmentId == null ||
+                            handler.targetFragmentId == envelope.targetFragmentId
+                        typeMatches && fragmentMatches
+                    }
                 }
                 if (matching.isNotEmpty()) {
-                    scope.launch {
+                    inboundMessageQueue.trySend {
                         for (entry in matching) {
-                            runCatching {
-                                val decoded = ServiceWorkerCodecRegistry.decodeAs(
-                                    envelope.typeId,
-                                    envelope.payloadJson,
-                                    entry.payloadClass
-                                )
-                                entry.handler(decoded)
-                            }
+                            val decoded = ServiceWorkerCodecRegistry.decodeAs(
+                                envelope.typeId,
+                                envelope.payloadJson,
+                                entry.payloadClass
+                            )
+                            entry.handler(decoded)
                         }
                     }
                 }
             }
             ServiceWorkerEnvelope.KIND_REQUEST -> {
-                val entry = requestHandlers.firstOrNull {
-                    it.typeId == envelope.typeId ||
-                        ServiceWorkerCodecRegistry.resolveTypeId(it.payloadClass) == envelope.typeId
+                val entry = withChannelLock {
+                    val typeMatching = requestHandlers.filter { handler ->
+                        handler.typeId == envelope.typeId ||
+                            ServiceWorkerCodecRegistry.resolveTypeId(handler.payloadClass) == envelope.typeId
+                    }
+                    if (envelope.targetFragmentId != null) {
+                        typeMatching.firstOrNull { it.targetFragmentId == envelope.targetFragmentId }
+                            ?: typeMatching.firstOrNull { it.targetFragmentId == null }
+                    } else {
+                        typeMatching.firstOrNull()
+                    }
                 }
                 val runtime = runtimeResolver()
                 val reply = ServiceWorkerReply(
@@ -307,7 +556,9 @@ class ServiceWorkerChannel internal constructor(
                                     correlationId = envelope.correlationId,
                                     clientId = envelope.clientId,
                                     typeId = respType,
-                                    payloadJson = respJson
+                                    payloadJson = respJson,
+                                    targetFragmentId = envelope.sourceFragmentId,
+                                    sourceFragmentId = envelope.targetFragmentId
                                 )
                             )
                         }
@@ -319,7 +570,9 @@ class ServiceWorkerChannel internal constructor(
                                     kind = ServiceWorkerEnvelope.KIND_RESPONSE_ERR,
                                     correlationId = envelope.correlationId,
                                     clientId = envelope.clientId,
-                                    error = err
+                                    error = err,
+                                    targetFragmentId = envelope.sourceFragmentId,
+                                    sourceFragmentId = envelope.targetFragmentId
                                 )
                             )
                         }
@@ -352,14 +605,47 @@ class ServiceWorkerChannel internal constructor(
     }
 
     private fun notifyConnectionChanged(connected: Boolean) {
-        for (listener in connectionListeners.toList()) {
-            runCatching { listener(connected) }
+        val stateSnapshot = withChannelLock {
+            val prev = lastKnownConnectedState
+            if (prev == connected) {
+                return@withChannelLock null
+            }
+            val wasEverConnected = hasConnectedOnce
+            lastKnownConnectedState = connected
+            if (connected) {
+                connectionEpoch += 1L
+                hasConnectedOnce = true
+            }
+            val shouldFireReconnect = connected && wasEverConnected && prev == false
+            Triple(
+                connectionListeners.toList(),
+                if (shouldFireReconnect) reconnectedListeners.toList() else emptyList(),
+                connected
+            )
+        } ?: return
+
+        val (listeners, reconnects, state) = stateSnapshot
+        for (listener in listeners) {
+            listener(state)
+        }
+        if (reconnects.isNotEmpty()) {
+            scope.launch {
+                for (listener in reconnects) {
+                    listener()
+                }
+            }
         }
     }
 
+    private fun backendName(runtime: ServiceWorkerPlatformRuntime): String =
+        runtime.currentBackendTarget()?.displayName ?: "Unknown"
+
     private fun failPendingRequests(reason: String) {
-        val copy = pendingRequests.toList()
-        pendingRequests.clear()
+        val copy = withChannelLock {
+            val snapshot = pendingRequests.toList()
+            pendingRequests.clear()
+            snapshot
+        }
         for (entry in copy) {
             entry.deferred.complete(
                 ServiceWorkerEnvelope(
@@ -368,6 +654,17 @@ class ServiceWorkerChannel internal constructor(
                     error = reason
                 )
             )
+        }
+    }
+
+    private inline fun <T> withChannelLock(block: () -> T): T {
+        while (!stateLock.compareAndSet(expectedValue = false, newValue = true)) {
+            // Brief spin around in-memory handler/pending lists.
+        }
+        return try {
+            block()
+        } finally {
+            stateLock.store(false)
         }
     }
 }

@@ -1,0 +1,381 @@
+/*
+ * GenericUI Media Extension Stylesheet (style.scss)
+ *
+ * 100% generic component layout, z-index layering, pointer pass-through,
+ * hover/focus/scrub/expanded transitions, and semantic icon-layer state rules.
+ * Must NEVER reference consumer theme SCSS dollar-variables.
+ */
+
+/* SeekBar (extends StyledSlider) */
+genericui:seekbar,
+.seek-bar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 64px;
+    height: 24px;
+    box-sizing: border-box;
+    cursor: pointer;
+    user-select: none;
+    @web {
+        -webkit-user-select: none;
+    }
+}
+
+genericui:seekbar.youtube-media-overlay-seekbar,
+.seek-bar.youtube-media-overlay-seekbar {
+    width: 100%;
+}
+
+genericui:seekbar .styled-slider-track,
+.seek-bar .styled-slider-track {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 4px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    transform: translate(0, -50%);
+    z-index: 1;
+    cursor: pointer;
+    transition: height 0.15s ease, background-color 0.15s ease;
+}
+
+genericui:seekbar .seek-bar-preload,
+.seek-bar .seek-bar-preload,
+.seek-bar-preload {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    height: 4px;
+    border-radius: 999px;
+    transform: translate(0, -50%);
+    pointer-events: none;
+    z-index: 2;
+    background-color: rgba(128, 128, 128, 0.55);
+    transition: width 0.12s linear, height 0.15s ease, background-color 0.15s ease;
+}
+
+genericui:seekbar .styled-slider-progress,
+.seek-bar .styled-slider-progress {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    height: 4px;
+    border-radius: 999px;
+    transform: translate(0, -50%);
+    pointer-events: none;
+    z-index: 3;
+    transition: height 0.15s ease, background-color 0.15s ease;
+}
+
+genericui:seekbar .styled-slider-knob,
+.seek-bar .styled-slider-knob {
+    position: absolute;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    padding: 0;
+    border-radius: 999px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    transform: translate(-50%, -50%);
+    z-index: 4;
+    cursor: pointer;
+    outline: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+genericui:seekbar:hover .styled-slider-track,
+genericui:seekbar.scrubbing .styled-slider-track,
+.seek-bar:hover .styled-slider-track,
+.seek-bar.scrubbing .styled-slider-track {
+    height: 5px;
+}
+
+genericui:seekbar:hover .seek-bar-preload,
+genericui:seekbar.scrubbing .seek-bar-preload,
+.seek-bar:hover .seek-bar-preload,
+.seek-bar.scrubbing .seek-bar-preload {
+    height: 5px;
+}
+
+genericui:seekbar:hover .styled-slider-progress,
+genericui:seekbar.scrubbing .styled-slider-progress,
+.seek-bar:hover .styled-slider-progress,
+.seek-bar.scrubbing .styled-slider-progress {
+    height: 5px;
+}
+
+genericui:seekbar:hover .styled-slider-knob,
+genericui:seekbar.scrubbing .styled-slider-knob,
+.seek-bar:hover .styled-slider-knob,
+.seek-bar.scrubbing .styled-slider-knob {
+    transform: translate(-50%, -50%) scale(1.18);
+}
+
+/* ExpandingVolumeSlider (Composite containing StyledButton + Icon Stack + StyledSlider) */
+genericui:expanding-volume-slider,
+.expanding-volume-slider {
+    position: relative;
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    height: 40px;
+    padding: 3px 4px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background-color: rgba(18, 18, 22, 0.74);
+    box-sizing: border-box;
+    user-select: none;
+    @web {
+        -webkit-user-select: none;
+    }
+}
+
+.expanding-volume-mute-btn {
+    position: relative;
+    z-index: 1;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 16px;
+    background-color: transparent;
+    color: #f2f5fa;
+    cursor: pointer;
+    outline: none;
+    flex-shrink: 0;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.expanding-volume-mute-btn:hover {
+    background-color: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+}
+
+.expanding-volume-mute-btn:focus,
+.expanding-volume-mute-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+
+.expanding-volume-icon-stack {
+    position: absolute;
+    left: 4px;
+    top: 3px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.expanding-volume-icon-layer {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 18px;
+    height: 18px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0;
+    filter: brightness(0) invert(1);
+    transition: opacity 0.16s ease;
+}
+
+.expanding-volume-icon-layer.volume-layer-speaker {
+    opacity: 1;
+}
+
+.expanding-volume-slider.volume-zero .volume-layer-wave-1,
+.expanding-volume-slider.volume-zero .volume-layer-wave-2,
+.expanding-volume-slider.volume-zero .volume-layer-wave-3,
+.expanding-volume-slider.volume-zero .volume-layer-mute-cross {
+    opacity: 0;
+}
+
+.expanding-volume-slider.volume-low .volume-layer-wave-1 {
+    opacity: 1;
+}
+
+.expanding-volume-slider.volume-low .volume-layer-wave-2,
+.expanding-volume-slider.volume-low .volume-layer-wave-3,
+.expanding-volume-slider.volume-low .volume-layer-mute-cross {
+    opacity: 0;
+}
+
+.expanding-volume-slider.volume-medium .volume-layer-wave-1,
+.expanding-volume-slider.volume-medium .volume-layer-wave-2 {
+    opacity: 1;
+}
+
+.expanding-volume-slider.volume-medium .volume-layer-wave-3,
+.expanding-volume-slider.volume-medium .volume-layer-mute-cross {
+    opacity: 0;
+}
+
+.expanding-volume-slider.volume-high .volume-layer-wave-1,
+.expanding-volume-slider.volume-high .volume-layer-wave-2,
+.expanding-volume-slider.volume-high .volume-layer-wave-3 {
+    opacity: 1;
+}
+
+.expanding-volume-slider.volume-high .volume-layer-mute-cross {
+    opacity: 0;
+}
+
+.expanding-volume-slider.muted .volume-layer-wave-1,
+.expanding-volume-slider.muted .volume-layer-wave-2,
+.expanding-volume-slider.muted .volume-layer-wave-3 {
+    opacity: 0;
+}
+
+.expanding-volume-slider.muted .volume-layer-mute-cross {
+    opacity: 1;
+}
+
+@keyframes volumeSliderExpand {
+    0% {
+        width: 0px;
+        max-width: 0px;
+        margin-left: 0px;
+        margin-right: 0px;
+        opacity: 0;
+    }
+    100% {
+        width: 92px;
+        max-width: 92px;
+        margin-left: 8px;
+        margin-right: 10px;
+        opacity: 1;
+    }
+}
+
+.expanding-volume-slider .expanding-volume-slider-control {
+    width: 0px;
+    min-width: 0px;
+    max-width: 0px;
+    height: 24px;
+    margin-left: 0px;
+    margin-right: 0px;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    transition: width 180ms cubic-bezier(0.22, 1, 0.36, 1),
+                max-width 180ms cubic-bezier(0.22, 1, 0.36, 1),
+                margin-left 180ms cubic-bezier(0.22, 1, 0.36, 1),
+                margin-right 180ms cubic-bezier(0.22, 1, 0.36, 1),
+                opacity 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.expanding-volume-slider:hover .expanding-volume-slider-control,
+.expanding-volume-slider:focus-within .expanding-volume-slider-control,
+.expanding-volume-slider.expanded .expanding-volume-slider-control,
+.expanding-volume-slider.scrubbing .expanding-volume-slider-control {
+    width: 92px;
+    max-width: 92px;
+    margin-left: 8px;
+    margin-right: 10px;
+    opacity: 1;
+    overflow: visible;
+    pointer-events: auto;
+    animation: volumeSliderExpand 180ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.expanding-volume-slider.always-expanded .expanding-volume-slider-control {
+    width: 92px;
+    max-width: 92px;
+    margin-left: 8px;
+    margin-right: 10px;
+    opacity: 1;
+    overflow: visible;
+    pointer-events: auto;
+    animation: none;
+    transition: none;
+}
+
+.expanding-volume-slider.compact-popup .expanding-volume-slider-control {
+    display: none;
+    width: 0px;
+    min-width: 0px;
+    max-width: 0px;
+    margin-left: 0px;
+    margin-right: 0px;
+    opacity: 0;
+    pointer-events: none;
+    animation: none;
+    transition: none;
+}
+
+.expanding-volume-slider-control .styled-slider-track {
+    height: 4px;
+    z-index: 1;
+    cursor: pointer;
+    background-color: rgba(255, 255, 255, 0.24);
+}
+
+.expanding-volume-slider-control .styled-slider-progress {
+    height: 4px;
+    z-index: 3;
+    pointer-events: none;
+    background-color: rgba(255, 255, 255, 0.9);
+}
+
+.expanding-volume-slider-control .styled-slider-knob {
+    width: 11px;
+    height: 11px;
+    z-index: 4;
+    cursor: pointer;
+    border: 2px solid rgba(255, 255, 255, 0.9);
+    background-color: #f2f5fa;
+    transform: translate(-50%, -50%);
+}
+
+/* VideoFragment, VideoOverlayHost & VideoPlayer Stage Geometry */
+genericui:video-fragment,
+.genericui-video-fragment,
+genericui:video-overlay-host,
+.genericui-video-overlay-host {
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border-radius: 0;
+    background-color: #000000;
+    box-sizing: border-box;
+}
+
+video,
+genericui:video,
+.genericui-video-player {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.genericui-media-overlay-sync-bridge {
+    display: none;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+@mobile {
+    genericui:seekbar,
+    .seek-bar {
+        height: 32px;
+    }
+
+    genericui:seekbar .styled-slider-knob,
+    .seek-bar .styled-slider-knob {
+        width: 18px;
+        height: 18px;
+    }
+}

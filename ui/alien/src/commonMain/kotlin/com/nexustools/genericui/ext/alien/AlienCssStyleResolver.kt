@@ -490,15 +490,22 @@ object AlienCssStyleResolver {
             else -> null
         }
 
-        // 6. Custom ComputedStyle + Inline ComponentStyle
-        val backgroundGradient = node.backgroundGradient ?: stateComputed?.backgroundGradient
+        // 6. Custom ComputedStyle + Inline ComponentStyle + StyledVisualSpec override
+        val visualSpec = node.styledVisualOverride
+        val backgroundGradient = visualSpec?.backgroundGradient ?: node.backgroundGradient ?: stateComputed?.backgroundGradient
         stateComputed?.backgroundColor?.let { bgColor = it }
+        visualSpec?.backgroundColor?.let { bgColor = it }
         stateComputed?.textColor?.let { textColor = it }
+        visualSpec?.textColor?.let { textColor = it }
         stateComputed?.accentColor?.let { accentColor = it }
         stateComputed?.borderColor?.let { borderColor = it }
+        visualSpec?.borderColor?.let { borderColor = it }
         stateComputed?.borderWidthPx?.let { borderWidthPx = it }
+        visualSpec?.borderWidthPx?.let { borderWidthPx = it }
         stateComputed?.borderRadiusPx?.let { borderRadiusPx = it }
+        visualSpec?.borderRadiusPx?.let { borderRadiusPx = it }
         stateComputed?.borderRadiusPercent?.let { borderRadiusPercent = it }
+        visualSpec?.padding?.let { resolvedPadding = it }
         stateComputed?.boxShadow?.let { boxShadowCss = if (it.equals("none", ignoreCase = true)) null else it }
 
         var cornerRadii: CssCornerRadii? = stateComputed?.borderRadius
@@ -555,7 +562,14 @@ object AlienCssStyleResolver {
 
         // Resolve opacity without squaring when `node.opacity` was synced from `computedStyle` or `inlineComponentStyle`
         val hasComputedOpacity = stateComputed != null && (stateComputed.hasProperty(CssProperty.OPACITY) || stateComputed.opacity != 1.0f)
+        if (visualSpec?.boxShadowColor != null && (visualSpec.boxShadowBlurPx ?: 0f) > 0f) {
+            val shadowCssOverride = "0 2px ${visualSpec.boxShadowBlurPx}px ${visualSpec.boxShadowColor!!.toCssRgbaString()}"
+            boxShadowCss = shadowCssOverride
+            boxShadowList = CssShadowList.parse(shadowCssOverride)
+        }
         val baseNodeOpacity = when {
+            visualSpec?.opacity != null ->
+                visualSpec.opacity!!
             hasComputedOpacity && (node.opacity == 1.0f || abs(node.opacity - stateComputed!!.opacity) < 1e-4f) ->
                 stateComputed!!.opacity
             hasComputedOpacity ->
@@ -566,16 +580,16 @@ object AlienCssStyleResolver {
                 node.opacity
         }
         val effectiveOpacity = (baseNodeOpacity *
-            (if (!isDisabledClass || stateComputed?.backgroundColor != null) 1f else 0.65f))
+            (if (!isDisabledClass || stateComputed?.backgroundColor != null || visualSpec?.opacity != null) 1f else 0.65f))
             .coerceIn(0f, 1f)
 
-        val focusRingSpread = if (node.focusedState && !isDisabledClass && (isButton || isFormControl || node.focusRingEnabled)) {
-            4f
+        val focusRingSpread = if (node.focusedState && !isDisabledClass) {
+            visualSpec?.focusRingWidthPx ?: if (isButton || isFormControl || node.focusRingEnabled) 4f else 0f
         } else {
             0f
         }
         val focusRingColor = if (focusRingSpread > 0f) {
-            AlienBootstrapThemeTokens.focusRingColorForType(effectiveType)
+            visualSpec?.focusRingColor ?: AlienBootstrapThemeTokens.focusRingColorForType(effectiveType)
         } else {
             null
         }
@@ -796,16 +810,18 @@ object AlienCssStyleResolver {
         } else {
             stateComputed?.transform2D ?: CssTransform2D.parse(stateComputed?.transform)
         }
-        val filter = if (nodeStyle?.getFilter() != null && nodeStyleWins(CssProperty.FILTER)) {
+        val filter = visualSpec?.filter ?: if (nodeStyle?.getFilter() != null && nodeStyleWins(CssProperty.FILTER)) {
             nodeStyle.getFilter()
         } else {
             stateComputed?.filter
         }
-        val backdropFilter = if (nodeStyle?.getBackdropFilter() != null && nodeStyleWins(CssProperty.BACKDROP_FILTER)) {
-            nodeStyle.getBackdropFilter()
-        } else {
-            stateComputed?.backdropFilter
-        }
+        val backdropFilter = visualSpec?.backdropFilter
+            ?: visualSpec?.backdropBlurPx?.takeIf { it > 0f }?.let { CssFilter.blur(CssLength.px(it)) }
+            ?: if (nodeStyle?.getBackdropFilter() != null && nodeStyleWins(CssProperty.BACKDROP_FILTER)) {
+                nodeStyle.getBackdropFilter()
+            } else {
+                stateComputed?.backdropFilter
+            }
 
         val zIndex = stateComputed?.zIndex ?: 0
         val pointerEventsEnabled = when {

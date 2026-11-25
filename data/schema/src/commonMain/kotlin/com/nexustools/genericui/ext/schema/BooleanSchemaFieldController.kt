@@ -5,6 +5,7 @@ import com.nexustools.genericui.component.form.Select
 import com.nexustools.genericui.component.form.SelectOption
 import com.nexustools.genericui.component.form.Switch
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.enums.bootstrap.AlignSelf
 
 internal class BooleanSchemaFieldController(
     private val booleanSpec: BooleanFieldSpec,
@@ -70,6 +71,9 @@ internal class BooleanSchemaFieldController(
                 selectWidget = null
                 control = switchWidget
             }
+        }
+        if (!compactInline && (switchWidget != null || checkWidget != null)) {
+            control.style.setAlignSelf(AlignSelf.START)
         }
         mountStandardBody(control, compactInline, control)
     }

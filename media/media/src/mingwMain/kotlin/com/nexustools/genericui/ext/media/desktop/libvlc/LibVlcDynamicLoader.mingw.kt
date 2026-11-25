@@ -66,21 +66,65 @@ actual object LibVlcDynamicLoader {
         return paths.distinct()
     }
 
+    private fun findOpusFixPluginsDir(): String? {
+        val exeDir = queryExecutableDir()
+        val envOpusFixDir = queryEnv("GENERICUI_VLC_OPUS_FIX_DIR")?.trim()?.trimEnd('\\', '/')
+        val existingPluginPath = queryEnv("VLC_PLUGIN_PATH").orEmpty()
+        val candidates = buildList {
+            if (!envOpusFixDir.isNullOrBlank()) {
+                add(envOpusFixDir)
+            }
+            if (!exeDir.isNullOrBlank()) {
+                add("$exeDir\\opus_fix_plugins")
+                add("$exeDir\\bin\\opus_fix_plugins")
+                add("$exeDir\\..\\..\\..\\generated\\genericui\\nativeBundle\\vlc\\windows\\opus_fix_plugins")
+            }
+            for (entry in existingPluginPath.split(';')) {
+                val trimmed = entry.trim().trimEnd('\\', '/')
+                if (trimmed.isNotEmpty()) {
+                    add(trimmed)
+                }
+            }
+        }.distinct()
+        return candidates.firstOrNull { dir ->
+            pathExists("$dir\\libgenericui_opus_fix_plugin.dll")
+        }
+    }
+
+    private fun setVlcPluginPathEnv(value: String) {
+        SetEnvironmentVariableA("VLC_PLUGIN_PATH", value)
+        platform.posix._putenv("VLC_PLUGIN_PATH=$value")
+    }
+
     actual fun openLibVlc(): COpaquePointer? {
+        val opusFixDir = findOpusFixPluginsDir()
         for (path in buildCandidatePaths()) {
             val dir = path.substringBeforeLast('\\', "")
             if (dir.isNotEmpty()) {
                 if (!pathExists(path)) continue
                 SetDllDirectoryA(dir)
-                val pluginsDir = "$dir\\plugins"
-                if (pathExists(pluginsDir)) {
-                    SetEnvironmentVariableA("VLC_PLUGIN_PATH", pluginsDir)
-                    platform.posix._putenv("VLC_PLUGIN_PATH=$pluginsDir")
+                val pluginsDir = "$dir\\plugins".takeIf { pathExists(it) }
+                val hasOpusFixInPlugins = pluginsDir != null && (
+                    pathExists("$pluginsDir\\libgenericui_opus_fix_plugin.dll") ||
+                        pathExists("$pluginsDir\\codec\\libgenericui_opus_fix_plugin.dll")
+                    )
+                val pluginPathEntries = buildList {
+                    if (opusFixDir != null && !hasOpusFixInPlugins && !opusFixDir.equals(pluginsDir, ignoreCase = true)) {
+                        add(opusFixDir)
+                    }
+                    if (pluginsDir != null) {
+                        add(pluginsDir)
+                    }
+                }
+                if (pluginPathEntries.isNotEmpty()) {
+                    setVlcPluginPathEnv(pluginPathEntries.joinToString(";"))
                 }
                 val corePath = "$dir\\libvlccore.dll"
                 if (pathExists(corePath)) {
                     LoadLibraryA(corePath)
                 }
+            } else if (opusFixDir != null) {
+                setVlcPluginPathEnv(opusFixDir)
             }
             val handle = LoadLibraryA(path)
             if (handle != null) {

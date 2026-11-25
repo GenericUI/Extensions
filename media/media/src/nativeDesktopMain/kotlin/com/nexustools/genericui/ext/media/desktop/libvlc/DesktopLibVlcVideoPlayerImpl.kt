@@ -15,6 +15,7 @@ import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
+import com.nexustools.genericui.enums.ui.ObjectFit
 import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.ext.media.desktop.DesktopVlcMediaExtensionProvider
@@ -45,7 +46,7 @@ import kotlin.math.abs
 
 /**
  * Shared desktop [VideoPlayerNativeImpl] backed directly by native `libvlc` ([LibVlcBindings]),
- * shared by `:extensions:media:desktop:qt`, `:extensions:media:desktop:gtk`,
+ * shared by `:extensions:media:desktop:kde`, `:extensions:media:desktop:gtk`,
  * `:extensions:media:desktop:windows`, and `:extensions:media:desktop:macos`.
  */
 open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
@@ -102,7 +103,13 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     internal var hasNewFrameFlag: Int = 0
 
     private var selfStableRef: StableRef<DesktopLibVlcVideoPlayerImpl<*>>? = null
+
+    @kotlin.concurrent.Volatile
     internal var frameSwapCounter: Long = 0L
+
+    init {
+        nativeWidget.isIsolatedStageSubtreeRoot = true
+    }
     private var lastVBlankDispatchedSwapCount: Long = 0L
     private var isPrerollingFirstFrame: Boolean = false
     private var prerollTargetSwapCount: Long = 0L
@@ -121,20 +128,36 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     private var cachedIsPlaying: Boolean = false
     private var cachedTimeSec: Double = 0.0
     private var cachedDurationSec: Double = 0.0
+    private var clockAnchorVlcMs: Long = -1L
+    private var clockAnchorTimeSec: Double = 0.0
+    private var clockAnchorMark: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
     private var vblankFrameCounter: Long = 0L
     private var mediaLoadVBlankFrame: Long = 0L
+    private var mediaLoadMark: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
     private var streamReconnectAttempts: Int = 0
     private var lastReconnectAttemptFrame: Long = -1000L
+    private var lastReconnectAttemptMark: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
     private var lastProgressResetTimeSec: Double = 0.0
     private var pendingInitialSeekMs: Long = -1L
     private var awaitingPostInitialSeekTargetMs: Long = -1L
     private var postInitialSeekIssuedFrame: Long = 0L
+    private var postInitialSeekMark: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
     private var audioOutputSyncedForCurrentPlay: Boolean = false
     private var unpauseRecoveryIssuedForCurrentPlay: Boolean = false
     private var playIssuedForLoadSeq: Long = -1L
     private var prerollPauseIssuedForLoadSeq: Long = -1L
     private var pausedAfterStartPreroll: Boolean = false
     private var playRequestedVBlankFrame: Long = -1000L
+    private var playRequestedMark: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
+    private var swapCountAtPlayRequest: Long = 0L
+    @kotlin.concurrent.Volatile
+    private var cachedSourceVideoFps: Double = 0.0
+    @kotlin.concurrent.Volatile
+    private var lastDecodedFrameMark: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
+    @kotlin.concurrent.Volatile
+    private var measuredSourceFpsEma: Double = 0.0
+    private var lastVBlankTickMark: kotlin.time.TimeSource.Monotonic.ValueTimeMark? = null
+    private var lastVBlankTimestampMs: Double? = null
 
     private var pendingAudioTrackSelection: String? = null
     private var pendingSubtitleTrackSelection: String? = null
@@ -144,6 +167,8 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     private var lastAppliedAudioDeviceId: String = ""
     @kotlin.concurrent.Volatile
     private var activeCallbackChroma: String = "RV32"
+    @kotlin.concurrent.Volatile
+    internal var detectedVideoAspectRatio: Float? = null
 
     protected val vlcInstance: COpaquePointer?
         get() = initializedVlcInstance
@@ -158,27 +183,65 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             surfaceWidth = { videoFrameWidth.coerceAtLeast(1) },
             surfaceHeight = { videoFrameHeight.coerceAtLeast(1) },
             swapCount = { frameSwapCounter },
-            acquireBgraPtr = { acquireReadFrameBgraPtr() },
-            captureBgra = { getLatestVideoFrameBgra() },
-            captureRgba = { getLatestVideoFrameRgba() },
+            acquireBgraPtr = { if (frameSwapCounter > 0L) acquireReadFrameBgraPtr() else Pair(null, 0) },
+            captureBgra = { if (frameSwapCounter > 0L) getLatestVideoFrameBgra() else ByteArray(0) },
+            captureRgba = { if (frameSwapCounter > 0L) getLatestVideoFrameRgba() else ByteArray(0) },
             resizeSurface = { w, h ->
                 if (w > 0 && h > 0 && (w != videoFrameWidth || h != videoFrameHeight) && frameSwapCounter == 0L) {
                     // keep decoded resolution when active, or update initial size
                 }
             },
-            preferHardwareStretchBlit = true,
+            preferHardwareStretchBlit = false,
             suppressDefaultBorder = true,
             defaultAspectRatio = 16f / 9f,
             isActiveStream = { isPlaying() },
             activeCaptionText = { (nativeWidget.attributes["activeSubtitleCueText"] as? String)?.trim()?.takeIf { it.isNotEmpty() } },
             onBeforePresentFrame = { sc, ts ->
                 onBeforeFramePresentListener?.invoke(sc, ts ?: (cachedTimeSec * 1000.0).coerceAtLeast(0.0))
-            }
+            },
+            preferredFrameRateHz = { resolveTargetVideoFrameRateHz() },
+            contentFitMode = { resolveSurfaceObjectFit() },
+            contentAspectRatio = { resolveEffectiveVideoAspectRatio() }
         ).attachTo(nativeWidget)
-        nativeWidget.attributes["vblankDispatch"] = { _: Double? -> tickVBlank() }
+        nativeWidget.attributes["vblankDispatch"] = { tsMs: Double? -> tickVBlank(tsMs) }
         nativeWidget.attributes["antialiasing"] = true
         nativeWidget.attributes["keepScreenOn"] = true
+        nativeWidget.attributes["internalSubtitlesEnabled"] = true
         DesktopVlcMediaExtensionProvider.registerVideoPlayer(this)
+    }
+
+    internal fun resolveSurfaceObjectFit(): ObjectFit = when (resizeModeState) {
+        VideoResizeMode.FIT -> ObjectFit.CONTAIN
+        VideoResizeMode.FILL -> ObjectFit.COVER
+        VideoResizeMode.STRETCH -> ObjectFit.FILL
+    }
+
+    internal fun resolveEffectiveVideoAspectRatio(): Float =
+        detectedVideoAspectRatio?.takeIf { it.isFinite() && it > 0.01f } ?: (16f / 9f)
+
+    private fun refreshDetectedVideoAspectRatio(player: COpaquePointer?) {
+        if (player == null || !LibVlcBindings.isAvailable) return
+        if (detectedVideoAspectRatio != null) return
+        val size = LibVlcBindings.libvlc_video_get_size(player, 0u) ?: return
+        val (w, h) = size
+        if (w > 0 && h > 0) {
+            detectedVideoAspectRatio = w.toFloat() / h.toFloat()
+        }
+    }
+
+    private fun resolveTargetVideoFrameRateHz(): Double? {
+        val sourceFps = if (cachedSourceVideoFps > 0.0) cachedSourceVideoFps else measuredSourceFpsEma
+        val isActiveVideo = playingFallback ||
+            cachedIsPlaying ||
+            isPrerollingFirstFrame ||
+            pendingInitialSeekMs >= 0L ||
+            awaitingPostInitialSeekTargetMs >= 0L
+        return when {
+            isActiveVideo -> if (sourceFps > 0.0) (sourceFps * playbackRate.toDouble()).coerceAtLeast(1.0) else null
+            mediaReadyFlag -> 2.0
+            currentSourceUrl.isBlank() -> 0.0
+            else -> null
+        }
     }
 
     private fun syncWakeLockState() {
@@ -361,13 +424,44 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             }
         }
         if (updatedFrame) {
+            val nowMark = kotlin.time.TimeSource.Monotonic.markNow()
+            val prevMark = lastDecodedFrameMark
+            lastDecodedFrameMark = nowMark
+            if (prevMark != null) {
+                val elapsedMs = prevMark.elapsedNow().inWholeNanoseconds / 1_000_000.0
+                if (elapsedMs in 1.0..2000.0) {
+                    val rate = playbackRate.toDouble().coerceAtLeast(0.1)
+                    val instantSourceFps = (1000.0 / elapsedMs) / rate
+                    if (instantSourceFps.isFinite() && instantSourceFps > 0.0) {
+                        val prevEma = measuredSourceFpsEma
+                        val nextEma = if (prevEma <= 0.0) instantSourceFps else (prevEma * 0.8 + instantSourceFps * 0.2)
+                        measuredSourceFpsEma = nextEma
+                        if (prevEma <= 0.0 && cachedSourceVideoFps <= 0.0) {
+                            DesktopNativeWidget.notifyVBlankWidgetsChanged()
+                        }
+                    }
+                }
+            }
+            if (cachedSourceVideoFps <= 0.0) {
+                val player = vlcMediaPlayer
+                if (player != null && LibVlcBindings.isAvailable) {
+                    val vlcFps = LibVlcBindings.libvlc_media_player_get_fps(player)
+                    if (vlcFps.isFinite() && vlcFps > 0f) {
+                        cachedSourceVideoFps = vlcFps.toDouble()
+                        DesktopNativeWidget.notifyVBlankWidgetsChanged()
+                    }
+                }
+            }
+            refreshDetectedVideoAspectRatio(vlcMediaPlayer)
             val needsPrerollCompletion = isPrerollingFirstFrame && pendingInitialSeekMs < 0L && newSwapCount >= prerollTargetSwapCount
             val needsMediaReady = !mediaReadyFlag && pendingInitialSeekMs < 0L
             nativeWidget.attributes["vblankDirtied"] = true
+            DesktopNativeWidget.notifySurfaceFrameReady(nativeWidget)
             if (needsPrerollCompletion || needsMediaReady) {
                 val capturedLoadSeq = mediaLoadSequence
                 GenericUiThreading.runOnLogic {
                     if (mediaLoadSequence != capturedLoadSeq) return@runOnLogic
+                    var stateChanged = false
                     if (isPrerollingFirstFrame && pendingInitialSeekMs < 0L && frameSwapCounter >= prerollTargetSwapCount) {
                         val player = vlcMediaPlayer
                         val curState = if (player != null && LibVlcBindings.isAvailable) {
@@ -380,6 +474,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                         // to return 0 bytes (`reading while paused`) and interrupts E-AC3 5.1 `input format change` init.
                         if (curState == 3) {
                             isPrerollingFirstFrame = false
+                            stateChanged = true
                             if (!playingFallback && player != null) {
                                 LibVlcBindings.libvlc_media_player_set_pause(player, 1)
                                 prerollPauseIssuedForLoadSeq = mediaLoadSequence
@@ -391,7 +486,11 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                     }
                     if (!mediaReadyFlag && pendingInitialSeekMs < 0L) {
                         mediaReadyFlag = true
+                        stateChanged = true
                         onMediaReadyListener?.invoke()
+                    }
+                    if (stateChanged) {
+                        DesktopNativeWidget.notifyVBlankWidgetsChanged()
                     }
                 }
             }
@@ -569,6 +668,12 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         isPrerollingFirstFrame = false
         prerollTargetSwapCount = 0L
         lastVBlankDispatchedSwapCount = 0L
+        cachedSourceVideoFps = 0.0
+        measuredSourceFpsEma = 0.0
+        detectedVideoAspectRatio = null
+        lastDecodedFrameMark = null
+        lastVBlankTickMark = null
+        lastVBlankTimestampMs = null
         audioOutputSyncedForCurrentPlay = false
         unpauseRecoveryIssuedForCurrentPlay = false
         withBufferPoolLock {
@@ -594,6 +699,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         nativeWidget.attributes["src"] = url
         currentSecFallback = seekOffsetSeconds.coerceAtLeast(0.0)
         cachedTimeSec = currentSecFallback
+        clockAnchorVlcMs = -1L
+        clockAnchorTimeSec = currentSecFallback
+        clockAnchorMark = null
         lastProgressResetTimeSec = currentSecFallback
         streamReconnectAttempts = 0
         durationSecOverride = durationOverrideSeconds
@@ -614,6 +722,8 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                     LibVlcBindings.libvlc_media_player_play(player)
                     playIssuedForLoadSeq = mediaLoadSequence
                     playRequestedVBlankFrame = vblankFrameCounter
+                    playRequestedMark = kotlin.time.TimeSource.Monotonic.markNow()
+                    swapCountAtPlayRequest = frameSwapCounter
                     cachedPlayingState = true
                     cachedIsPlaying = true
                     nativeWidget.attributes["playing"] = true
@@ -639,12 +749,19 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             onDurationChangedListener?.invoke(durationOverrideSeconds)
         }
         syncWakeLockState()
+        DesktopNativeWidget.notifyVBlankWidgetsChanged()
         updateAndNotifyBufferedHorizon(currentSecFallback)
     }
 
-    private fun isServerTranscodeUrl(url: String): Boolean =
+    internal fun isServerTranscodeUrl(url: String): Boolean =
         url.contains("mode=transcode", ignoreCase = true) ||
             url.contains("/transcode/", ignoreCase = true) ||
+            url.contains("?tv=", ignoreCase = true) ||
+            url.contains("&tv=", ignoreCase = true) ||
+            url.contains("?ta=", ignoreCase = true) ||
+            url.contains("&ta=", ignoreCase = true) ||
+            url.contains("?tc=", ignoreCase = true) ||
+            url.contains("&tc=", ignoreCase = true) ||
             url.contains("?start=", ignoreCase = true) ||
             url.contains("&start=", ignoreCase = true) ||
             url.contains("start_seconds=", ignoreCase = true)
@@ -652,9 +769,11 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     private fun loadMediaIntoPlayer(player: COpaquePointer?, resolvedUri: String, startSec: Double) {
         mediaLoadSequence += 1L
         mediaLoadVBlankFrame = vblankFrameCounter
+        mediaLoadMark = kotlin.time.TimeSource.Monotonic.markNow()
         pendingInitialSeekMs = -1L
         awaitingPostInitialSeekTargetMs = -1L
         postInitialSeekIssuedFrame = 0L
+        postInitialSeekMark = null
         audioOutputSyncedForCurrentPlay = false
         unpauseRecoveryIssuedForCurrentPlay = false
         playIssuedForLoadSeq = -1L
@@ -662,6 +781,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         pausedAfterStartPreroll = false
         cachedPlayingState = false
         cachedIsPlaying = false
+        clockAnchorVlcMs = -1L
+        clockAnchorTimeSec = startSec.coerceAtLeast(0.0)
+        clockAnchorMark = null
         LibVlcBindings.libvlc_media_release(currentVlcMedia)
         val isRemoteOrUri = resolvedUri.contains("://")
         val media = if (isRemoteOrUri) {
@@ -732,9 +854,14 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         audioOutputSyncedForCurrentPlay = false
         unpauseRecoveryIssuedForCurrentPlay = false
         playRequestedVBlankFrame = vblankFrameCounter
+        playRequestedMark = kotlin.time.TimeSource.Monotonic.markNow()
+        swapCountAtPlayRequest = frameSwapCounter
         playingFallback = true
         cachedPlayingState = true
         cachedIsPlaying = true
+        clockAnchorVlcMs = -1L
+        clockAnchorTimeSec = cachedTimeSec.coerceAtLeast(0.0)
+        clockAnchorMark = null
         val player = vlcMediaPlayer ?: if (currentSourceUrl.isNotBlank()) ensureVlcPlayer() else null
         if (player != null) {
             if (currentVlcMedia == null && currentSourceUrl.isNotBlank()) {
@@ -810,6 +937,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         nativeWidget.attributes["playing"] = true
         nativeWidget.attributes["isPlaying"] = true
         syncWakeLockState()
+        DesktopNativeWidget.notifyVBlankWidgetsChanged()
         nativeWidget.notifyTreeInvalidated(visualOnly = true)
         onPlayingStateChangedListener?.invoke(true)
     }
@@ -821,15 +949,21 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         nativeWidget.attributes["playing"] = false
         nativeWidget.attributes["isPlaying"] = false
         syncWakeLockState()
+        DesktopNativeWidget.notifyVBlankWidgetsChanged()
         nativeWidget.notifyTreeInvalidated(visualOnly = true)
         onPlayingStateChangedListener?.invoke(false)
         onErrorListener?.invoke(LibVlcBindings.libvlc_errmsg() ?: "libvlc_media_player_play failed")
     }
 
     override fun pause() {
+        val frozenSec = resolveInterpolatedTimeSec()
         playingFallback = false
         cachedPlayingState = false
         cachedIsPlaying = false
+        clockAnchorTimeSec = frozenSec
+        cachedTimeSec = frozenSec
+        currentSecFallback = frozenSec
+        clockAnchorMark = null
         val player = vlcMediaPlayer
         if (player != null && LibVlcBindings.isAvailable) {
             val state = LibVlcBindings.libvlc_media_player_get_state(player)
@@ -846,6 +980,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         nativeWidget.attributes["playing"] = false
         nativeWidget.attributes["isPlaying"] = false
         syncWakeLockState()
+        DesktopNativeWidget.notifyVBlankWidgetsChanged()
         nativeWidget.notifyTreeInvalidated(visualOnly = true)
         onPlayingStateChangedListener?.invoke(false)
     }
@@ -854,11 +989,16 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         isPrerollingFirstFrame = false
         pendingInitialSeekMs = -1L
         awaitingPostInitialSeekTargetMs = -1L
+        postInitialSeekMark = null
+        playRequestedMark = null
         playingFallback = false
         cachedPlayingState = false
         cachedIsPlaying = false
         currentSecFallback = 0.0
         cachedTimeSec = 0.0
+        clockAnchorVlcMs = -1L
+        clockAnchorTimeSec = 0.0
+        clockAnchorMark = null
         vlcMediaPlayer?.let { player ->
             LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
             LibVlcBindings.libvlc_media_player_stop(player)
@@ -866,6 +1006,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         nativeWidget.attributes["playing"] = false
         nativeWidget.attributes["isPlaying"] = false
         syncWakeLockState()
+        DesktopNativeWidget.notifyVBlankWidgetsChanged()
         nativeWidget.notifyTreeInvalidated(visualOnly = true)
         onPlayingStateChangedListener?.invoke(false)
         onTimeUpdateListener?.invoke(0.0)
@@ -879,6 +1020,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         audioOutputSyncedForCurrentPlay = false
         currentSecFallback = clamped
         cachedTimeSec = clamped
+        clockAnchorVlcMs = -1L
+        clockAnchorTimeSec = clamped
+        clockAnchorMark = null
         lastProgressResetTimeSec = clamped
         val targetMs = (clamped * 1000.0).toLong()
         val player = vlcMediaPlayer ?: if (currentSourceUrl.isNotBlank()) ensureVlcPlayer() else null
@@ -933,8 +1077,33 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         } else {
             LibVlcBindings.libvlc_media_player_set_time(vlcMediaPlayer, targetMs)
         }
+        DesktopNativeWidget.notifyVBlankWidgetsChanged()
         onTimeUpdateListener?.invoke(clamped)
         updateAndNotifyBufferedHorizon(clamped)
+    }
+
+    private fun isActivelyAdvancingPlaybackClock(): Boolean {
+        if (!playingFallback || !cachedIsPlaying || isPrerollingFirstFrame || cachedBufferingState) {
+            return false
+        }
+        if (pendingInitialSeekMs >= 0L || awaitingPostInitialSeekTargetMs >= 0L) {
+            return false
+        }
+        val usesNativeWindowHandle = pendingWin32Hwnd != 0L || pendingMacosNsView != 0L || pendingXWindowId != 0u
+        if (usesNativeWindowHandle) return true
+        if (frameSwapCounter <= 0L) return false
+        val sinceFrameMs = lastDecodedFrameMark?.elapsedNow()?.inWholeMilliseconds ?: Long.MAX_VALUE
+        return sinceFrameMs <= 500L
+    }
+
+    private fun resolveInterpolatedTimeSec(): Double {
+        var curSec = clockAnchorTimeSec
+        val mark = clockAnchorMark
+        if (mark != null && isActivelyAdvancingPlaybackClock()) {
+            curSec += (mark.elapsedNow().inWholeNanoseconds / 1_000_000_000.0) * playbackRate.toDouble()
+        }
+        val effectiveDur = durationSecOverride ?: cachedDurationSec
+        return if (effectiveDur > 0.0) curSec.coerceIn(0.0, effectiveDur) else curSec.coerceAtLeast(0.0)
     }
 
     override fun getCurrentTimeSeconds(): Double {
@@ -943,6 +1112,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         }
         val player = vlcMediaPlayer
         if (player != null && LibVlcBindings.isAvailable) {
+            if (clockAnchorMark != null && isActivelyAdvancingPlaybackClock()) {
+                return resolveInterpolatedTimeSec()
+            }
             if (lastVlcPollMark == null) {
                 val vlcMs = LibVlcBindings.libvlc_media_player_get_time(player)
                 if (vlcMs >= 0L) {
@@ -978,12 +1150,21 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         }
     }
 
-    fun tickVBlank() {
+    fun tickVBlank(timestampMs: Double? = null) {
+        val nowTickMark = kotlin.time.TimeSource.Monotonic.markNow()
+        val prevTickMark = lastVBlankTickMark
+        lastVBlankTickMark = nowTickMark
+        val prevTimestampMs = lastVBlankTimestampMs
+        lastVBlankTimestampMs = timestampMs
         vblankTickCounter += 1
         vblankFrameCounter += 1L
         val player = vlcMediaPlayer
         val vlcLive = player != null && LibVlcBindings.isAvailable
+        if (vlcLive && detectedVideoAspectRatio == null) {
+            refreshDetectedVideoAspectRatio(player)
+        }
         val swapCount = frameSwapCounter
+        var vblankRateStateChanged = false
 
         if (swapCount != lastVBlankDispatchedSwapCount || hasNewFrameFlag != 0) {
             lastVBlankDispatchedSwapCount = swapCount
@@ -996,6 +1177,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                 val curState = if (vlcLive) LibVlcBindings.libvlc_media_player_get_state(player) else 3
                 if (curState == 3) {
                     isPrerollingFirstFrame = false
+                    vblankRateStateChanged = true
                     if (!playingFallback && player != null) {
                         LibVlcBindings.libvlc_media_player_set_pause(player, 1)
                         prerollPauseIssuedForLoadSeq = mediaLoadSequence
@@ -1011,13 +1193,21 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             nativeWidget.interactiveSurfaceSpec?.dispatchBeforePresentFrame(swapCount, tsMs)
             if (!mediaReadyFlag) {
                 mediaReadyFlag = true
+                vblankRateStateChanged = true
                 onMediaReadyListener?.invoke()
             }
         }
 
         if (!vlcLive) {
             if (playingFallback) {
-                currentSecFallback += 0.016
+                val deltaSec = when {
+                    timestampMs != null && prevTimestampMs != null && timestampMs > prevTimestampMs ->
+                        ((timestampMs - prevTimestampMs) / 1000.0).coerceIn(0.0, 0.25)
+                    prevTickMark != null ->
+                        (prevTickMark.elapsedNow().inWholeNanoseconds / 1_000_000_000.0).coerceIn(0.0, 0.25)
+                    else -> 1.0 / 60.0
+                }
+                currentSecFallback += deltaSec * playbackRate.toDouble()
                 cachedTimeSec = currentSecFallback
                 cachedIsPlaying = true
                 nativeWidget.attributes["playing"] = true
@@ -1029,15 +1219,21 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                     nativeWidget.attributes["vblankDirtied"] = true
                 }
             }
+            if (vblankRateStateChanged) {
+                DesktopNativeWidget.notifyVBlankWidgetsChanged()
+            }
             return
         }
 
         // Poll faster during initial media startup / E-AC3 `input format change` audio sync, then throttle in steady state.
+        val msSincePlayRequest = playRequestedMark?.elapsedNow()?.inWholeMilliseconds ?: Long.MAX_VALUE
+        val msSinceMediaLoad = mediaLoadMark?.elapsedNow()?.inWholeMilliseconds ?: Long.MAX_VALUE
         val inStartupAudioSyncWindow = !mediaReadyFlag ||
             isPrerollingFirstFrame ||
-            (playingFallback && (vblankFrameCounter - playRequestedVBlankFrame) <= 90L)
+            (playingFallback && msSincePlayRequest <= 1_500L)
         val pollIntervalMs = when {
             inStartupAudioSyncWindow -> 60L
+            playingFallback -> 100L
             cachedDurationSec > 0.0 -> 300L
             else -> 120L
         }
@@ -1047,6 +1243,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             prevPoll != null &&
             prevPoll.elapsedNow().inWholeMilliseconds < pollIntervalMs
         ) {
+            if (vblankRateStateChanged) {
+                DesktopNativeWidget.notifyVBlankWidgetsChanged()
+            }
             return
         }
         lastVlcPollMark = kotlin.time.TimeSource.Monotonic.markNow()
@@ -1055,12 +1254,16 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         if (awaitingPostInitialSeekTargetMs >= 0L) {
             if (state in 5..7) {
                 awaitingPostInitialSeekTargetMs = -1L
+                postInitialSeekMark = null
+                vblankRateStateChanged = true
             } else {
                 val curMs = LibVlcBindings.libvlc_media_player_get_time(player)
                 val targetFloorMs = (awaitingPostInitialSeekTargetMs - 2_500L).coerceAtLeast(0L)
-                val timedOut = (vblankFrameCounter - postInitialSeekIssuedFrame) >= 120L
+                val timedOut = (postInitialSeekMark?.elapsedNow()?.inWholeMilliseconds ?: 0L) >= 2_000L
                 if (((state == 3 || state == 4) && curMs >= targetFloorMs) || timedOut) {
                     awaitingPostInitialSeekTargetMs = -1L
+                    postInitialSeekMark = null
+                    vblankRateStateChanged = true
                     if (playingFallback && !isPrerollingFirstFrame) {
                         audioOutputSyncedForCurrentPlay = false
                         LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
@@ -1076,6 +1279,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             state == 3
         ) {
             isPrerollingFirstFrame = false
+            vblankRateStateChanged = true
             if (!playingFallback) {
                 LibVlcBindings.libvlc_media_player_set_pause(player, 1)
                 prerollPauseIssuedForLoadSeq = mediaLoadSequence
@@ -1090,6 +1294,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                 pendingInitialSeekMs = -1L
                 awaitingPostInitialSeekTargetMs = targetSeekMs
                 postInitialSeekIssuedFrame = vblankFrameCounter
+                postInitialSeekMark = kotlin.time.TimeSource.Monotonic.markNow()
                 LibVlcBindings.libvlc_media_player_set_time(player, targetSeekMs)
                 if (isPrerollingFirstFrame) {
                     prerollTargetSwapCount = frameSwapCounter + 2L
@@ -1102,7 +1307,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
         } else if (awaitingPostInitialSeekTargetMs < 0L && playingFallback && !isPrerollingFirstFrame && state == 3) {
             val expectedVol = (volumeLevel * 100f).toInt()
             val forceEarlyAudioSync = !audioOutputSyncedForCurrentPlay ||
-                (vblankFrameCounter - playRequestedVBlankFrame) <= 150L ||
+                msSincePlayRequest <= 2_500L ||
                 cachedTimeSec < 2.0
             if (forceEarlyAudioSync) {
                 LibVlcBindings.libvlc_audio_set_mute(player, if (mutedState) 1 else 0)
@@ -1121,8 +1326,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                 }
             }
             if (!unpauseRecoveryIssuedForCurrentPlay &&
-                (vblankFrameCounter - playRequestedVBlankFrame) >= 75L &&
-                currentSecFallback < 0.5
+                msSincePlayRequest >= 1_250L &&
+                currentSecFallback < 0.5 &&
+                (swapCount - swapCountAtPlayRequest) < 6L
             ) {
                 val curMs = LibVlcBindings.libvlc_media_player_get_time(player)
                 if (curMs in 0L..5L) {
@@ -1180,7 +1386,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
         if (playing || player != null) {
             val withinTrackDiscoveryWindow =
-                audioTracksList.isEmpty() || (vblankFrameCounter - mediaLoadVBlankFrame) <= 300L
+                audioTracksList.isEmpty() || msSinceMediaLoad <= 5_000L
             if (pendingAudioTrackSelection != null && player != null && withinTrackDiscoveryWindow) {
                 applyPendingAudioTrackIfReady(player)
             }
@@ -1208,11 +1414,37 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             val usesNativeWindowHandle = pendingWin32Hwnd != 0L || pendingMacosNsView != 0L || pendingXWindowId != 0u
             if (state == 3 && !mediaReadyFlag && !isPrerollingFirstFrame && (usesNativeWindowHandle || frameSwapCounter > 0L)) {
                 mediaReadyFlag = true
+                vblankRateStateChanged = true
                 onMediaReadyListener?.invoke()
             }
             if (playing && pendingInitialSeekMs < 0L && awaitingPostInitialSeekTargetMs < 0L) {
                 val vlcMs = LibVlcBindings.libvlc_media_player_get_time(player)
-                if (vlcMs >= 0L) {
+                val nowMark = kotlin.time.TimeSource.Monotonic.markNow()
+                if (state == 3 && (usesNativeWindowHandle || frameSwapCounter > 0L || vlcMs > 0L)) {
+                    if (vlcMs >= 0L && vlcMs != clockAnchorVlcMs) {
+                        val vlcSec = vlcMs / 1000.0
+                        val anchoredSec = if (clockAnchorMark != null && vlcSec > 0.0) {
+                            val prev = resolveInterpolatedTimeSec()
+                            if (vlcSec >= prev - 0.5) maxOf(vlcSec, prev) else vlcSec
+                        } else if (vlcMs > 0L) {
+                            vlcSec
+                        } else {
+                            cachedTimeSec
+                        }
+                        clockAnchorVlcMs = vlcMs
+                        clockAnchorTimeSec = anchoredSec
+                        clockAnchorMark = nowMark
+                    } else if (clockAnchorMark == null) {
+                        clockAnchorVlcMs = vlcMs
+                        clockAnchorTimeSec = if (vlcMs > 0L) vlcMs / 1000.0 else cachedTimeSec
+                        clockAnchorMark = nowMark
+                    } else if (!isActivelyAdvancingPlaybackClock()) {
+                        clockAnchorTimeSec = cachedTimeSec
+                        clockAnchorMark = null
+                    }
+                    cachedTimeSec = resolveInterpolatedTimeSec()
+                    currentSecFallback = cachedTimeSec
+                } else if (vlcMs >= 0L) {
                     currentSecFallback = vlcMs / 1000.0
                     cachedTimeSec = currentSecFallback
                 }
@@ -1221,7 +1453,8 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                     lastProgressResetTimeSec = cachedTimeSec
                 }
                 val curSec = cachedTimeSec
-                if (abs(curSec - lastReportedTimeSec) >= 0.5) {
+                val crossedWholeSecond = lastReportedTimeSec >= 0.0 && curSec.toInt() != lastReportedTimeSec.toInt()
+                if (lastReportedTimeSec < 0.0 || crossedWholeSecond || abs(curSec - lastReportedTimeSec) >= 0.25) {
                     lastReportedTimeSec = curSec
                     onTimeUpdateListener?.invoke(curSec)
                     updateAndNotifyBufferedHorizon(curSec)
@@ -1243,14 +1476,19 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                             (cachedTimeSec / effectiveDur) < 0.90
                         )
                     )
-                if (isPrematureDrop && streamReconnectAttempts < 3 && (vblankFrameCounter - lastReconnectAttemptFrame) >= 120L) {
+                val msSinceLastReconnect = lastReconnectAttemptMark?.elapsedNow()?.inWholeMilliseconds ?: Long.MAX_VALUE
+                if (isPrematureDrop && streamReconnectAttempts < 3 && msSinceLastReconnect >= 2_000L) {
                     streamReconnectAttempts += 1
                     lastReconnectAttemptFrame = vblankFrameCounter
+                    lastReconnectAttemptMark = kotlin.time.TimeSource.Monotonic.markNow()
                     endedFiredForCurrentMedia = false
                     loadMediaIntoPlayer(player, currentSourceUrl, cachedTimeSec)
                     LibVlcBindings.libvlc_audio_set_mute(player, if (pendingInitialSeekMs >= 0L || mutedState) 1 else 0)
                     LibVlcBindings.libvlc_audio_set_volume(player, (volumeLevel * 100f).toInt())
                     LibVlcBindings.libvlc_media_player_play(player)
+                    if (vblankRateStateChanged) {
+                        DesktopNativeWidget.notifyVBlankWidgetsChanged()
+                    }
                     return
                 }
                 if (!endedFiredForCurrentMedia) {
@@ -1258,6 +1496,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                     playingFallback = false
                     cachedPlayingState = false
                     cachedIsPlaying = false
+                    vblankRateStateChanged = true
                     if (cachedBufferingState) {
                         cachedBufferingState = false
                         onBufferingChangedListener?.invoke(false)
@@ -1276,11 +1515,20 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                 }
             }
         }
+        if (vblankRateStateChanged) {
+            DesktopNativeWidget.notifyVBlankWidgetsChanged()
+        }
     }
 
     override fun setPlaybackSpeed(speed: Float) {
+        val currentSec = resolveInterpolatedTimeSec()
         playbackRate = speed.coerceIn(0.1f, 8.0f)
+        clockAnchorTimeSec = currentSec
+        if (clockAnchorMark != null) {
+            clockAnchorMark = kotlin.time.TimeSource.Monotonic.markNow()
+        }
         LibVlcBindings.libvlc_media_player_set_rate(vlcMediaPlayer, playbackRate)
+        DesktopNativeWidget.notifyVBlankWidgetsChanged()
     }
 
     override fun getPlaybackSpeed(): Float {
@@ -1313,11 +1561,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     override fun setResizeMode(mode: VideoResizeMode) {
         resizeModeState = mode
         when (mode) {
-            VideoResizeMode.FIT -> {
-                LibVlcBindings.libvlc_video_set_aspect_ratio(vlcMediaPlayer, null)
-                LibVlcBindings.libvlc_video_set_scale(vlcMediaPlayer, 0f)
-            }
+            VideoResizeMode.FIT,
             VideoResizeMode.FILL -> {
+                LibVlcBindings.libvlc_video_set_aspect_ratio(vlcMediaPlayer, null)
                 LibVlcBindings.libvlc_video_set_scale(vlcMediaPlayer, 0f)
             }
             VideoResizeMode.STRETCH -> {
@@ -1326,6 +1572,9 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
                 LibVlcBindings.libvlc_video_set_aspect_ratio(vlcMediaPlayer, "$w:$h")
             }
         }
+        nativeWidget.attributes["vblankDirtied"] = true
+        DesktopNativeWidget.notifySurfaceFrameReady(nativeWidget)
+        DesktopNativeWidget.notifyVBlankWidgetsChanged()
     }
 
     override fun getResizeMode(): VideoResizeMode = resizeModeState
@@ -1372,7 +1621,8 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             val activeId = LibVlcBindings.libvlc_audio_get_track(player)
             // During E-AC3 5.1 `input format change` on single- or multi-track streams, `activeId` is transiently
             // `-1` while LibVLC restarts `a52` + `avcodec` -> `auhal`; wait for that restart before switching tracks.
-            if (activeId == -1 && (vblankFrameCounter - mediaLoadVBlankFrame) < 45L) {
+            val msSinceMediaLoad = mediaLoadMark?.elapsedNow()?.inWholeMilliseconds ?: Long.MAX_VALUE
+            if (activeId == -1 && msSinceMediaLoad < 750L) {
                 return
             }
             if (activeId != resolvedId) {
@@ -1496,6 +1746,7 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
 
     override fun setInternalSubtitlesEnabled(enabled: Boolean) {
         internalSubtitlesEnabledState = enabled
+        nativeWidget.attributes["internalSubtitlesEnabled"] = enabled
         if (!enabled) {
             disableSpuByDefault = true
             pendingSubtitleTrackSelection = null
@@ -1503,6 +1754,8 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             if (player != null && LibVlcBindings.isAvailable) {
                 LibVlcBindings.libvlc_video_set_spu(player, -1)
             }
+        } else {
+            disableSpuByDefault = false
         }
     }
 

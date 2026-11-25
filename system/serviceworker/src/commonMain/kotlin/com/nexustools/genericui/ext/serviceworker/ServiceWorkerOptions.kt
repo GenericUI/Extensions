@@ -14,5 +14,6 @@ data class ServiceWorkerOptions(
     val androidForegroundServiceType: String = "specialUse",
     val androidSpecialUseFgsSubtype: String = "GenericUI background ServiceWorker execution",
     val hasWorker: Boolean = false,
-    val swingWorkerMainClass: String = ""
+    val swingWorkerMainClass: String = "",
+    val macosTrayIcon: String? = null
 )
