@@ -509,14 +509,13 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
     }
 
     private fun resolveTargetVideoFrameRateHz(): Double? {
-        val sourceFps = if (cachedSourceVideoFps > 0.0) cachedSourceVideoFps else measuredSourceFpsEma
         val isActiveVideo = playingFallback ||
             cachedIsPlaying ||
             isPrerollingFirstFrame ||
             pendingInitialSeekMs >= 0L ||
             awaitingPostInitialSeekTargetMs >= 0L
         return when {
-            isActiveVideo -> if (sourceFps > 0.0) (sourceFps * playbackRate.toDouble()).coerceAtLeast(1.0) else null
+            isActiveVideo -> null
             mediaReadyFlag -> 2.0
             currentSourceUrl.isBlank() -> 0.0
             else -> null
@@ -740,7 +739,6 @@ open class DesktopLibVlcVideoPlayerImpl<out W : DesktopNativeWidget>(
             refreshDetectedVideoAspectRatio(vlcMediaPlayer)
             val needsPrerollCompletion = isPrerollingFirstFrame && pendingInitialSeekMs < 0L && newSwapCount >= prerollTargetSwapCount
             val needsMediaReady = !mediaReadyFlag && pendingInitialSeekMs < 0L
-            nativeWidget.attributes["vblankDirtied"] = true
             DesktopNativeWidget.notifySurfaceFrameReady(nativeWidget)
             if (needsPrerollCompletion || needsMediaReady) {
                 val capturedLoadSeq = mediaLoadSequence

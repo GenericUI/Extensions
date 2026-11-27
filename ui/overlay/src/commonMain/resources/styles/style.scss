@@ -106,30 +106,30 @@
 
     .gui-overlay-titlebar-dark {
         backdrop-filter: none;
-        background-color: rgba(16, 18, 24, 0.42);
+        background-color: rgba(16, 18, 24, 0.78);
         border-color: rgba(255, 255, 255, 0.14);
         border-bottom: 1px solid rgba(255, 255, 255, 0.14);
     }
 
     .gui-overlay-titlebar-dark.gui-overlay-titlebar-blurred {
         backdrop-filter: blur(22px) saturate(1.4);
-        background-color: rgba(16, 18, 24, 0.22);
-        border-color: rgba(255, 255, 255, 0.16);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+        background-color: rgba(16, 18, 24, 0.68);
+        border-color: rgba(255, 255, 255, 0.20);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.20);
     }
 
     .gui-overlay-titlebar-light {
         backdrop-filter: none;
-        background-color: rgba(244, 246, 250, 0.48);
+        background-color: rgba(244, 246, 250, 0.80);
         border-color: rgba(0, 0, 0, 0.10);
         border-bottom: 1px solid rgba(0, 0, 0, 0.10);
     }
 
     .gui-overlay-titlebar-light.gui-overlay-titlebar-blurred {
         backdrop-filter: blur(22px) saturate(1.4);
-        background-color: rgba(244, 246, 250, 0.28);
-        border-color: rgba(0, 0, 0, 0.10);
-        border-bottom: 1px solid rgba(0, 0, 0, 0.10);
+        background-color: rgba(244, 246, 250, 0.72);
+        border-color: rgba(0, 0, 0, 0.14);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.14);
     }
 
     .gui-overlay-titlebar-inactive {

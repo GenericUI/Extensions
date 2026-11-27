@@ -341,4 +341,42 @@ class DesktopLibVlcTestMp4PlaybackTest {
             playerImpl.dispose()
         }
     }
+
+    @Test
+    fun testDesktopLibVlcPreferredFrameRateUsesFullVBlankWhilePlayingAndThrottlesWhenPausedOrIdle() {
+        DesktopVlcMediaExtensionProvider.install("Desktop")
+        val path = resolveMediaExtensionTestMp4Path()
+        val widget = DesktopNativeWidget("Desktop", "libvlc-video")
+        val playerImpl = DesktopLibVlcVideoPlayerImpl(nativeWidget = widget, platformName = "Desktop")
+        try {
+            val spec = assertNotNull(widget.interactiveSurfaceSpec)
+            val rateProvider = assertNotNull(spec.preferredFrameRateHz)
+
+            // Idle (no source): throttle to 0.0
+            assertEquals(0.0, rateProvider())
+
+            playerImpl.setMuted(true)
+            playerImpl.setSource(path, 0.0, null)
+            playerImpl.play()
+
+            var attempts = 0
+            while (attempts < 120 && playerImpl.frameSwapCounter < 3L) {
+                usleep(25_000u)
+                playerImpl.tickVBlank(attempts * 25.0)
+                attempts++
+            }
+            playerImpl.tickVBlank((attempts + 1) * 25.0)
+
+            // Active playback must return null (full native display VSync rate) rather than throttling to sub-refresh source FPS
+            assertEquals(null, rateProvider(), "Active video playback must run at full display VBlank rate (null)")
+
+            // Paused after media ready: throttle down to 2.0 Hz
+            playerImpl.pause()
+            playerImpl.tickVBlank((attempts + 2) * 25.0)
+            assertEquals(2.0, rateProvider(), "Paused ready player must throttle VBlank to 2.0 Hz")
+        } finally {
+            playerImpl.pause()
+            playerImpl.dispose()
+        }
+    }
 }

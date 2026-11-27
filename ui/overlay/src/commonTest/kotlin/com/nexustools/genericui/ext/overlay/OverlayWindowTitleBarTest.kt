@@ -576,7 +576,7 @@ class OverlayWindowTitleBarTest {
         assertTrue(macBar.hasClass("gui-overlay-titlebar-leading-placement"))
         assertEquals(CssLength.px(22f), macBar.computedStyle?.backdropFilter?.blur)
         assertEquals(1.4f, macBar.computedStyle?.backdropFilter?.saturate)
-        assertEquals(56, macBar.computedStyle?.backgroundColor?.a)
+        assertEquals(173, macBar.computedStyle?.backgroundColor?.a)
         assertEquals(RgbaColor.WHITE, macBar.titleLabel.computedStyle?.textColor)
         assertEquals("close", macBar.closeButton.getAttribute("data-window-control"))
         assertEquals("minimize", macBar.minimizeButton.getAttribute("data-window-control"))
@@ -1028,9 +1028,9 @@ class OverlayWindowTitleBarTest {
         val bf = bar.computedStyle?.backdropFilter
         assertEquals(CssFilter(blur = CssLength.px(22f), saturate = 1.4f), bf)
         assertTrue(bf?.hasPixelOps == true)
-        assertEquals(RgbaColor(16, 18, 24, 56), bar.computedStyle?.backgroundColor)
+        assertEquals(RgbaColor(16, 18, 24, 173), bar.computedStyle?.backgroundColor)
         assertEquals(1f, bar.computedStyle?.borderBottomWidthPx)
-        assertEquals(RgbaColor(255, 255, 255, 41), bar.computedStyle?.borderBottomColor)
+        assertEquals(RgbaColor(255, 255, 255, 51), bar.computedStyle?.borderBottomColor)
 
         // True full-width centering with non-blocking center slot & raised leading/trailing slots
         // (LayeredContainer float constraint sets position: absolute; standalone sets position: relative;
@@ -1098,8 +1098,8 @@ class OverlayWindowTitleBarTest {
 
         // Light theme unfocused dimming + translucent light frosted-glass fill
         overlay.windowTitleBarConfig = OverlayWindowTitleBarConfig(enabled = true, themeMode = ThemeMode.LIGHT)
-        assertEquals(RgbaColor(244, 246, 250, 71), bar.computedStyle?.backgroundColor)
-        assertEquals(RgbaColor(0, 0, 0, 26), bar.computedStyle?.borderBottomColor)
+        assertEquals(RgbaColor(244, 246, 250, 184), bar.computedStyle?.backgroundColor)
+        assertEquals(RgbaColor(0, 0, 0, 36), bar.computedStyle?.borderBottomColor)
         assertEquals(CssFilter(blur = CssLength.px(22f), saturate = 1.4f), bar.computedStyle?.backdropFilter)
         for (btn in listOf(bar.closeButton, bar.minimizeButton, bar.maximizeButton)) {
             assertEquals(RgbaColor(0, 0, 0, 41), btn.computedStyle?.backgroundColor)
@@ -1123,19 +1123,19 @@ class OverlayWindowTitleBarTest {
         assertTrue(bar.hasClass("gui-overlay-titlebar-flat"))
         assertFalse(bar.hasClass("gui-overlay-titlebar-blurred"))
         assertEquals(CssFilter.NONE, bar.computedStyle?.backdropFilter)
-        assertEquals(RgbaColor(244, 246, 250, 122), bar.computedStyle?.backgroundColor)
+        assertEquals(RgbaColor(244, 246, 250, 204), bar.computedStyle?.backgroundColor)
         assertEquals("36px", bar.closeButton.computedStyle?.width)
         assertEquals("31px", bar.closeButton.computedStyle?.height)
         assertEquals("✕", bar.closeButton.text)
 
         overlay.windowTitleBarConfig = OverlayWindowTitleBarConfig(enabled = true, themeMode = ThemeMode.DARK)
-        assertEquals(RgbaColor(16, 18, 24, 107), bar.computedStyle?.backgroundColor)
+        assertEquals(RgbaColor(16, 18, 24, 199), bar.computedStyle?.backgroundColor)
         assertEquals(CssFilter.NONE, bar.computedStyle?.backdropFilter)
 
-        assertEquals(56, OverlayWindowTitleBar.MACOS_BAR_BACKGROUND.a)
-        assertEquals(107, OverlayWindowTitleBar.TRANSLUCENT_DARK_BACKGROUND.a)
-        assertEquals(71, OverlayWindowTitleBar.LIGHT_BLUR_BAR_BACKGROUND.a)
-        assertEquals(122, OverlayWindowTitleBar.TRANSLUCENT_LIGHT_BACKGROUND.a)
+        assertEquals(173, OverlayWindowTitleBar.MACOS_BAR_BACKGROUND.a)
+        assertEquals(199, OverlayWindowTitleBar.TRANSLUCENT_DARK_BACKGROUND.a)
+        assertEquals(184, OverlayWindowTitleBar.LIGHT_BLUR_BAR_BACKGROUND.a)
+        assertEquals(204, OverlayWindowTitleBar.TRANSLUCENT_LIGHT_BACKGROUND.a)
 
         flatWindow.dispose()
         macWindow.dispose()
