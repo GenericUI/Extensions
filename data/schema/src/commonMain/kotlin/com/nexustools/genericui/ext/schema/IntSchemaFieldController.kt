@@ -123,6 +123,7 @@ internal class IntSchemaFieldController(
         } else {
             row
         }
+        bindLabelTarget(numberField)
         mountStandardBody(body, compactInline, numberField)
     }
 

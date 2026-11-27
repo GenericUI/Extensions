@@ -22,11 +22,13 @@ class AndroidNativeWebViewImpl(
 ) : AndroidBaseNativeImpl("android.webkit.WebView", "webview"), WebViewNativeImpl<AndroidViewHandle> {
 
     private var currentUrl: String? = null
+    private var currentFaviconUrlState: String? = null
     private var lastLoadedHtml: String? = null
     private val history = ArrayList<String>()
     private var historyIndex: Int = -1
     private var messageListener: ((String) -> Unit)? = null
     private var pageFinishedListener: ((String) -> Unit)? = null
+    private var faviconChangedListener: ((String?) -> Unit)? = null
     private var consoleMessageListener: ((WebViewConsoleMessage) -> Unit)? = null
     private var jsErrorListener: ((String) -> Unit)? = null
     private val communicationHandlers = LinkedHashMap<String, (String) -> String>()
@@ -52,6 +54,20 @@ class AndroidNativeWebViewImpl(
                 super.onPageFinished(view, url)
                 val resolved = url ?: currentUrl ?: "about:blank"
                 currentUrl = resolved
+                val fallbackIcon = resolveFallbackFaviconUrl(resolved)
+                updateFaviconUrl(fallbackIcon)
+                if (view != null && config.enableJavaScript) {
+                    runCatching {
+                        view.evaluateJavascript(
+                            "(function(){var l=document.querySelector('link[rel~=\"icon\"],link[rel=\"apple-touch-icon\"]');return l&&l.href?l.href:'';})();"
+                        ) { raw ->
+                            val clean = raw?.trim()?.removeSurrounding("\"")?.takeIf { it.isNotEmpty() && it != "null" && it != "undefined" }
+                            if (clean != null) {
+                                updateFaviconUrl(clean)
+                            }
+                        }
+                    }
+                }
                 pageFinishedListener?.invoke(resolved)
             }
         }
@@ -108,11 +124,14 @@ class AndroidNativeWebViewImpl(
                 runCatching { view.loadUrl(url) }
             }
         } else {
+            updateFaviconUrl(resolveFallbackFaviconUrl(url))
             pageFinishedListener?.invoke(url)
         }
     }
 
     override fun getUrl(): String? = currentUrl
+
+    override fun getFaviconUrl(): String? = currentFaviconUrlState
 
     override fun loadHtml(html: String, baseUrl: String?) {
         val effectiveUrl = baseUrl ?: "about:blank"
@@ -128,6 +147,7 @@ class AndroidNativeWebViewImpl(
                 }
             }
         } else {
+            updateFaviconUrl(resolveFallbackFaviconUrl(effectiveUrl))
             pageFinishedListener?.invoke(effectiveUrl)
         }
     }
@@ -232,6 +252,30 @@ class AndroidNativeWebViewImpl(
 
     override fun setOnPageFinished(listener: ((String) -> Unit)?) {
         pageFinishedListener = listener
+    }
+
+    override fun setOnFaviconChanged(listener: ((String?) -> Unit)?) {
+        faviconChangedListener = listener
+    }
+
+    private fun updateFaviconUrl(next: String?) {
+        if (next != currentFaviconUrlState) {
+            currentFaviconUrlState = next
+            faviconChangedListener?.invoke(next)
+        }
+    }
+
+    private fun resolveFallbackFaviconUrl(url: String?): String? {
+        val raw = url?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (!raw.startsWith("http://", ignoreCase = true) && !raw.startsWith("https://", ignoreCase = true)) {
+            return null
+        }
+        val schemeEnd = raw.indexOf("://")
+        val scheme = raw.substring(0, schemeEnd).lowercase()
+        val after = raw.substring(schemeEnd + 3)
+        val authEnd = listOf(after.indexOf('/'), after.indexOf('?'), after.indexOf('#')).filter { it >= 0 }.minOrNull() ?: after.length
+        val auth = after.substring(0, authEnd)
+        return if (auth.isEmpty()) null else "$scheme://$auth/favicon.ico"
     }
 
     override fun registerCommunicationFunction(name: String, handler: (String) -> String) {

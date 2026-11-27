@@ -2,6 +2,7 @@ package com.nexustools.genericui.android
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.SurfaceTexture
 import android.media.MediaCodecInfo
@@ -31,9 +32,12 @@ import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
+import com.nexustools.genericui.ext.media.system.SystemMediaFrameRingBuffer
+import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
 import com.nexustools.genericui.threading.GenericUiThreading
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Android `android.view.TextureView` + `android.media.MediaPlayer` + `Visualizer`
@@ -48,9 +52,20 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.view.TextureView",
     private var muted: Boolean = false
     private var playbackSpeed: Float = 1f
     private var resizeMode: VideoResizeMode = VideoResizeMode.FIT
+    private var loopEnabled: Boolean = false
     private var antialiasingEnabled: Boolean = true
     private var keepScreenOnState: Boolean = true
     private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+
+    private val frameRingLock = Any()
+    @Volatile
+    private var offscreenFrameCaptureEnabled: Boolean = false
+    private var offscreenRgbaRing = SystemMediaFrameRingBuffer(width = 16, height = 16, capacity = 3)
+    private val frameVersionCounter = AtomicLong(0L)
+    private val presentedFrameCounter = AtomicLong(0L)
+    private var captureBitmap: Bitmap? = null
+    private var captureArgbPixels: IntArray = IntArray(0)
+    private var onBeforeFramePresentListener: ((Long, Double) -> Unit)? = null
 
     @Volatile
     private var nativePlayerDisposed: Boolean = false
@@ -241,7 +256,9 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.view.TextureView",
                 return false
             }
 
-            override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+            override fun onSurfaceTextureUpdated(st: SurfaceTexture) {
+                textureView?.let { captureTextureViewFrame(it) }
+            }
         }
         textureView = tv
         val container = object : FrameLayout(context) {
@@ -483,6 +500,7 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.view.TextureView",
                 mp.setDataSource(context, Uri.parse(url))
             }
             mp.setSurface(videoSurface)
+            mp.isLooping = loopEnabled
             mp.setScreenOnWhilePlaying(keepScreenOnState && playing)
             mp.setOnVideoSizeChangedListener { _, w, h ->
                 if (w > 0 && h > 0 && (w != videoWidthPx || h != videoHeightPx)) {
@@ -530,6 +548,7 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.view.TextureView",
             }
             mp.setOnCompletionListener { completedMp ->
                 if (activeMediaPlayer !== completedMp) return@setOnCompletionListener
+                if (loopEnabled) return@setOnCompletionListener
                 playing = false
                 stopPositionPolling()
                 syncWakeLockState()
@@ -914,10 +933,96 @@ class AndroidVideoPlayerImpl : AndroidBaseNativeImpl("android.view.TextureView",
                 runCatching { savedSt.release() }
             }
             retainedSurfaceTexture = null
+            captureBitmap?.let { bmp ->
+                runCatching { bmp.recycle() }
+            }
+            captureBitmap = null
         }
         syncWakeLockState()
         MediaScreenWakeController.releaseToken(screenWakeToken)
         super.dispose()
+    }
+
+    override fun setLoop(loop: Boolean) {
+        loopEnabled = loop
+        activeMediaPlayer?.let { mp ->
+            runCatching { mp.isLooping = loop }
+        }
+    }
+
+    override fun isLoop(): Boolean = loopEnabled
+
+    override fun enableOffscreenFrameCapture(enabled: Boolean) {
+        offscreenFrameCaptureEnabled = enabled
+        if (enabled) {
+            AndroidViewHandle.runOnMainThread {
+                textureView?.let { captureTextureViewFrame(it) }
+            }
+        }
+    }
+
+    override fun copyLatestVideoFrame(): ImageBuffer? {
+        if (frameVersionCounter.get() <= 0L) return null
+        synchronized(frameRingLock) {
+            val slot = offscreenRgbaRing.latestPresentedSlot()
+            return ImageBuffer(
+                width = slot.width,
+                height = slot.height,
+                pixelFormat = slot.pixelFormat,
+                colorSpace = slot.colorSpace,
+                bytes = slot.bytes.copyOf()
+            )
+        }
+    }
+
+    override val videoFrameVersion: Long
+        get() = frameVersionCounter.get()
+
+    override fun getNaturalVideoWidth(): Int = videoWidthPx
+
+    override fun getNaturalVideoHeight(): Int = videoHeightPx
+
+    override fun getPresentedFrameCount(): Long = presentedFrameCounter.get()
+
+    override fun setOnBeforeFramePresent(listener: ((frameIndex: Long, timestampMs: Double) -> Unit)?) {
+        onBeforeFramePresentListener = listener
+    }
+
+    private fun captureTextureViewFrame(tv: TextureView) {
+        if (!offscreenFrameCaptureEnabled || nativePlayerDisposed || !tv.isAvailable) return
+        val w = (if (videoWidthPx > 0) videoWidthPx else tv.width).coerceAtLeast(1)
+        val h = (if (videoHeightPx > 0) videoHeightPx else tv.height).coerceAtLeast(1)
+        synchronized(frameRingLock) {
+            val existingBmp = captureBitmap
+            val bmp = if (existingBmp != null && existingBmp.width == w && existingBmp.height == h && !existingBmp.isRecycled) {
+                existingBmp
+            } else {
+                existingBmp?.let { runCatching { it.recycle() } }
+                Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { captureBitmap = it }
+            }
+            val resultBmp = tv.getBitmap(bmp) ?: return
+            val pixelCount = w * h
+            if (captureArgbPixels.size != pixelCount) {
+                captureArgbPixels = IntArray(pixelCount)
+            }
+            resultBmp.getPixels(captureArgbPixels, 0, w, 0, 0, w, h)
+            val latest = offscreenRgbaRing.latestPresentedSlot()
+            if (latest.width != w || latest.height != h) {
+                offscreenRgbaRing = SystemMediaFrameRingBuffer(width = w, height = h, capacity = 3)
+            }
+            val dstBytes = offscreenRgbaRing.acquireWriteSlot().bytes
+            for (p in 0 until pixelCount) {
+                val argb = captureArgbPixels[p]
+                val base = p shl 2
+                dstBytes[base] = ((argb ushr 16) and 0xFF).toByte()
+                dstBytes[base + 1] = ((argb ushr 8) and 0xFF).toByte()
+                dstBytes[base + 2] = (argb and 0xFF).toByte()
+                dstBytes[base + 3] = ((argb ushr 24) and 0xFF).toByte()
+            }
+        }
+        val frameIdx = presentedFrameCounter.incrementAndGet()
+        frameVersionCounter.incrementAndGet()
+        onBeforeFramePresentListener?.invoke(frameIdx, (currentPositionSeconds * 1000.0).coerceAtLeast(0.0))
     }
 
     override fun setOnMediaReady(listener: (() -> Unit)?) {

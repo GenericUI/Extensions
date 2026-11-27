@@ -24,12 +24,11 @@ class IosNativeWebViewTest {
         assertTrue(IosWebViewExtensionProvider.supportsTarget(BackendTarget.IPadOS))
 
         MobileWebViewExtensionProvider.install(BackendTarget.IPadOS)
-        assertEquals(WebViewEngineType.IOS_NATIVE_WKWEBVIEW, WebViewExtension.activeEngineType)
+        assertEquals(WebViewEngineType.APPLE_WKWEBVIEW, WebViewExtension.activeEngineType)
 
         IosWebViewExtensionProvider.install()
-        assertEquals(WebViewEngineType.IOS_NATIVE_WKWEBVIEW, WebViewExtension.activeEngineType)
+        assertEquals(WebViewEngineType.APPLE_WKWEBVIEW, WebViewExtension.activeEngineType)
         assertFalse(WebViewExtension.activeEngineType.usesNjsJitRuntime)
-        assertFalse(WebViewExtension.activeEngineType.usesChromium)
 
         val impl = IosNativeWebViewImpl(
             WebViewConfig(
@@ -60,7 +59,7 @@ class IosNativeWebViewTest {
         assertEquals("ios:wk", out)
 
         val webView = WebView()
-        assertEquals(WebViewEngineType.IOS_NATIVE_WKWEBVIEW, webView.engineType)
+        assertEquals(WebViewEngineType.APPLE_WKWEBVIEW, webView.engineType)
 
         val disabled = IosNativeWebViewImpl(WebViewConfig(enableJavaScript = false))
         assertFalse(disabled.wkWebView.configuration.defaultWebpagePreferences.allowsContentJavaScript)

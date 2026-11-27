@@ -151,7 +151,8 @@ open class Canvas3D(
     }
 
     protected override fun createNativeImpl(factory: NativeFactory): Canvas3DNativeImpl<*> =
-        Canvas3DRegistry.createCanvas3DNative(this)
+        (factory.createExtensionNativeImpl(this) as? Canvas3DNativeImpl<*>)
+            ?: Canvas3DRegistry.createCanvas3DNative(this)
 
     override fun syncStateToNative() {
         super.syncStateToNative()

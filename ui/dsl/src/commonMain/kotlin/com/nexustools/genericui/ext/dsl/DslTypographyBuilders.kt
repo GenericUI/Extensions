@@ -24,6 +24,7 @@ import com.nexustools.genericui.component.typography.Badge
 import com.nexustools.genericui.component.typography.Blockquote
 import com.nexustools.genericui.component.typography.CodeBlock
 import com.nexustools.genericui.component.typography.Heading
+import com.nexustools.genericui.component.typography.ILabelTarget
 import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.component.typography.MarkdownView
 import com.nexustools.genericui.core.AbstractContainer
@@ -137,8 +138,15 @@ inline fun AbstractContainer.label(
     text: String = "",
     classes: String? = null,
     id: String? = null,
+    target: ILabelTarget? = null,
     block: (@GenericUiDslMarker Label).() -> Unit = {}
-): Label = mountDslComponent(this, Label(text = text, tagName = "label", classPrefix = "form-label"), classes, id, block)
+): Label = mountDslComponent(
+    this,
+    Label(text = text, tagName = "label", classPrefix = "form-label", target = target),
+    classes,
+    id,
+    block
+)
 
 /**
  * In-place `<sup>` superscript [Sup] builder matching `kotlinx.html`'s `sup`.

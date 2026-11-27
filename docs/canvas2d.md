@@ -33,7 +33,7 @@
 
 ## 2. Gradle Plugin Configuration
 
-Enabling `canvas2d()` in `genericui { extensions { ... } }` inside `build.gradle.kts` automatically enables `imageProcessing()`, `overlay()`, and `gpu()`, and includes `:extensions:graphics:canvas2d:dsl` when `dsl()` is enabled:
+Enabling `canvas2d()` in `genericui { extensions { ... } }` inside `build.gradle.kts` automatically enables `imageProcessing()`, `overlay()`, and `gpu()`, includes `:extensions:graphics:canvas2d:dsl` when `dsl()` is enabled, and auto-adds & auto-registers **`:extensions:graphics:canvas2d:alien`** ([`Canvas2DAlienExtension`](../graphics/canvas2d/alien/src/commonMain/kotlin/com/nexustools/genericui/ext/canvas2d/alien/Canvas2DAlienExtension.kt) $\rightarrow$ `Canvas2DAlienImpl`) whenever `alien()` (or Desktop `webView()`) is active:
 
 ```kotlin
 plugins {
@@ -176,4 +176,6 @@ fun createScrollableTilemapWithOverlay(): ScrollCanvas2DOverlayHost {
 - [`:extensions:graphics:gpu` (`gpu.md`)](gpu.md) — Defines `AbstractCanvas`, `VBlankWatcher`, `VBlankTimer`, and hardware GPU pipelines.
 - [`:extensions:ui:codeeditor` (`codeeditor.md`)](codeeditor.md) — Uses `Canvas2D` to render syntax-highlighted source code and `CodeMinimap`.
 - [`:extensions:physics:box2d` (`box2d.md`)](box2d.md) — Uses `ImageBuffer2DContext` in `Box2DDebugDrawer` to visualize 2D rigid bodies, fixtures, joints, and AABBs.
+- [`:extensions:ui:alien` (`alien.md`)](alien.md) — Uses `Canvas2D` for self-rendering UI and auto-registers `:extensions:graphics:canvas2d:alien` (`Canvas2DAlienImpl`) for nested child canvases without OS underlay holes.
+- [`:extensions:graphics:svg` (`svg.md`)](svg.md) — Sister vector scene graph extension (`Svg`, `SvgAlienImpl`).
 - [`:extensions:graphics:canvas3d` (`canvas3d.md`)](canvas3d.md) — Sister 3D canvas extension (`Canvas3D`, `ScrollCanvas3D`, `Canvas3DOverlayHost`).

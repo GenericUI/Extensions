@@ -4,34 +4,30 @@ package com.nexustools.genericui.ext.webview
  * Identifies the underlying rendering and JavaScript execution engine powering [WebView].
  *
  * - On Desktop builds (`:desktop` / `:windows`, `:macos`, `:gtk`, `:kde`, `:swing`), uses the
- *   **Chromium** project (`ChromiumBlinkEngine`) for HTML/CSS layout & rendering coupled with
- *   **`NJS`** (`lib/NJS` with AsmJit/SLJIT Native JIT) for the JavaScript runtime.
+ *   Alien layout/compositing engine + companion extensions (`svg`, `canvas2d`, `canvas3d`, `media`)
+ *   coupled with **`NJS`** (`lib/NJS`) in an isolated per-instance OS worker process over
+ *   `:extensions:system:ipc`.
  * - On Mobile (`:android`, `:ios`) and `:web`, uses the native platform implementation
  *   (`android.webkit.WebView`, `WKWebView`, or HTML5 `<iframe>`) and **NEVER** uses NJS.
  */
 enum class WebViewEngineType(
     val displayName: String,
-    val usesChromium: Boolean,
     val usesNjsJitRuntime: Boolean
 ) {
-    CHROMIUM_NJS_JIT_DESKTOP(
-        displayName = "Chromium Blink + NJS Native JIT Runtime (Desktop)",
-        usesChromium = true,
+    ALIEN_NJS(
+        displayName = "Alien + NJS Web Runtime (Isolated IPC Worker)",
         usesNjsJitRuntime = true
     ),
-    ANDROID_NATIVE_WEBKIT(
+    ANDROID_WEBVIEW(
         displayName = "Android Native android.webkit.WebView",
-        usesChromium = true,
         usesNjsJitRuntime = false
     ),
-    IOS_NATIVE_WKWEBVIEW(
-        displayName = "iOS Native WKWebView (WebKit)",
-        usesChromium = false,
+    APPLE_WKWEBVIEW(
+        displayName = "Apple Native WKWebView (WebKit)",
         usesNjsJitRuntime = false
     ),
-    WEB_NATIVE_IFRAME(
+    WEB_IFRAME(
         displayName = "Web Native HTML5 <iframe>",
-        usesChromium = false,
         usesNjsJitRuntime = false
     )
 }

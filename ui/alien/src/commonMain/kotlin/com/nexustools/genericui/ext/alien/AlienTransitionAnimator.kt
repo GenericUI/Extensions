@@ -3,11 +3,16 @@ package com.nexustools.genericui.ext.alien
 import com.nexustools.genericui.enums.css.CssUnit
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.ComputedStyle
+import com.nexustools.genericui.style.css.CssAnimationSpec
 import com.nexustools.genericui.style.css.CssCornerRadii
 import com.nexustools.genericui.style.css.CssFilter
 import com.nexustools.genericui.style.css.CssLength
 import com.nexustools.genericui.style.css.CssShadow
 import com.nexustools.genericui.style.css.CssShadowList
+import com.nexustools.genericui.style.css.CssStyleSheet
+import com.nexustools.genericui.style.css.PrecompiledStyleSheet
+import com.nexustools.genericui.style.sass.CssDeclarationApplyUtil
 import com.nexustools.genericui.style.transition.CssTimingFunction
 import com.nexustools.genericui.style.transition.CssTransform2D
 import com.nexustools.genericui.style.transition.CssTransitionSpec
@@ -49,8 +54,62 @@ class AlienTransitionAnimator {
         }
     }
 
+    private data class KeyframeStop(
+        val offset: Float,
+        val computed: ComputedStyle
+    )
+
+    private class ActiveKeyframeAnimation(
+        var spec: CssAnimationSpec,
+        var stops: List<KeyframeStop>,
+        var elapsedMs: Float = 0f
+    ) {
+        fun isActive(): Boolean {
+            if (spec.isPaused || spec.durationMs <= 0f || stops.isEmpty()) return false
+            if (spec.isInfinite) return true
+            val totalDuration = spec.delayMs.coerceAtLeast(0f) + spec.durationMs * spec.iterationCount.coerceAtLeast(0f)
+            return elapsedMs < totalDuration
+        }
+
+        fun resolveProgress(): Float? {
+            if (spec.durationMs <= 0f || stops.isEmpty()) return null
+            val delay = spec.delayMs.coerceAtLeast(0f)
+            if (elapsedMs < delay) {
+                val fillBack = spec.fillMode.equals(CssAnimationSpec.FILL_BACKWARDS, true) ||
+                    spec.fillMode.equals(CssAnimationSpec.FILL_BOTH, true)
+                return if (fillBack) directionalProgress(0f, 0) else null
+            }
+            val activeTime = elapsedMs - delay
+            val maxTime = if (spec.isInfinite) Float.POSITIVE_INFINITY else spec.durationMs * spec.iterationCount.coerceAtLeast(0f)
+            if (activeTime >= maxTime && !spec.isInfinite) {
+                val fillFwd = spec.fillMode.equals(CssAnimationSpec.FILL_FORWARDS, true) ||
+                    spec.fillMode.equals(CssAnimationSpec.FILL_BOTH, true)
+                if (!fillFwd) return null
+                val iterIdx = (spec.iterationCount.coerceAtLeast(1f) - 1f).toInt().coerceAtLeast(0)
+                val endFrac = spec.iterationCount - iterIdx
+                return directionalProgress(endFrac.coerceIn(0f, 1f), iterIdx)
+            }
+            val rawIter = (activeTime / spec.durationMs)
+            val iterIdx = rawIter.toInt().coerceAtLeast(0)
+            val localFrac = (rawIter - iterIdx).coerceIn(0f, 1f)
+            return directionalProgress(localFrac, iterIdx)
+        }
+
+        private fun directionalProgress(fraction: Float, iterationIndex: Int): Float {
+            val reversed = when (spec.direction.lowercase()) {
+                CssAnimationSpec.DIRECTION_REVERSE -> true
+                CssAnimationSpec.DIRECTION_ALTERNATE -> iterationIndex % 2 == 1
+                CssAnimationSpec.DIRECTION_ALTERNATE_REVERSE -> iterationIndex % 2 == 0
+                else -> false
+            }
+            val dirFrac = if (reversed) 1f - fraction else fraction
+            return spec.timingFunction.evaluate(dirFrac.coerceIn(0f, 1f))
+        }
+    }
+
     private var configuredSpecs: List<CssTransitionSpec> = emptyList()
     private val activeTransitions = linkedMapOf<String, ActivePropertyTransition>()
+    private val activeKeyframes = linkedMapOf<String, ActiveKeyframeAnimation>()
 
     private var previousTargetStyle: AlienResolvedVisualStyle? = null
     private var startStyleSnapshot: AlienResolvedVisualStyle? = null
@@ -63,10 +122,64 @@ class AlienTransitionAnimator {
         get() = configuredSpecs.isNotEmpty()
 
     val isAnimating: Boolean
-        get() = activeTransitions.isNotEmpty()
+        get() = activeTransitions.isNotEmpty() || activeKeyframes.values.any { it.isActive() }
 
     fun configureTransitions(specs: List<CssTransitionSpec>) {
         configuredSpecs = specs
+    }
+
+    fun configureKeyframeAnimations(
+        specs: List<CssAnimationSpec>,
+        styleSheets: List<PrecompiledStyleSheet>
+    ) {
+        if (specs.isEmpty()) {
+            activeKeyframes.clear()
+            return
+        }
+        val activeNames = LinkedHashSet<String>(specs.size)
+        for (spec in specs) {
+            val name = spec.name.trim()
+            if (name.isEmpty() || name.equals("none", ignoreCase = true)) continue
+            activeNames.add(name)
+            val existing = activeKeyframes[name]
+            val resolvedStops = findKeyframeStops(name, styleSheets)
+            if (existing != null) {
+                existing.spec = spec
+                if (resolvedStops.isNotEmpty()) existing.stops = resolvedStops
+            } else if (resolvedStops.isNotEmpty()) {
+                activeKeyframes[name] = ActiveKeyframeAnimation(spec = spec, stops = resolvedStops)
+            }
+        }
+        activeKeyframes.keys.removeAll { it !in activeNames }
+    }
+
+    private fun findKeyframeStops(
+        name: String,
+        styleSheets: List<PrecompiledStyleSheet>
+    ): List<KeyframeStop> {
+        var rawFrames: Map<String, Map<String, String>>? = null
+        for (i in styleSheets.indices.reversed()) {
+            val map = styleSheets[i].styleSheet.keyframes[name]
+            if (map != null) {
+                rawFrames = map
+                break
+            }
+        }
+        if (rawFrames.isNullOrEmpty()) return emptyList()
+        val parsed = mutableListOf<KeyframeStop>()
+        for ((selector, decls) in rawFrames) {
+            for (part in selector.split(',')) {
+                val tok = part.trim().lowercase()
+                val offset = when (tok) {
+                    "from" -> 0f
+                    "to" -> 1f
+                    else -> tok.removeSuffix("%").trim().toFloatOrNull()?.div(100f)
+                }?.coerceIn(0f, 1f) ?: continue
+                val cs = CssDeclarationApplyUtil.fromDeclarations(decls).toComputedStyle()
+                parsed.add(KeyframeStop(offset, cs))
+            }
+        }
+        return parsed.sortedBy { it.offset }
     }
 
     fun startTransition(
@@ -331,12 +444,71 @@ class AlienTransitionAnimator {
             filter = if (filterT < 1f) lerpFilter(start.filter, targetStyle.filter, filterT) else targetStyle.filter,
             backdropFilter = if (backdropFilterT < 1f) lerpFilter(start.backdropFilter, targetStyle.backdropFilter, backdropFilterT) else targetStyle.backdropFilter
         )
-        currentInterpolatedStyle = resolved
-        return resolved
+        val withKeyframes = applyActiveKeyframeAnimations(resolved)
+        currentInterpolatedStyle = withKeyframes
+        return withKeyframes
+    }
+
+    private fun applyActiveKeyframeAnimations(base: AlienResolvedVisualStyle): AlienResolvedVisualStyle {
+        if (activeKeyframes.isEmpty()) return base
+        var result = base
+        for (anim in activeKeyframes.values) {
+            val t = anim.resolveProgress() ?: continue
+            val stops = anim.stops
+            if (stops.isEmpty()) continue
+            var prev = stops.first()
+            var next = stops.last()
+            for (i in 0 until stops.size - 1) {
+                if (t >= stops[i].offset && t <= stops[i + 1].offset) {
+                    prev = stops[i]
+                    next = stops[i + 1]
+                    break
+                }
+            }
+            val span = (next.offset - prev.offset)
+            val localT = if (span <= 1e-5f) {
+                if (t >= next.offset) 1f else 0f
+            } else {
+                ((t - prev.offset) / span).coerceIn(0f, 1f)
+            }
+            result = interpolateKeyframeComputed(result, prev.computed, next.computed, localT)
+        }
+        return result
+    }
+
+    private fun interpolateKeyframeComputed(
+        base: AlienResolvedVisualStyle,
+        from: ComputedStyle,
+        to: ComputedStyle,
+        t: Float
+    ): AlienResolvedVisualStyle {
+        val opFrom = if (from.opacity != 1f || from.hasProperty(com.nexustools.genericui.style.css.CssProperty.OPACITY)) from.opacity else base.opacity
+        val opTo = if (to.opacity != 1f || to.hasProperty(com.nexustools.genericui.style.css.CssProperty.OPACITY)) to.opacity else base.opacity
+        val bgFrom = from.backgroundColor ?: base.backgroundColor
+        val bgTo = to.backgroundColor ?: base.backgroundColor
+        val fgFrom = from.textColor ?: base.textColor
+        val fgTo = to.textColor ?: base.textColor
+        val bcFrom = from.borderColor ?: base.borderColor
+        val bcTo = to.borderColor ?: base.borderColor
+        val tfFrom = from.transform2D ?: base.transform2D
+        val tfTo = to.transform2D ?: base.transform2D
+        val radFrom = from.borderRadiusPx ?: base.borderRadiusPx
+        val radTo = to.borderRadiusPx ?: base.borderRadiusPx
+        val fsFrom = from.fontSizePx ?: base.fontSizePx
+        val fsTo = to.fontSizePx ?: base.fontSizePx
+        return base.copy(
+            opacity = lerpFloat(opFrom, opTo, t).coerceIn(0f, 1f),
+            backgroundColor = lerpColor(bgFrom, bgTo, t),
+            textColor = lerpColor(fgFrom, fgTo, t),
+            borderColor = lerpColor(bcFrom, bcTo, t),
+            transform2D = tfFrom.interpolateTo(tfTo, t),
+            borderRadiusPx = lerpFloat(radFrom, radTo, t),
+            fontSizePx = lerpFloat(fsFrom, fsTo, t)
+        )
     }
 
     /**
-     * Advances active transitions and continuous animations by [deltaMs] milliseconds.
+     * Advances active transitions, keyframe animations, and continuous animations by [deltaMs] milliseconds.
      * Returns `true` if any visual property changed and requires a dirty region repaint.
      */
     fun step(deltaMs: Float, hasContinuousAnimation: Boolean = false): Boolean {
@@ -346,6 +518,13 @@ class AlienTransitionAnimator {
         if (hasContinuousAnimation && safeDelta > 0f) {
             continuousAnimationPhaseRad = (continuousAnimationPhaseRad + (safeDelta / 750f) * 6.2831855f) % 6.2831855f
             changed = true
+        }
+
+        for (anim in activeKeyframes.values) {
+            if (!anim.spec.isPaused && anim.isActive()) {
+                anim.elapsedMs += safeDelta
+                changed = true
+            }
         }
 
         if (activeTransitions.isEmpty()) return changed

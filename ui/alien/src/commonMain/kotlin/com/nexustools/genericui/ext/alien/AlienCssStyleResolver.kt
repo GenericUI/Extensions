@@ -24,11 +24,18 @@ import kotlin.math.roundToInt
  */
 object AlienCssStyleResolver {
 
+    private val CSS_URL_REGEX = Regex("url\\(\\s*['\"]?([^'\")]+)['\"]?\\s*\\)", RegexOption.IGNORE_CASE)
+
     fun resolve(node: AlienWidgetNode): AlienResolvedVisualStyle {
         val snapshot = node.styleSnapshot
         val customClasses = snapshot.customClasses
         val darkTheme = isDarkTheme(node)
-        val cssVars = collectCssVariables(node, darkTheme)
+        val activeSession = resolveActiveSession(node)
+        val viewportWidthPx = activeSession?.viewportWidth ?: 1280
+        val viewportHeightPx = activeSession?.viewportHeight ?: 800
+        val useBootstrapSheet = activeSession == null || activeSession.hasBootstrapStyleSheet
+        val insertAppIdx = activeSession?.insertApplicationStyleSheets ?: 1
+        val cssVars = collectCssVariables(node, darkTheme, useBootstrapSheet)
 
         val prefix = node.componentClassPrefix.lowercase()
         val isButton = prefix == "btn" || "btn" in customClasses
@@ -39,11 +46,8 @@ object AlienCssStyleResolver {
             prefix == "form-select" || "form-select" in customClasses
         val isNavbar = prefix == "navbar" || "navbar" in customClasses
 
-        val activeSession = resolveActiveSession(node)
-        val viewportWidthPx = activeSession?.viewportWidth ?: 1280
-        val useBootstrapSheet = activeSession == null || activeSession.hasBootstrapStyleSheet
-        val insertAppIdx = activeSession?.insertApplicationStyleSheets ?: 1
         val isDisabledClass = !node.enabled || "disabled" in customClasses
+        val lowerTag = node.tagName.trim().lowercase()
 
         // Do NOT force BootstrapType.PRIMARY on `.btn` when `snapshot.type` is null or BootstrapType.NONE
         val semanticType = snapshot.type?.takeIf { it.isSemantic }
@@ -59,7 +63,7 @@ object AlienCssStyleResolver {
         // 1. Precompiled Bootstrap 5.3 Stylesheet (`AlienPrecompiledBootstrapStyleSheet` from `bootstrap.scss`)
         val bootstrapStateComputed: ComputedStyle? = if (useBootstrapSheet) {
             AlienPrecompiledBootstrapStyleSheet
-                .resolveForNode(node, darkTheme, viewportWidthPx)
+                .resolveForNode(node, darkTheme, viewportWidthPx, viewportHeightPx)
                 .resolveForState(
                     hovered = node.hoveredState && !isDisabledClass,
                     focused = node.focusedState && !isDisabledClass,
@@ -118,7 +122,7 @@ object AlienCssStyleResolver {
                     borderColor = bgColor
                     textColor = AlienBootstrapThemeTokens.foregroundColorForType(effectiveType)
                 }
-            } else if (isAlert && effectiveType != null && bootstrapStateComputed?.backgroundColor == null) {
+            } else if (isAlert && effectiveType != null && (bootstrapStateComputed?.backgroundColor == null || (darkTheme && bootstrapStateComputed.backgroundColor == AlienBootstrapThemeTokens.BODY_BG_LIGHT))) {
                 val base = resolveTypeColor(effectiveType, cssVars)
                 bgColor = base.blendOverSurface(
                     if (darkTheme) AlienBootstrapThemeTokens.BODY_BG_DARK else AlienBootstrapThemeTokens.BODY_BG_LIGHT,
@@ -130,11 +134,11 @@ object AlienCssStyleResolver {
             } else if (isBadge && effectiveType != null) {
                 bgColor = resolveTypeColor(effectiveType, cssVars)
                 textColor = AlienBootstrapThemeTokens.foregroundColorForType(effectiveType)
-            } else if (isCard && bootstrapStateComputed?.backgroundColor == null) {
+            } else if (isCard && (bootstrapStateComputed?.backgroundColor == null || (darkTheme && bootstrapStateComputed.backgroundColor == AlienBootstrapThemeTokens.BODY_BG_LIGHT))) {
                 bgColor = if (darkTheme) AlienBootstrapThemeTokens.TERTIARY_BG_DARK else AlienBootstrapThemeTokens.BODY_BG_LIGHT
                 borderColor = if (darkTheme) AlienBootstrapThemeTokens.BORDER_COLOR_DARK else AlienBootstrapThemeTokens.BORDER_COLOR_LIGHT
                 borderWidthPx = 1f
-            } else if (isFormControl && bootstrapStateComputed?.backgroundColor == null) {
+            } else if (isFormControl && (bootstrapStateComputed?.backgroundColor == null || (darkTheme && bootstrapStateComputed.backgroundColor == AlienBootstrapThemeTokens.BODY_BG_LIGHT))) {
                 bgColor = if (darkTheme) AlienBootstrapThemeTokens.BODY_BG_DARK else AlienBootstrapThemeTokens.BODY_BG_LIGHT
                 borderColor = if (node.focusedState) {
                     AlienBootstrapThemeTokens.PRIMARY.adjustBrightness(45)
@@ -142,7 +146,7 @@ object AlienCssStyleResolver {
                     if (darkTheme) AlienBootstrapThemeTokens.BORDER_COLOR_DARK else AlienBootstrapThemeTokens.BORDER_COLOR_LIGHT
                 }
                 borderWidthPx = 1f
-            } else if (isNavbar && bootstrapStateComputed?.backgroundColor == null) {
+            } else if (isNavbar && (bootstrapStateComputed?.backgroundColor == null || (darkTheme && bootstrapStateComputed.backgroundColor == AlienBootstrapThemeTokens.TERTIARY_BG_LIGHT))) {
                 bgColor = if (darkTheme) AlienBootstrapThemeTokens.TERTIARY_BG_DARK else AlienBootstrapThemeTokens.TERTIARY_BG_LIGHT
                 borderColor = if (darkTheme) AlienBootstrapThemeTokens.BORDER_COLOR_DARK else AlienBootstrapThemeTokens.BORDER_COLOR_LIGHT
                 borderWidthPx = 1f
@@ -197,7 +201,7 @@ object AlienCssStyleResolver {
                 )
             }
             return AlienPrecompiledBootstrapStyleSheet
-                .resolveStyleSheetForNode(sheet.styleSheet, node, darkTheme, viewportWidthPx)
+                .resolveStyleSheetForNode(sheet.styleSheet, node, darkTheme, viewportWidthPx, viewportHeightPx)
                 .resolveForState(
                     hovered = node.hoveredState && !isDisabledClass,
                     focused = node.focusedState && !isDisabledClass,
@@ -246,9 +250,20 @@ object AlienCssStyleResolver {
         }
 
         // 4. Typography Resolution (before padding/margin so `em` units resolve against `fontSizePx`)
+        val uaHeadingScaleEm = when (lowerTag) {
+            "h1" -> 2.0f
+            "h2" -> 1.5f
+            "h3" -> 1.17f
+            "h4" -> 1.0f
+            "h5" -> 0.83f
+            "h6" -> 0.67f
+            "small" -> 0.833f
+            else -> null
+        }
         var fontSizePx = when {
             snapshot.fontSize != null -> snapshot.fontSize!!.sizePx
             snapshot.size != null -> AlienBootstrapThemeTokens.fontSizeForSize(snapshot.size)
+            uaHeadingScaleEm != null -> inherited.fontSizePx * uaHeadingScaleEm
             else -> inherited.fontSizePx
         }
         stateComputed?.fontSizePx?.let { fontSizePx = it }
@@ -259,20 +274,27 @@ object AlienCssStyleResolver {
             nodeStyle.getFontSize()?.resolvePx(
                 referencePx = inherited.fontSizePx,
                 rootFontSizePx = 16f,
-                parentFontSizePx = inherited.fontSizePx
+                parentFontSizePx = inherited.fontSizePx,
+                viewportWidthPx = viewportWidthPx.toFloat(),
+                viewportHeightPx = viewportHeightPx.toFloat()
             )?.let { fontSizePx = it.coerceAtLeast(6f) }
         }
+        node.styledVisualOverride?.fontSizePx?.let { fontSizePx = it.coerceAtLeast(6f) }
 
+        val isUaBold = lowerTag in setOf("h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "th")
         var fontWeight = snapshot.fontWeight?.numericWeight
             ?: stateComputed?.fontWeightNumeric
-            ?: if (isBadge || node.tagName.lowercase().startsWith("h")) 700 else inherited.fontWeight
+            ?: if (isBadge || isUaBold) 700 else inherited.fontWeight
         if (nodeStyle?.fontWeightNumeric != null && nodeStyleWins(CssProperty.FONT_WEIGHT)) {
             fontWeight = nodeStyle.fontWeightNumeric!!
         }
+        node.styledVisualOverride?.fontWeightNumeric?.let { fontWeight = it }
 
+        val isUaItalic = lowerTag == "em" || lowerTag == "i" || lowerTag == "cite" || lowerTag == "var"
         var italic = "fst-italic" in customClasses ||
             stateComputed?.fontStyle == CssFontStyle.ITALIC ||
             stateComputed?.fontStyle == CssFontStyle.OBLIQUE ||
+            (stateComputed?.fontStyle == null && isUaItalic) ||
             inherited.italic
         if (nodeStyle?.getFontStyle() != null && nodeStyleWins(CssProperty.FONT_STYLE)) {
             italic = nodeStyle.getFontStyle() == CssFontStyle.ITALIC || nodeStyle.getFontStyle() == CssFontStyle.OBLIQUE
@@ -404,6 +426,10 @@ object AlienCssStyleResolver {
                     resolvedPadding = EdgeInsets(top = 4, right = 7, bottom = 4, left = 7)
                 } else if (isFormControl) {
                     resolvedPadding = EdgeInsets(top = 6, right = 12, bottom = 6, left = 12)
+                } else if (!useBootstrapSheet && (lowerTag == "ul" || lowerTag == "ol")) {
+                    resolvedPadding = EdgeInsets(top = 0, right = 0, bottom = 0, left = 32)
+                } else if (!useBootstrapSheet && (lowerTag == "td" || lowerTag == "th")) {
+                    resolvedPadding = EdgeInsets.all(4)
                 }
             }
         }
@@ -628,9 +654,16 @@ object AlienCssStyleResolver {
             snapshot.display == DisplayMode.INLINE -> "inline"
             snapshot.display == DisplayMode.BLOCK -> "block"
             node.tagName.equals("table", ignoreCase = true) -> "table"
+            node.tagName.equals("thead", ignoreCase = true) -> "table-header-group"
+            node.tagName.equals("tbody", ignoreCase = true) -> "table-row-group"
+            node.tagName.equals("tfoot", ignoreCase = true) -> "table-footer-group"
+            node.tagName.equals("caption", ignoreCase = true) -> "table-caption"
             node.tagName.equals("tr", ignoreCase = true) -> "table-row"
             node.tagName.equals("td", ignoreCase = true) || node.tagName.equals("th", ignoreCase = true) -> "table-cell"
+            node.tagName.equals("li", ignoreCase = true) -> "list-item"
             isButton -> "inline-block"
+            lowerTag in setOf("span", "a", "strong", "b", "em", "i", "code", "small", "mark", "label", "u", "s", "del") &&
+                node.children.isEmpty() -> "inline"
             else -> "block"
         }
 
@@ -667,13 +700,19 @@ object AlienCssStyleResolver {
             else -> null
         }
 
-        val widthCss = stateComputed?.width ?: bootstrapWidthCss
+        val widthCss = visualSpec?.widthPx?.let { "${it}px" }
+            ?: stateComputed?.width
+            ?: bootstrapWidthCss
             ?: if ("w-100" in customClasses) "100%" else null
-        val heightCss = stateComputed?.height ?: bootstrapHeightCss
+        val heightCss = visualSpec?.heightPx?.let { "${it}px" }
+            ?: stateComputed?.height
+            ?: bootstrapHeightCss
             ?: if ("h-100" in customClasses) "100%" else null
-        val minWidthCss = stateComputed?.minWidth
+        val minWidthCss = visualSpec?.minWidthPx?.let { "${it}px" }
+            ?: stateComputed?.minWidth
             ?: if (snapshot.width == BootstrapWidth.MIN_VW_100) "100%" else null
-        val minHeightCss = stateComputed?.minHeight
+        val minHeightCss = visualSpec?.minHeightPx?.let { "${it}px" }
+            ?: stateComputed?.minHeight
             ?: if (snapshot.height == BootstrapHeight.MIN_VH_100) "100%" else null
         val maxWidthCss = stateComputed?.maxWidth
             ?: if (snapshot.width == BootstrapWidth.MW_100 || "mw-100" in customClasses) "100%" else null
@@ -684,7 +723,7 @@ object AlienCssStyleResolver {
             nodeStyle.getBoxSizing()
         } else {
             stateComputed?.boxSizing
-        }) ?: CssBoxSizing.BORDER_BOX
+        }) ?: if (useBootstrapSheet) CssBoxSizing.BORDER_BOX else CssBoxSizing.CONTENT_BOX
 
         val aspectRatio = stateComputed?.aspectRatio
             ?: snapshot.aspectRatio?.numericRatio
@@ -823,12 +862,75 @@ object AlienCssStyleResolver {
                 stateComputed?.backdropFilter
             }
 
+        val mergedVars = if (stateComputed?.customProperties?.isNotEmpty() == true) {
+            LinkedHashMap(cssVars).apply { putAll(stateComputed.customProperties) }
+        } else {
+            cssVars
+        }
+        val bTopWidth = stateComputed?.borderTopWidthPx ?: borderWidthPx
+        val bRightWidth = stateComputed?.borderRightWidthPx ?: borderWidthPx
+        val bBottomWidth = stateComputed?.borderBottomWidthPx ?: borderWidthPx
+        val bLeftWidth = stateComputed?.borderLeftWidthPx ?: borderWidthPx
+        val bTopColor = stateComputed?.borderTopColor ?: borderColor
+        val bRightColor = stateComputed?.borderRightColor ?: borderColor
+        val bBottomColor = stateComputed?.borderBottomColor ?: borderColor
+        val bLeftColor = stateComputed?.borderLeftColor ?: borderColor
+        val bStyleAll = visualSpec?.borderStyle?.cssValue ?: stateComputed?.borderStyle ?: "solid"
+        val bTopStyle = stateComputed?.borderTopStyle ?: bStyleAll
+        val bRightStyle = stateComputed?.borderRightStyle ?: bStyleAll
+        val bBottomStyle = stateComputed?.borderBottomStyle ?: bStyleAll
+        val bLeftStyle = stateComputed?.borderLeftStyle ?: bStyleAll
+
+        val tOrigin = stateComputed?.transformOrigin
+        val tOriginXPercent = when {
+            tOrigin?.offsetX?.unit == CssUnit.PERCENT -> tOrigin.offsetX?.value ?: 50f
+            tOrigin?.horizontalEdge == com.nexustools.genericui.enums.css.CssPositionEdge.LEFT -> 0f
+            tOrigin?.horizontalEdge == com.nexustools.genericui.enums.css.CssPositionEdge.RIGHT -> 100f
+            else -> 50f
+        }
+        val tOriginYPercent = when {
+            tOrigin?.offsetY?.unit == CssUnit.PERCENT -> tOrigin.offsetY?.value ?: 50f
+            tOrigin?.verticalEdge == com.nexustools.genericui.enums.css.CssPositionEdge.TOP -> 0f
+            tOrigin?.verticalEdge == com.nexustools.genericui.enums.css.CssPositionEdge.BOTTOM -> 100f
+            else -> 50f
+        }
+        val tOriginXPxOffset = tOrigin?.offsetX
+            ?.takeIf { it.unit != CssUnit.PERCENT }
+            ?.resolvePx(0f, 16f, fontSizePx, viewportWidthPx.toFloat(), viewportHeightPx.toFloat())
+        val tOriginYPxOffset = tOrigin?.offsetY
+            ?.takeIf { it.unit != CssUnit.PERCENT }
+            ?.resolvePx(0f, 16f, fontSizePx, viewportWidthPx.toFloat(), viewportHeightPx.toFloat())
+
+        val textIndentPx = stateComputed?.textIndent?.resolvePx(
+            referencePx = 0f,
+            rootFontSizePx = 16f,
+            parentFontSizePx = fontSizePx,
+            viewportWidthPx = viewportWidthPx.toFloat(),
+            viewportHeightPx = viewportHeightPx.toFloat()
+        ) ?: inherited.textIndentPx
+        val listStyleType = stateComputed?.listStyleType ?: when (lowerTag) {
+            "ol" -> "decimal"
+            "ul" -> "disc"
+            else -> inherited.listStyleType
+        }
+        val borderCollapse = stateComputed?.borderCollapse ?: if (lowerTag == "table") "separate" else inherited.borderCollapse
+        val borderSpacingPx = stateComputed?.borderSpacing?.resolvePx(
+            0f, 16f, fontSizePx, viewportWidthPx.toFloat(), viewportHeightPx.toFloat()
+        ) ?: if (lowerTag == "table" && inherited.borderSpacingPx == 0f) 2f else inherited.borderSpacingPx
+
         val zIndex = stateComputed?.zIndex ?: 0
         val pointerEventsEnabled = when {
             isDisabledClass -> false
             snapshot.pointerEvents == BootstrapPointerEvents.NONE -> false
             stateComputed != null -> stateComputed.pointerEventsEnabled
             else -> true
+        }
+
+        val resolvedBefore = stateComputed?.beforeStyle?.let { bCs ->
+            resolvePseudoElementVisualStyle(bCs, fontSizePx, textColor, darkTheme, viewportWidthPx, viewportHeightPx, mergedVars)
+        }
+        val resolvedAfter = stateComputed?.afterStyle?.let { aCs ->
+            resolvePseudoElementVisualStyle(aCs, fontSizePx, textColor, darkTheme, viewportWidthPx, viewportHeightPx, mergedVars)
         }
 
         return AlienResolvedVisualStyle(
@@ -846,12 +948,15 @@ object AlienCssStyleResolver {
             accentColor = accentColor,
             borderColor = borderColor,
             borderWidthPx = borderWidthPx,
-            borderStyle = stateComputed?.borderStyle ?: "solid",
+            borderStyle = bStyleAll,
             borderRadiusPx = borderRadiusPx,
             borderRadiusPercent = borderRadiusPercent,
             cornerRadii = cornerRadii,
             fontSizePx = fontSizePx,
-            fontFamily = stateComputed?.fontFamily ?: if ("font-monospace" in customClasses) "monospace" else inherited.fontFamily,
+            fontFamily = visualSpec?.fontFamily ?: stateComputed?.fontFamily ?: when {
+                "font-monospace" in customClasses || lowerTag == "code" || lowerTag == "pre" -> "monospace"
+                else -> inherited.fontFamily
+            },
             fontWeight = fontWeight,
             italic = italic,
             lineHeightPx = lineHeightPx,
@@ -860,7 +965,7 @@ object AlienCssStyleResolver {
             textDecoration = textDecoration,
             textTransform = textTransform,
             textOverflow = textOverflow,
-            whiteSpace = whiteSpace,
+            whiteSpace = if (stateComputed?.whiteSpace == null && lowerTag == "pre") "pre" else whiteSpace,
             wordBreak = wordBreak,
             verticalAlign = verticalAlign,
             opacity = effectiveOpacity,
@@ -914,7 +1019,115 @@ object AlienCssStyleResolver {
             backdropFilter = backdropFilter,
             zIndex = zIndex,
             pointerEventsEnabled = pointerEventsEnabled,
-            darkTheme = darkTheme
+            darkTheme = darkTheme,
+            borderTopWidthPx = bTopWidth,
+            borderRightWidthPx = bRightWidth,
+            borderBottomWidthPx = bBottomWidth,
+            borderLeftWidthPx = bLeftWidth,
+            borderTopColor = bTopColor,
+            borderRightColor = bRightColor,
+            borderBottomColor = bBottomColor,
+            borderLeftColor = bLeftColor,
+            borderTopStyle = bTopStyle,
+            borderRightStyle = bRightStyle,
+            borderBottomStyle = bBottomStyle,
+            borderLeftStyle = bLeftStyle,
+            outlineWidthPx = stateComputed?.outlineWidthPx ?: 0f,
+            outlineStyle = stateComputed?.outlineStyle ?: "none",
+            outlineColor = stateComputed?.outlineColor ?: RgbaColor.TRANSPARENT,
+            outlineOffsetPx = stateComputed?.outlineOffsetPx ?: 0f,
+            order = stateComputed?.order ?: 0,
+            textIndentPx = textIndentPx,
+            listStyleType = listStyleType,
+            content = stateComputed?.content,
+            borderCollapse = borderCollapse,
+            borderSpacingPx = borderSpacingPx,
+            transformOriginXPercent = tOriginXPercent,
+            transformOriginYPercent = tOriginYPercent,
+            transformOriginXPxOffset = tOriginXPxOffset,
+            transformOriginYPxOffset = tOriginYPxOffset,
+            gridTemplateColumns = stateComputed?.gridTemplateColumns,
+            gridTemplateRows = stateComputed?.gridTemplateRows,
+            gridTemplateAreas = stateComputed?.gridTemplateAreas,
+            gridArea = stateComputed?.gridArea,
+            gridColumn = stateComputed?.gridColumn,
+            gridColumnStart = stateComputed?.gridColumnStart,
+            gridColumnEnd = stateComputed?.gridColumnEnd,
+            gridRow = stateComputed?.gridRow,
+            gridRowStart = stateComputed?.gridRowStart,
+            gridRowEnd = stateComputed?.gridRowEnd,
+            gridAutoFlow = stateComputed?.gridAutoFlow ?: "row",
+            gridAutoRows = stateComputed?.gridAutoRows,
+            gridAutoColumns = stateComputed?.gridAutoColumns,
+            justifyItems = stateComputed?.justifyItems ?: "stretch",
+            justifySelf = stateComputed?.justifySelf ?: "auto",
+            animations = stateComputed?.resolveEffectiveAnimations().orEmpty(),
+            customProperties = mergedVars,
+            beforeStyle = resolvedBefore,
+            afterStyle = resolvedAfter,
+            viewportWidthPx = viewportWidthPx.toFloat(),
+            viewportHeightPx = viewportHeightPx.toFloat()
+        )
+    }
+
+    private fun resolvePseudoElementVisualStyle(
+        pseudo: ComputedStyle,
+        parentFontSizePx: Float,
+        parentTextColor: RgbaColor,
+        darkTheme: Boolean,
+        viewportWidthPx: Int,
+        viewportHeightPx: Int,
+        vars: Map<String, String>
+    ): AlienResolvedVisualStyle {
+        val fsPx = pseudo.fontSizePx
+            ?: pseudo.fontSizePercent?.let { (parentFontSizePx * it / 100f).coerceAtLeast(6f) }
+            ?: parentFontSizePx
+        val pad = pseudo.padding?.toEdgeInsets(0f, 0f, 16f) ?: EdgeInsets(
+            top = pseudo.paddingTop?.resolvePx(0f, 16f, fsPx)?.roundToInt() ?: 0,
+            right = pseudo.paddingRight?.resolvePx(0f, 16f, fsPx)?.roundToInt() ?: 0,
+            bottom = pseudo.paddingBottom?.resolvePx(0f, 16f, fsPx)?.roundToInt() ?: 0,
+            left = pseudo.paddingLeft?.resolvePx(0f, 16f, fsPx)?.roundToInt() ?: 0
+        )
+        val mar = pseudo.margin?.toEdgeInsets(0f, 0f, 16f) ?: EdgeInsets(
+            top = pseudo.marginTop?.resolvePx(0f, 16f, fsPx)?.roundToInt() ?: 0,
+            right = pseudo.marginRight?.resolvePx(0f, 16f, fsPx)?.roundToInt() ?: 0,
+            bottom = pseudo.marginBottom?.resolvePx(0f, 16f, fsPx)?.roundToInt() ?: 0,
+            left = pseudo.marginLeft?.resolvePx(0f, 16f, fsPx)?.roundToInt() ?: 0
+        )
+        val bw = pseudo.borderWidthPx ?: 0f
+        return AlienResolvedVisualStyle(
+            backgroundColor = pseudo.backgroundColor ?: RgbaColor.TRANSPARENT,
+            backgroundGradient = pseudo.backgroundGradient,
+            textColor = pseudo.textColor ?: parentTextColor,
+            borderColor = pseudo.borderColor ?: RgbaColor.TRANSPARENT,
+            borderWidthPx = bw,
+            borderStyle = pseudo.borderStyle ?: "solid",
+            borderRadiusPx = pseudo.borderRadiusPx ?: 0f,
+            borderRadiusPercent = pseudo.borderRadiusPercent,
+            cornerRadii = pseudo.borderRadius,
+            fontSizePx = fsPx,
+            fontFamily = pseudo.fontFamily ?: AlienBootstrapThemeTokens.DEFAULT_FONT_FAMILY,
+            fontWeight = pseudo.fontWeightNumeric ?: 400,
+            italic = pseudo.fontStyle == CssFontStyle.ITALIC || pseudo.fontStyle == CssFontStyle.OBLIQUE,
+            lineHeightPx = pseudo.lineHeight?.resolvePx(fsPx, 16f, fsPx),
+            padding = pad,
+            margin = mar,
+            display = pseudo.display ?: "inline-block",
+            position = pseudo.position ?: "static",
+            leftCss = pseudo.left,
+            topCss = pseudo.top,
+            rightCss = pseudo.right,
+            bottomCss = pseudo.bottom,
+            widthCss = pseudo.width,
+            heightCss = pseudo.height,
+            opacity = pseudo.opacity,
+            transform2D = pseudo.transform2D ?: CssTransform2D.IDENTITY,
+            zIndex = pseudo.zIndex ?: 0,
+            darkTheme = darkTheme,
+            content = pseudo.content,
+            customProperties = vars,
+            viewportWidthPx = viewportWidthPx.toFloat(),
+            viewportHeightPx = viewportHeightPx.toFloat()
         )
     }
 
@@ -934,7 +1147,11 @@ object AlienCssStyleResolver {
         val wordBreak: CssWordBreak,
         val cursor: CssCursorValue,
         val userSelect: CssUserSelect,
-        val visible: Boolean
+        val visible: Boolean,
+        val textIndentPx: Float,
+        val listStyleType: String,
+        val borderCollapse: String,
+        val borderSpacingPx: Float
     )
 
     private fun resolveInheritedProperties(
@@ -966,6 +1183,10 @@ object AlienCssStyleResolver {
         var cursor: CssCursorValue = CssCursor.DEFAULT
         var userSelect = CssUserSelect.AUTO
         var visible = true
+        var textIndentPx = 0f
+        var listStyleType = "disc"
+        var borderCollapse = "separate"
+        var borderSpacingPx = 0f
 
         for (i in lineage.indices.reversed()) {
             val anc = lineage[i]
@@ -1017,6 +1238,10 @@ object AlienCssStyleResolver {
             } else if (snap.visibility == BootstrapVisibility.VISIBLE || cs?.visibility == CssVisibility.VISIBLE || inline?.getVisibility() == CssVisibility.VISIBLE) {
                 visible = true
             }
+            cs?.textIndent?.resolvePx(0f, 16f, fontSizePx)?.let { textIndentPx = it }
+            cs?.listStyleType?.let { listStyleType = it }
+            cs?.borderCollapse?.let { borderCollapse = it }
+            cs?.borderSpacing?.resolvePx(0f, 16f, fontSizePx)?.let { borderSpacingPx = it }
         }
 
         return InheritedProps(
@@ -1035,7 +1260,11 @@ object AlienCssStyleResolver {
             wordBreak = wordBreak,
             cursor = cursor,
             userSelect = userSelect,
-            visible = visible
+            visible = visible,
+            textIndentPx = textIndentPx,
+            listStyleType = listStyleType,
+            borderCollapse = borderCollapse,
+            borderSpacingPx = borderSpacingPx
         )
     }
 
@@ -1066,7 +1295,7 @@ object AlienCssStyleResolver {
         classes: Set<String>,
         viewportWidthPx: Int
     ): String? {
-        if (classes.isEmpty()) return null
+        if (classes.isEmpty() || classes.none { it.startsWith("d-") }) return null
         var resolved: String? = null
         for ((bpPrefix, minWidth) in BOOTSTRAP_DISPLAY_BREAKPOINTS) {
             if (viewportWidthPx < minWidth) break
@@ -1108,15 +1337,36 @@ object AlienCssStyleResolver {
         return null
     }
 
-    internal fun parseLengthPx(raw: String?, fontSizePx: Float, percentBasePx: Float?): Float? {
+    internal fun parseLengthPx(
+        raw: String?,
+        fontSizePx: Float,
+        percentBasePx: Float?,
+        viewportWidthPx: Float = 1280f,
+        viewportHeightPx: Float = 800f
+    ): Float? {
         if (raw.isNullOrBlank()) return null
         val t = raw.replace("!important", "").trim().lowercase()
         if (t == "0" || t == "0px" || t == "0em" || t == "0rem") return 0f
-        if (t.endsWith("px")) return t.removeSuffix("px").trim().toFloatOrNull()
-        if (t.endsWith("rem")) return t.removeSuffix("rem").trim().toFloatOrNull()?.let { it * 16f }
-        if (t.endsWith("em")) return t.removeSuffix("em").trim().toFloatOrNull()?.let { it * fontSizePx }
-        if (t.endsWith("%") && percentBasePx != null) {
-            return t.removeSuffix("%").trim().toFloatOrNull()?.let { (it / 100f) * percentBasePx }
+        if (CssMathEvaluator.isMathFunction(t)) {
+            return CssMathEvaluator.evaluateLengthPx(
+                expression = t,
+                referencePx = percentBasePx ?: 0f,
+                rootFontSizePx = 16f,
+                parentFontSizePx = fontSizePx,
+                viewportWidthPx = viewportWidthPx,
+                viewportHeightPx = viewportHeightPx
+            )
+        }
+        val parsed = CssLength.parse(t)
+        if (parsed != null) {
+            if (parsed.unit == CssUnit.PERCENT && percentBasePx == null) return null
+            return parsed.resolvePx(
+                referencePx = percentBasePx ?: 0f,
+                rootFontSizePx = 16f,
+                parentFontSizePx = fontSizePx,
+                viewportWidthPx = viewportWidthPx,
+                viewportHeightPx = viewportHeightPx
+            )
         }
         return t.toFloatOrNull()
     }
@@ -1126,9 +1376,7 @@ object AlienCssStyleResolver {
         fontSizePx: Float,
         fallback: EdgeInsets
     ): Pair<EdgeInsets, Pair<Boolean, Boolean>> {
-        val tokens = shorthand.replace("!important", "").trim()
-            .split(Regex("\\s+"))
-            .filter { it.isNotEmpty() }
+        val tokens = CssShadow.tokenizePreservingParens(shorthand.replace("!important", "").trim())
         if (tokens.isEmpty()) return fallback to (false to false)
 
         val topTok = tokens[0]
@@ -1175,12 +1423,18 @@ object AlienCssStyleResolver {
         return false
     }
 
-    private fun collectCssVariables(node: AlienWidgetNode, darkTheme: Boolean): Map<String, String> {
+    private fun collectCssVariables(
+        node: AlienWidgetNode,
+        darkTheme: Boolean,
+        includeBootstrapDefaults: Boolean = true
+    ): Map<String, String> {
         val vars = LinkedHashMap<String, String>()
-        vars.putAll(
-            if (darkTheme) AlienBootstrapThemeTokens.DEFAULT_DARK_CSS_VARIABLES
-            else AlienBootstrapThemeTokens.DEFAULT_LIGHT_CSS_VARIABLES
-        )
+        if (includeBootstrapDefaults) {
+            vars.putAll(
+                if (darkTheme) AlienBootstrapThemeTokens.DEFAULT_DARK_CSS_VARIABLES
+                else AlienBootstrapThemeTokens.DEFAULT_LIGHT_CSS_VARIABLES
+            )
+        }
         val lineage = mutableListOf<AlienWidgetNode>()
         var cur: AlienWidgetNode? = node
         while (cur != null) {
@@ -1189,15 +1443,22 @@ object AlienCssStyleResolver {
         }
         for (i in lineage.indices.reversed()) {
             val anc = lineage[i]
+            for ((k, v) in anc.resolvedCustomProperties) {
+                vars[k] = v
+            }
             for ((k, v) in anc.attributes) {
                 if (k.startsWith("--")) {
-                    vars[k] = v
+                    vars[k.lowercase()] = v
                 }
+            }
+            val inlineCustom = anc.inlineComponentStyle?.getCustomProperties().orEmpty()
+            for ((k, v) in inlineCustom) {
+                vars[k] = v
             }
             val inlineDecls = anc.inlineComponentStyle?.toCssPropertyMap().orEmpty()
             for ((k, pair) in inlineDecls) {
                 if (k.startsWith("--")) {
-                    vars[k] = pair.first
+                    vars[k.lowercase()] = pair.first
                 }
             }
         }
@@ -1244,7 +1505,7 @@ object AlienCssStyleResolver {
     internal fun extractCssUrl(raw: String): String? {
         val trimmed = raw.replace("!important", "").trim()
         if (trimmed.isEmpty() || trimmed.equals("none", ignoreCase = true)) return null
-        val urlMatch = Regex("url\\(\\s*['\"]?([^'\")]+)['\"]?\\s*\\)", RegexOption.IGNORE_CASE).find(trimmed)
+        val urlMatch = CSS_URL_REGEX.find(trimmed)
         val extracted = (urlMatch?.groupValues?.get(1) ?: trimmed.takeIf { !it.contains("(") })
             ?.trim()
             ?.removeSurrounding("'")

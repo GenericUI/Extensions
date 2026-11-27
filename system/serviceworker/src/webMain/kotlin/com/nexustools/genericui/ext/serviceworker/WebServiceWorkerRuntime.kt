@@ -1,6 +1,7 @@
 package com.nexustools.genericui.ext.serviceworker
 
 import com.nexustools.genericui.component.shell.ContextMenu
+import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.exception.SystemTrayUnsupportedException
 import com.nexustools.genericui.resources.ResourceID
@@ -162,7 +163,7 @@ internal class WebServiceWorkerRuntime : ServiceWorkerPlatformRuntime, ServiceWo
         val env = ServiceWorkerEnvelope(
             kind = ServiceWorkerEnvelope.KIND_MESSAGE,
             typeId = ServiceWorkerEnvelope.CONTROL_OPEN_MAIN_WINDOW,
-            payloadJson = route.orEmpty()
+            payload = route?.takeIf { it.isNotBlank() }?.let { PreferenceElement.ofString(it) } ?: PreferenceElement.Null
         )
         if (WebWorkerGlobalBridge.isWorkerGlobalScope) {
             val openUrl = if (route.isNullOrBlank()) "./" else "./?route=${encodePercentQuery(route)}"
@@ -192,7 +193,7 @@ internal class WebServiceWorkerRuntime : ServiceWorkerPlatformRuntime, ServiceWo
         val env = ServiceWorkerEnvelope(
             kind = ServiceWorkerEnvelope.KIND_MESSAGE,
             typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_MAIN_WINDOW,
-            payloadJson = "null"
+            payload = PreferenceElement.Null
         )
         if (WebWorkerGlobalBridge.isWorkerGlobalScope) {
             WebWorkerGlobalBridge.broadcastToClients(ServiceWorkerFrameCodec.encodeWebText(env))
@@ -211,7 +212,7 @@ internal class WebServiceWorkerRuntime : ServiceWorkerPlatformRuntime, ServiceWo
         val env = ServiceWorkerEnvelope(
             kind = ServiceWorkerEnvelope.KIND_MESSAGE,
             typeId = ServiceWorkerEnvelope.CONTROL_LAUNCH_FRAGMENT,
-            payloadJson = request.toControlPayloadJson(),
+            payload = request.toControlPayloadElement(),
             targetFragmentId = request.fragmentId
         )
         if (WebWorkerGlobalBridge.isWorkerGlobalScope) {
@@ -241,7 +242,7 @@ internal class WebServiceWorkerRuntime : ServiceWorkerPlatformRuntime, ServiceWo
         val env = ServiceWorkerEnvelope(
             kind = ServiceWorkerEnvelope.KIND_MESSAGE,
             typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_FRAGMENT,
-            payloadJson = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
+            payload = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
             targetFragmentId = fragmentId
         )
         if (WebWorkerGlobalBridge.isWorkerGlobalScope) {

@@ -7,10 +7,9 @@ import com.nexustools.genericui.nativeimpl.media.WebViewNativeImpl
 /**
  * Modular WebView component provided by `:extensions:webview`.
  *
- * - **Desktop (`:windows`, `:macos`, `:gtk`, `:kde`, `:swing`)**: Uses the **Chromium** project
- *   (`ChromiumBlinkEngine`) for HTML/CSS layout and rendering, paired with **`NJS`**
- *   (`D:\IdeaProjects\NJS` symlinked at `lib/NJS` with AsmJit/SLJIT Native JIT) for the
- *   JavaScript runtime.
+ * - **Desktop (`:windows`, `:macos`, `:gtk`, `:kde`, `:swing`)**: Uses an isolated per-instance
+ *   Alien DOM/CSS/Layout/Paint + companion extensions (`svg`, `canvas2d`, `canvas3d`, `media`)
+ *   + **`NJS`** worker OS process communicating over `:extensions:system:ipc`.
  * - **Mobile (`:android`, `:ios`) & `:web`**: Uses the native platform WebView
  *   (`android.webkit.WebView` on Android, `WKWebView` on iOS, and `<iframe>` on Web) and
  *   **never** uses NJS.
@@ -55,6 +54,39 @@ class WebView(
             field = value
             activeWebViewImpl()?.setOnJavaScriptError(value)
         }
+
+    var onTitleChanged: ((String) -> Unit)? = null
+        set(value) {
+            field = value
+            activeWebViewImpl()?.setOnTitleChanged(value)
+        }
+
+    var onFaviconChanged: ((String?) -> Unit)? = null
+        set(value) {
+            field = value
+            activeWebViewImpl()?.setOnFaviconChanged(value)
+        }
+
+    var onLoadingChanged: ((Boolean) -> Unit)? = null
+        set(value) {
+            field = value
+            activeWebViewImpl()?.setOnLoadingChanged(value)
+        }
+
+    var onNavStateChanged: ((canGoBack: Boolean, canGoForward: Boolean) -> Unit)? = null
+        set(value) {
+            field = value
+            activeWebViewImpl()?.setOnNavStateChanged(value)
+        }
+
+    val currentTitle: String?
+        get() = activeWebViewImpl()?.getTitle()
+
+    val currentFaviconUrl: String?
+        get() = activeWebViewImpl()?.getFaviconUrl()
+
+    val isLoading: Boolean
+        get() = activeWebViewImpl()?.isLoading() ?: false
 
     val engineType: WebViewEngineType
         get() = WebViewExtension.activeEngineType
@@ -152,9 +184,35 @@ class WebView(
         activeWebViewImpl(autoCreate = true)?.postWebMessage(message)
     }
 
+    fun stopLoading() {
+        activeWebViewImpl(autoCreate = false)?.stopLoading()
+    }
+
+    fun resizeViewport(width: Int, height: Int) {
+        activeWebViewImpl(autoCreate = true)?.resizeViewport(width, height)
+    }
+
+    fun captureViewportRgba(): ByteArray? =
+        activeWebViewImpl(autoCreate = false)?.captureViewportRgba()
+
+    fun captureViewportSize(): Pair<Int, Int>? =
+        activeWebViewImpl(autoCreate = false)?.captureViewportSize()
+
+    fun getWorkerProcessId(): Long? =
+        activeWebViewImpl(autoCreate = false)?.getWorkerProcessId()
+
+    override fun dispose() {
+        val standalone = standaloneWebViewImpl
+        standaloneWebViewImpl = null
+        if (standalone != null && standalone !== nativeImpl) {
+            standalone.dispose()
+        }
+        super.dispose()
+    }
+
     protected override fun createNativeImpl(factory: NativeFactory): WebViewNativeImpl<*> {
         standaloneWebViewImpl?.let { return it }
-        val extFactory = WebViewExtension.nativeImplFactory
+        val extFactory = WebViewExtension.ensureProviderInstalled()
         return extFactory?.invoke(config)
             ?: throw IllegalStateException("No WebViewNativeImpl provider registered in WebViewExtension")
     }
@@ -182,6 +240,10 @@ class WebView(
         impl.setOnPageFinished(onPageFinished)
         impl.setOnConsoleMessage(onConsoleMessage)
         impl.setOnJavaScriptError(onJavaScriptError)
+        impl.setOnTitleChanged(onTitleChanged)
+        impl.setOnFaviconChanged(onFaviconChanged)
+        impl.setOnLoadingChanged(onLoadingChanged)
+        impl.setOnNavStateChanged(onNavStateChanged)
         for ((fnName, fnHandler) in communicationFunctions) {
             impl.registerCommunicationFunction(fnName, fnHandler)
         }

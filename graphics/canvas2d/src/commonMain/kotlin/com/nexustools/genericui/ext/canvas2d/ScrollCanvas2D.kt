@@ -415,12 +415,14 @@ open class ScrollCanvas2D(
     }
 
     protected override fun createNativeImpl(factory: NativeFactory): NativeImpl<*> =
-        Canvas2DExtension.createScrollCanvas2DNativeOrNull(
-            viewportWidth = currentViewportWidth,
-            viewportHeight = currentViewportHeight,
-            contentWidth = currentContentWidth,
-            contentHeight = currentContentHeight
-        ) ?: factory.createContainer(componentClassPrefix, htmlTag)
+        factory.createExtensionNativeImpl(this)
+            ?: Canvas2DExtension.createScrollCanvas2DNativeOrNull(
+                viewportWidth = currentViewportWidth,
+                viewportHeight = currentViewportHeight,
+                contentWidth = currentContentWidth,
+                contentHeight = currentContentHeight
+            )
+            ?: factory.createContainer(componentClassPrefix, htmlTag)
 
     override fun syncStateToNative() {
         super.syncStateToNative()

@@ -6,7 +6,6 @@ import android.app.Service
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -21,6 +20,9 @@ import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.shell.ContextMenu
 import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.exception.SystemTrayUnsupportedException
+import com.nexustools.genericui.ext.ipc.AndroidServiceIpcBundleCodec
+import com.nexustools.genericui.ext.ipc.AndroidServiceIpcClient
+import com.nexustools.genericui.ext.ipc.IpcPacket
 import com.nexustools.genericui.resources.ResourceID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -149,23 +151,13 @@ object AndroidServiceWorkerController {
     @Volatile
     private var lastNotification: Notification? = null
 
+    @Volatile
+    private var activeBinder: AndroidServiceWorkerBinder? = null
+
+    @Volatile
+    private var activeIpcClient: AndroidServiceIpcClient? = null
+
     private val lifecycleObserverInstalled = AtomicBoolean(false)
-
-    private val serviceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as? AndroidServiceWorkerBinder
-            if (binder != null) {
-                serviceBound = true
-                workerInstance?.dispatchClientConnected(ANDROID_CLIENT_ID)
-                clientConnectionListener?.invoke(true)
-            }
-        }
-
-        override fun onServiceDisconnected(name: ComponentName?) {
-            serviceBound = false
-            clientConnectionListener?.invoke(false)
-        }
-    }
 
     private val activityObserver = object : AndroidActivityLifecycleObserver {
         override fun onActivityStarted(activity: Activity) {
@@ -192,7 +184,9 @@ object AndroidServiceWorkerController {
     fun activeWorker(): ServiceWorker? = workerInstance
 
     internal fun isInProcessClientConnected(): Boolean =
-        serviceBound && clientEnvelopeListener != null && workerInstance != null
+        (serviceBound || activeIpcClient?.isConnected == true) &&
+            clientEnvelopeListener != null &&
+            workerInstance != null
 
     fun lastPostedNotification(): Notification? = lastNotification
 
@@ -304,7 +298,7 @@ object AndroidServiceWorkerController {
 
     fun onServiceBind(service: Service, intent: Intent?): IBinder {
         serviceInstance = service
-        return AndroidServiceWorkerBinder(this)
+        return getOrCreateBinder()
     }
 
     fun onServiceDestroyed(service: Service) {
@@ -313,6 +307,11 @@ object AndroidServiceWorkerController {
         if (serviceInstance === service) {
             serviceInstance = null
         }
+        val ipcClient = activeIpcClient
+        activeIpcClient = null
+        ipcClient?.unbind()
+        activeBinder?.clearCallbacks()
+        activeBinder = null
         serviceBound = false
         worker?.performStop()
         lastNotification = null
@@ -338,7 +337,13 @@ object AndroidServiceWorkerController {
         } else {
             AndroidExtensionRuntimeBridge.startServiceCompat(ctx, intent)
         }
-        return AndroidExtensionRuntimeBridge.bindServiceCompat(ctx, intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        val ipcClient = createAndConfigureIpcClient(ctx)
+        activeIpcClient = ipcClient
+        val bound = ipcClient.bind(intent, Context.BIND_AUTO_CREATE)
+        if (!bound && activeIpcClient === ipcClient) {
+            activeIpcClient = null
+        }
+        return bound
     }
 
     internal fun connectInProcessClient(
@@ -348,8 +353,30 @@ object AndroidServiceWorkerController {
         clientEnvelopeListener = listener
         clientConnectionListener = connectionChanged
         val ctx = AndroidExtensionRuntimeBridge.resolveApplicationContext()
+        val existingBinder = activeBinder
+        if (existingBinder != null && ctx != null) {
+            val ipcClient = createAndConfigureIpcClient(ctx)
+            activeIpcClient = ipcClient
+            if (ipcClient.attachBinder(existingBinder)) {
+                return true
+            }
+            if (activeIpcClient === ipcClient) {
+                activeIpcClient = null
+            }
+        }
         val hasServiceClass = ctx != null && resolveRegisteredServiceClass(ctx) != null
         if (serviceInstance != null || workerInstance != null) {
+            val binder = getOrCreateBinder()
+            if (ctx != null) {
+                val ipcClient = createAndConfigureIpcClient(ctx)
+                activeIpcClient = ipcClient
+                if (ipcClient.attachBinder(binder)) {
+                    return true
+                }
+                if (activeIpcClient === ipcClient) {
+                    activeIpcClient = null
+                }
+            }
             serviceBound = true
             workerInstance?.dispatchClientConnected(ANDROID_CLIENT_ID)
             connectionChanged(true)
@@ -364,6 +391,17 @@ object AndroidServiceWorkerController {
         val worker = factory()
         workerInstance = worker
         worker.attachAndStart(runtimeHost, currentOptions)
+        val binder = getOrCreateBinder()
+        if (ctx != null) {
+            val ipcClient = createAndConfigureIpcClient(ctx)
+            activeIpcClient = ipcClient
+            if (ipcClient.attachBinder(binder)) {
+                return true
+            }
+            if (activeIpcClient === ipcClient) {
+                activeIpcClient = null
+            }
+        }
         serviceBound = true
         worker.dispatchClientConnected(ANDROID_CLIENT_ID)
         connectionChanged(true)
@@ -371,10 +409,9 @@ object AndroidServiceWorkerController {
     }
 
     internal fun disconnectInProcessClient() {
-        val ctx = AndroidExtensionRuntimeBridge.resolveApplicationContext()
-        if (ctx != null && serviceBound) {
-            AndroidExtensionRuntimeBridge.unbindServiceSafe(ctx, serviceConnection)
-        }
+        val ipcClient = activeIpcClient
+        activeIpcClient = null
+        ipcClient?.unbind()
         serviceBound = false
         workerInstance?.dispatchClientDisconnected(ANDROID_CLIENT_ID)
         clientEnvelopeListener = null
@@ -382,6 +419,10 @@ object AndroidServiceWorkerController {
     }
 
     internal fun dispatchFromClient(envelope: ServiceWorkerEnvelope): Boolean {
+        val ipcClient = activeIpcClient
+        if (ipcClient != null && ipcClient.isConnected) {
+            return ipcClient.sendPacket(AndroidIpcPacketMapper.toIpcPacket(envelope))
+        }
         val worker = workerInstance ?: return false
         workerControlScope.launch {
             worker.dispatchIncomingEnvelope(ANDROID_CLIENT_ID, envelope)
@@ -454,7 +495,7 @@ object AndroidServiceWorkerController {
             val env = ServiceWorkerEnvelope(
                 kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                 typeId = ServiceWorkerEnvelope.CONTROL_LAUNCH_FRAGMENT,
-                payloadJson = request.toControlPayloadJson(),
+                payload = request.toControlPayloadElement(),
                 targetFragmentId = request.fragmentId
             )
             workerControlScope.launch {
@@ -501,6 +542,19 @@ object AndroidServiceWorkerController {
         AndroidActivityRegistry.putFragmentBundleExtras(launchIntent, bundle)
         launchIntent.putExtra(FragmentBundle.KEY_LAUNCH_FRAGMENT_ID, request.fragmentId)
         request.route?.takeIf { it.isNotBlank() }?.let { launchIntent.putExtra("genericui_route", it) }
+        val controlExtras = Bundle()
+        AndroidServiceIpcBundleCodec.writeToBundle(
+            bundle = controlExtras,
+            packet = AndroidIpcPacketMapper.toIpcPacket(
+                ServiceWorkerEnvelope(
+                    kind = ServiceWorkerEnvelope.KIND_MESSAGE,
+                    typeId = ServiceWorkerEnvelope.CONTROL_LAUNCH_FRAGMENT,
+                    payload = request.toControlPayloadElement(),
+                    targetFragmentId = request.fragmentId
+                )
+            )
+        )
+        launchIntent.putExtras(controlExtras)
         try {
             ctx.startActivity(launchIntent)
         } catch (t: Throwable) {
@@ -518,7 +572,7 @@ object AndroidServiceWorkerController {
             val env = ServiceWorkerEnvelope(
                 kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                 typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_FRAGMENT,
-                payloadJson = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
+                payload = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
                 targetFragmentId = fragmentId
             )
             workerControlScope.launch {
@@ -535,6 +589,11 @@ object AndroidServiceWorkerController {
 
     fun stopSelf() {
         val service = serviceInstance
+        val ipcClient = activeIpcClient
+        activeIpcClient = null
+        ipcClient?.unbind()
+        activeBinder?.clearCallbacks()
+        activeBinder = null
         workerInstance?.performStop()
         workerInstance = null
         if (service != null) {
@@ -593,12 +652,20 @@ object AndroidServiceWorkerController {
     }
 
     internal suspend fun sendToClient(clientId: String, envelope: ServiceWorkerEnvelope): Boolean {
+        val binder = activeBinder
+        if (binder != null && binder.callbackCount() > 0) {
+            return binder.dispatchToClient(AndroidIpcPacketMapper.toIpcPacket(envelope))
+        }
         val listener = clientEnvelopeListener ?: return false
         listener(envelope)
         return true
     }
 
     internal suspend fun broadcastEnvelope(envelope: ServiceWorkerEnvelope): Int {
+        val binder = activeBinder
+        if (binder != null && binder.callbackCount() > 0) {
+            return binder.broadcastPacket(AndroidIpcPacketMapper.toIpcPacket(envelope))
+        }
         val listener = clientEnvelopeListener ?: return 0
         listener(envelope)
         return 1
@@ -609,6 +676,11 @@ object AndroidServiceWorkerController {
     }
 
     fun resetForTests() {
+        val ipcClient = activeIpcClient
+        activeIpcClient = null
+        ipcClient?.unbind()
+        activeBinder?.clearCallbacks()
+        activeBinder = null
         workerInstance?.performStop()
         workerInstance = null
         serviceInstance = null
@@ -618,6 +690,53 @@ object AndroidServiceWorkerController {
         clientEnvelopeListener = null
         clientConnectionListener = null
         currentOptions = ServiceWorkerOptions()
+    }
+
+    private fun getOrCreateBinder(): AndroidServiceWorkerBinder {
+        activeBinder?.let { return it }
+        return AndroidServiceWorkerBinder(
+            controller = this,
+            onPacketReceived = { packet -> handleInboundBinderPacket(packet) }
+        ).also { activeBinder = it }
+    }
+
+    private fun createAndConfigureIpcClient(context: Context): AndroidServiceIpcClient {
+        activeIpcClient?.unbind()
+        return AndroidServiceIpcClient(context).apply {
+            setOnPacketReceived { packet ->
+                val envelope = AndroidIpcPacketMapper.fromIpcPacket(packet) ?: return@setOnPacketReceived
+                clientEnvelopeListener?.invoke(envelope)
+            }
+            setOnConnectionStateChanged { connected ->
+                if (activeIpcClient !== this) return@setOnConnectionStateChanged
+                serviceBound = connected
+                if (connected) {
+                    workerInstance?.dispatchClientConnected(ANDROID_CLIENT_ID)
+                } else {
+                    workerInstance?.dispatchClientDisconnected(ANDROID_CLIENT_ID)
+                }
+                clientConnectionListener?.invoke(connected)
+            }
+        }
+    }
+
+    private fun handleInboundBinderPacket(packet: IpcPacket): IpcPacket? {
+        val envelope = AndroidIpcPacketMapper.fromIpcPacket(packet) ?: return null
+        if (envelope.kind == ServiceWorkerEnvelope.KIND_PING) {
+            return AndroidIpcPacketMapper.toIpcPacket(
+                ServiceWorkerEnvelope(
+                    kind = ServiceWorkerEnvelope.KIND_PING,
+                    correlationId = envelope.correlationId,
+                    clientId = envelope.clientId
+                )
+            )
+        }
+        val worker = workerInstance ?: return null
+        val senderId = envelope.clientId.ifBlank { ANDROID_CLIENT_ID }
+        workerControlScope.launch {
+            worker.dispatchIncomingEnvelope(senderId, envelope)
+        }
+        return null
     }
 
     private fun isAutostartEnabledForContext(context: Context): Boolean {

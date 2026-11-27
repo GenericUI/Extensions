@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>08 - HTML5 Forms, Controls, FormData &amp; Constraint Validation</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    fieldset { border: 1px solid #475569; border-radius: 6px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+  </style>
+</head>
+<body>
+  <h1>08 &mdash; HTML5 Forms, Inputs, Select, Textarea &amp; Constraint Validation</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <form id="demo-form">
+      <fieldset id="main-fs">
+        <legend>Account Form</legend>
+        <label id="lbl-user" for="inp-user">Username</label>
+        <input id="inp-user" name="username" type="text" value="alice" required minlength="3">
+
+        <input id="inp-pass" name="secret" type="password" value="hunter2">
+        <input id="inp-email" name="email" type="email" value="bad-email">
+        <input id="inp-num" name="count" type="number" min="1" max="10" value="5">
+        <input id="inp-range" name="level" type="range" min="0" max="100" value="75">
+        <input id="inp-color" name="tint" type="color" value="#38bdf8">
+        <input id="inp-date" name="when" type="date" value="2026-11-26">
+        <input id="inp-hidden" name="token" type="hidden" value="csrf-123">
+        <input id="inp-disabled" name="ignored" type="text" value="never" disabled>
+
+        <label id="lbl-chk" for="inp-chk"><input id="inp-chk" name="agree" type="checkbox" value="yes"> Agree</label>
+        <div>
+          <input id="rad-a" name="plan" type="radio" value="free" checked>
+          <input id="rad-b" name="plan" type="radio" value="pro">
+        </div>
+
+        <textarea id="ta-notes" name="notes">GenericUI Notes</textarea>
+
+        <select id="sel-single" name="role">
+          <optgroup label="Core">
+            <option value="viewer">Viewer</option>
+            <option value="editor" selected>Editor</option>
+          </optgroup>
+        </select>
+
+        <select id="sel-multi" name="tags" multiple>
+          <option value="alpha" selected>Alpha</option>
+          <option value="beta">Beta</option>
+          <option value="gamma" selected>Gamma</option>
+        </select>
+
+        <progress id="prog-el" value="40" max="100"></progress>
+        <meter id="meter-el" min="0" max="100" value="70"></meter>
+        <output id="out-el">70</output>
+
+        <button id="btn-submit" type="submit">Submit</button>
+        <button id="btn-reset" type="reset">Reset</button>
+      </fieldset>
+    </form>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) {
+          var tc = suites[i].tests[j]; sum.total++; var row = document.createElement("div"); c.appendChild(row);
+          try { tc.fn(); sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }
+          catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+        }
+        root.__suiteSummary = sum;
+        var bar = document.getElementById("suite-summary-bar");
+        bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+        bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+      });
+    }
+  })(window);
+  </script>
+
+  <script>
+  describe("08 - HTML5 Forms, Inputs, Select, Textarea & Validation", function () {
+    it("tracks input types, label activation, checkbox indeterminate, and radio group mutual exclusion", function () {
+      var chk = document.getElementById("inp-chk");
+      chk.indeterminate = true;
+      expect(chk.indeterminate).toBe(true);
+      expect(chk.checked).toBe(false);
+      document.getElementById("lbl-chk").click();
+      expect(chk.checked).toBe(true);
+
+      var ra = document.getElementById("rad-a");
+      var rb = document.getElementById("rad-b");
+      expect(ra.checked).toBe(true);
+      rb.click();
+      expect(rb.checked).toBe(true);
+      expect(ra.checked).toBe(false);
+
+      expect(document.getElementById("inp-range").value).toBe("75");
+      expect(document.getElementById("inp-color").value).toBe("#38bdf8");
+      expect(document.getElementById("inp-hidden").value).toBe("csrf-123");
+      expect(document.getElementById("prog-el").position).toBeCloseTo(0.4, 2);
+    });
+
+    it("supports textarea selection ranges and single/multiple <select> options", function () {
+      var ta = document.getElementById("ta-notes");
+      ta.setSelectionRange(0, 9);
+      expect(ta.selectionStart).toBe(0);
+      expect(ta.selectionEnd).toBe(9);
+
+      var single = document.getElementById("sel-single");
+      expect(single.value).toBe("editor");
+      expect(single.selectedIndex).toBe(1);
+      single.value = "viewer";
+      expect(single.selectedIndex).toBe(0);
+
+      var multi = document.getElementById("sel-multi");
+      expect(multi.selectedOptions.length).toBe(2);
+      expect(multi.selectedOptions[0].value).toBe("alpha");
+      expect(multi.selectedOptions[1].value).toBe("gamma");
+    });
+
+    it("enforces Constraint Validation API (required, email, range, customError, invalid event)", function () {
+      var form = document.getElementById("demo-form");
+      var email = document.getElementById("inp-email");
+      var invalidFired = 0;
+      email.addEventListener("invalid", function (e) { e.preventDefault(); invalidFired++; });
+
+      expect(email.checkValidity()).toBe(false);
+      expect(email.validity.typeMismatch).toBe(true);
+      expect(invalidFired).toBe(1);
+      expect(form.checkValidity()).toBe(false);
+
+      email.value = "alice@genericui.dev";
+      expect(email.checkValidity()).toBe(true);
+
+      var user = document.getElementById("inp-user");
+      user.setCustomValidity("Taken");
+      expect(user.validity.customError).toBe(true);
+      expect(user.checkValidity()).toBe(false);
+      user.setCustomValidity("");
+
+      var num = document.getElementById("inp-num");
+      num.value = "99";
+      expect(num.validity.rangeOverflow).toBe(true);
+      num.value = "5";
+      expect(form.checkValidity()).toBe(true);
+    });
+
+    it("serializes active controls in FormData and emits submit/reset restoring defaults", function () {
+      var form = document.getElementById("demo-form");
+      var fd = new FormData(form);
+      expect(fd.get("username")).toBe("alice");
+      expect(fd.get("ignored")).toBeNull();
+      expect(fd.get("plan")).toBe("pro");
+      expect(fd.getAll("tags")).toEqual(["alpha", "gamma"]);
+
+      var submitted = false;
+      form.addEventListener("submit", function (ev) { ev.preventDefault(); submitted = true; });
+      document.getElementById("btn-submit").click();
+      expect(submitted).toBe(true);
+
+      var user = document.getElementById("inp-user");
+      user.value = "bob-modified";
+      form.reset();
+      expect(user.value).toBe("alice");
+    });
+  });
+  </script>
+</body>
+</html>

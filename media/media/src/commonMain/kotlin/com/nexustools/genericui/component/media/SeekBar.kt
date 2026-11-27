@@ -1,8 +1,8 @@
 package com.nexustools.genericui.component.media
 
-import com.nexustools.genericui.component.action.StyledButton
-import com.nexustools.genericui.component.form.StyledSlider
-import com.nexustools.genericui.component.surface.StyledComponent
+import com.nexustools.genericui.component.action.styled.StyledButton
+import com.nexustools.genericui.component.form.styled.StyledSlider
+import com.nexustools.genericui.component.surface.styled.StyledComponent
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.event.PointerDragManager

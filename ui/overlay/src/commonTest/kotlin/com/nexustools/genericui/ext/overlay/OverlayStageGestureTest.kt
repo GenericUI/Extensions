@@ -4,7 +4,7 @@ import com.nexustools.genericui.animation.Animator
 import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.layout.Container
-import com.nexustools.genericui.component.layout.StyledContainer
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
@@ -59,6 +59,7 @@ import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
 import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
 import com.nexustools.genericui.nativeimpl.form.RangeSliderNativeImpl
 import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
+import com.nexustools.genericui.nativeimpl.form.StyledTextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.DividerNativeImpl
@@ -420,6 +421,7 @@ class OverlayStageGestureTest {
             FakeStyledButtonNativeImpl(classPrefix)
         override fun createDropdown(): DropdownNativeImpl<*> = unsupported()
         override fun createTextInput(multiline: Boolean): TextInputNativeImpl<*> = unsupported()
+        override fun createStyledTextInput(multiline: Boolean, classPrefix: String): StyledTextInputNativeImpl<*> = unsupported()
         override fun createSelect(): SelectNativeImpl<*> = unsupported()
         override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean): CheckboxNativeImpl<*> = unsupported()
         override fun createRangeSlider(): RangeSliderNativeImpl<*> = unsupported()

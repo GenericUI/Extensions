@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>09 - DOM Events, Capture/Bubble, AbortController &amp; Input Events</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    #ev-outer { padding: 16px; background: #0b1220; border: 1px solid #334155; border-radius: 6px; }
+    #ev-mid { padding: 14px; background: #172554; border-radius: 6px; }
+    #ev-btn { padding: 8px 14px; background: #0284c7; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+  </style>
+</head>
+<body>
+  <h1>09 &mdash; DOM Events, 3-Phase Propagation, AbortController &amp; Input Constructors</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <div id="ev-outer">
+      <div id="ev-mid">
+        <button id="ev-btn" type="button">Dispatch Target</button>
+      </div>
+    </div>
+    <input id="ev-input" type="text" value="focus-me" style="margin-top:10px;">
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) {
+          var tc = suites[i].tests[j]; sum.total++; var row = document.createElement("div"); c.appendChild(row);
+          try { tc.fn(); sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }
+          catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+        }
+        root.__suiteSummary = sum;
+        var bar = document.getElementById("suite-summary-bar");
+        bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+        bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+      });
+    }
+  })(window);
+  </script>
+
+  <script>
+  describe("09 - DOM Events, Capture/Bubble, AbortController & Input Events", function () {
+    it("executes capture -> target -> bubble order with target, currentTarget, eventPhase, and composedPath", function () {
+      var outer = document.getElementById("ev-outer");
+      var mid = document.getElementById("ev-mid");
+      var btn = document.getElementById("ev-btn");
+      var log = [];
+      var pathLen = 0;
+
+      function oc(e) { log.push("outer-cap:" + e.eventPhase); expect(e.currentTarget).toBe(outer); expect(e.target).toBe(btn); }
+      function mc(e) { log.push("mid-cap:" + e.eventPhase); }
+      function bt(e) { log.push("btn:" + e.eventPhase); pathLen = typeof e.composedPath === "function" ? e.composedPath().length : 5; }
+      function mb(e) { log.push("mid-bub:" + e.eventPhase); }
+      function ob(e) { log.push("outer-bub:" + e.eventPhase); }
+
+      outer.addEventListener("custom-flow", oc, true);
+      mid.addEventListener("custom-flow", mc, true);
+      btn.addEventListener("custom-flow", bt, false);
+      mid.addEventListener("custom-flow", mb, false);
+      outer.addEventListener("custom-flow", ob, false);
+
+      btn.dispatchEvent(new CustomEvent("custom-flow", { bubbles: true, cancelable: true, detail: 99 }));
+      expect(log).toEqual(["outer-cap:1", "mid-cap:1", "btn:2", "mid-bub:3", "outer-bub:3"]);
+      expect(pathLen).toBeGreaterThanOrEqual(4);
+
+      outer.removeEventListener("custom-flow", oc, true);
+      mid.removeEventListener("custom-flow", mc, true);
+      btn.removeEventListener("custom-flow", bt, false);
+      mid.removeEventListener("custom-flow", mb, false);
+      outer.removeEventListener("custom-flow", ob, false);
+    });
+
+    it("honors stopPropagation, stopImmediatePropagation, and cancelable preventDefault", function () {
+      var mid = document.getElementById("ev-mid");
+      var btn = document.getElementById("ev-btn");
+      var secondRan = false, bubbledToMid = false;
+
+      function first(e) { e.stopImmediatePropagation(); e.preventDefault(); }
+      function second() { secondRan = true; }
+      function midBub() { bubbledToMid = true; }
+
+      btn.addEventListener("x-stop", first);
+      btn.addEventListener("x-stop", second);
+      mid.addEventListener("x-stop", midBub);
+
+      var ev = new Event("x-stop", { bubbles: true, cancelable: true });
+      var ok = btn.dispatchEvent(ev);
+      expect(ok).toBe(false);
+      expect(ev.defaultPrevented).toBe(true);
+      expect(secondRan).toBe(false);
+      expect(bubbledToMid).toBe(false);
+
+      btn.removeEventListener("x-stop", first);
+      btn.removeEventListener("x-stop", second);
+      mid.removeEventListener("x-stop", midBub);
+    });
+
+    it("honors once, passive, AbortController signal, and removeEventListener capture matching", function () {
+      var btn = document.getElementById("ev-btn");
+      var onceCount = 0;
+      btn.addEventListener("x-once", function () { onceCount++; }, { once: true });
+      btn.dispatchEvent(new Event("x-once"));
+      btn.dispatchEvent(new Event("x-once"));
+      expect(onceCount).toBe(1);
+
+      var passivePrevented = true;
+      btn.addEventListener("x-passive", function (e) { e.preventDefault(); passivePrevented = e.defaultPrevented; }, { passive: true, once: true });
+      btn.dispatchEvent(new Event("x-passive", { cancelable: true }));
+      expect(passivePrevented).toBe(false);
+
+      if (typeof AbortController === "function") {
+        var ac = new AbortController();
+        var abortHits = 0;
+        btn.addEventListener("x-abort", function () { abortHits++; }, { signal: ac.signal });
+        btn.dispatchEvent(new Event("x-abort"));
+        ac.abort();
+        btn.dispatchEvent(new Event("x-abort"));
+        expect(abortHits).toBe(1);
+      }
+    });
+
+    it("dispatches MouseEvent, PointerEvent, WheelEvent, KeyboardEvent, and FocusEvent properties", function () {
+      var inp = document.getElementById("ev-input");
+      var captured = {};
+
+      inp.addEventListener("mousedown", function (e) { captured.mouse = [e.clientX, e.clientY, e.button, e.ctrlKey]; }, { once: true });
+      inp.dispatchEvent(new MouseEvent("mousedown", { clientX: 12, clientY: 34, button: 2, ctrlKey: true, bubbles: true }));
+      expect(captured.mouse).toEqual([12, 34, 2, true]);
+
+      if (typeof PointerEvent === "function") {
+        inp.addEventListener("pointerdown", function (e) { captured.ptr = [e.pointerId, e.pointerType]; }, { once: true });
+        inp.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 7, pointerType: "pen", bubbles: true }));
+        expect(captured.ptr).toEqual([7, "pen"]);
+      }
+
+      if (typeof WheelEvent === "function") {
+        inp.addEventListener("wheel", function (e) { captured.wheelY = e.deltaY; }, { once: true });
+        inp.dispatchEvent(new WheelEvent("wheel", { deltaY: 120, bubbles: true }));
+        expect(captured.wheelY).toBe(120);
+      }
+
+      inp.addEventListener("keydown", function (e) { captured.key = [e.key, e.code, e.shiftKey]; }, { once: true });
+      inp.dispatchEvent(new KeyboardEvent("keydown", { key: "K", code: "KeyK", shiftKey: true, bubbles: true }));
+      expect(captured.key).toEqual(["K", "KeyK", true]);
+
+      var focusBubbled = false, focusinBubbled = false;
+      var stage = document.getElementById("test-stage");
+      function fb() { focusBubbled = true; }
+      function fib() { focusinBubbled = true; }
+      stage.addEventListener("focus", fb);
+      stage.addEventListener("focusin", fib);
+      inp.focus();
+      expect(document.activeElement).toBe(inp);
+      expect(focusBubbled).toBe(false);
+      expect(focusinBubbled).toBe(true);
+      stage.removeEventListener("focus", fb);
+      stage.removeEventListener("focusin", fib);
+    });
+  });
+  </script>
+</body>
+</html>

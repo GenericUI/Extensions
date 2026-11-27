@@ -43,11 +43,13 @@ class IosNativeWebViewImpl(
 ), WebViewNativeImpl<UikitViewHandle> {
 
     private var currentUrl: String? = null
+    private var currentFaviconUrlState: String? = null
     private var lastLoadedHtml: String? = null
     private val history = ArrayList<String>()
     private var historyIndex: Int = -1
     private var messageListener: ((String) -> Unit)? = null
     private var pageFinishedListener: ((String) -> Unit)? = null
+    private var faviconChangedListener: ((String?) -> Unit)? = null
     private var consoleMessageListener: ((WebViewConsoleMessage) -> Unit)? = null
     private var jsErrorListener: ((String) -> Unit)? = null
     private val communicationHandlers = LinkedHashMap<String, (String) -> String>()
@@ -93,9 +95,12 @@ class IosNativeWebViewImpl(
             }
         }
         pageFinishedListener?.invoke(url)
+        updateFaviconUrl(resolveFallbackFaviconUrl(url))
     }
 
     override fun getUrl(): String? = wkWebView.URL?.absoluteString ?: currentUrl
+
+    override fun getFaviconUrl(): String? = currentFaviconUrlState
 
     override fun loadHtml(html: String, baseUrl: String?) {
         val effectiveUrl = baseUrl ?: "about:blank"
@@ -108,6 +113,7 @@ class IosNativeWebViewImpl(
             }
         }
         pageFinishedListener?.invoke(effectiveUrl)
+        updateFaviconUrl(resolveFallbackFaviconUrl(effectiveUrl))
     }
 
     override fun reload() {
@@ -212,6 +218,32 @@ class IosNativeWebViewImpl(
 
     override fun setOnPageFinished(listener: ((String) -> Unit)?) {
         pageFinishedListener = listener
+    }
+
+    override fun setOnFaviconChanged(listener: ((String?) -> Unit)?) {
+        faviconChangedListener = listener
+    }
+
+    private fun updateFaviconUrl(next: String?) {
+        if (next != currentFaviconUrlState) {
+            currentFaviconUrlState = next
+            runOnMain {
+                faviconChangedListener?.invoke(next)
+            }
+        }
+    }
+
+    private fun resolveFallbackFaviconUrl(url: String?): String? {
+        val raw = url?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (!raw.startsWith("http://", ignoreCase = true) && !raw.startsWith("https://", ignoreCase = true)) {
+            return null
+        }
+        val schemeEnd = raw.indexOf("://")
+        val scheme = raw.substring(0, schemeEnd).lowercase()
+        val after = raw.substring(schemeEnd + 3)
+        val authEnd = listOf(after.indexOf('/'), after.indexOf('?'), after.indexOf('#')).filter { it >= 0 }.minOrNull() ?: after.length
+        val auth = after.substring(0, authEnd)
+        return if (auth.isEmpty()) null else "$scheme://$auth/favicon.ico"
     }
 
     override fun registerCommunicationFunction(name: String, handler: (String) -> String) {

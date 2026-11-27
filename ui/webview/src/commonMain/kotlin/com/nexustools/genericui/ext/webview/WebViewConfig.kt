@@ -8,5 +8,8 @@ data class WebViewConfig(
     val domStorageEnabled: Boolean = true,
     val enableDevTools: Boolean = false,
     val userAgentOverride: String? = null,
-    val allowFileAccess: Boolean = false
+    val allowFileAccess: Boolean = false,
+    val capabilities: WebViewCapabilities = WebViewCapabilities(),
+    val initialViewportWidth: Int = 1024,
+    val initialViewportHeight: Int = 768
 )

@@ -11,8 +11,11 @@ import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.ext.media.MediaExtension
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
 import com.nexustools.genericui.ext.media.overlay.VideoOverlayHost
+import com.nexustools.genericui.ext.media.readLocalMediaFileBytes
 import com.nexustools.genericui.ext.overlay.AbstractOverlay
+import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
+import com.nexustools.genericui.res.DataUrlCodec
 import com.nexustools.genericui.threading.GenericUiThreading
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -160,8 +163,35 @@ open class VideoPlayer(
         }
 
     private var internalSubtitlesEnabledState: Boolean = true
+    private var explicitOffscreenFrameCaptureState: Boolean? = null
     private var mediaReadyFallbackState: Boolean = false
     private val mediaReadyWaiters = mutableListOf<() -> Unit>()
+
+    var loop: Boolean = false
+        set(value) {
+            field = value
+            setAttribute("data-loop", value.toString())
+            typedNative<VideoPlayerNativeImpl<*>>()?.setLoop(value)
+            notifyStateChangeObservers()
+        }
+
+    val naturalWidth: Int
+        get() = typedNative<VideoPlayerNativeImpl<*>>()?.getNaturalVideoWidth() ?: 0
+
+    val naturalHeight: Int
+        get() = typedNative<VideoPlayerNativeImpl<*>>()?.getNaturalVideoHeight() ?: 0
+
+    val videoFrameVersion: Long
+        get() = typedNative<VideoPlayerNativeImpl<*>>()?.videoFrameVersion ?: 0L
+
+    fun enableOffscreenFrameCapture(enabled: Boolean) {
+        explicitOffscreenFrameCaptureState = enabled
+        typedNative<VideoPlayerNativeImpl<*>>()?.enableOffscreenFrameCapture(enabled)
+        notifyStateChangeObservers()
+    }
+
+    fun copyLatestVideoFrame(): ImageBuffer? =
+        typedNative<VideoPlayerNativeImpl<*>>()?.copyLatestVideoFrame()
 
     override val isMediaReady: Boolean
         get() = typedNative<VideoPlayerNativeImpl<*>>()?.isMediaReady() == true || mediaReadyFallbackState
@@ -172,6 +202,7 @@ open class VideoPlayer(
         setAttribute("data-antialiasing", antialiasing.toString())
         setAttribute("data-keep-screen-on", keepScreenOn.toString())
         setAttribute("data-internal-subtitles-enabled", internalSubtitlesEnabledState.toString())
+        setAttribute("data-loop", loop.toString())
     }
 
     private fun syncScreenWakeLockState() {
@@ -560,6 +591,14 @@ open class VideoPlayer(
                 isSelected = selectedSubtitleTrackIdState == trackId
             )
         )
+        val rawText = if (vttOrSrtUrl.startsWith("data:", ignoreCase = true)) {
+            DataUrlCodec.decodeUtf8Text(vttOrSrtUrl)
+        } else {
+            readLocalMediaFileBytes(vttOrSrtUrl)?.decodeToString()
+        }
+        if (!rawText.isNullOrBlank()) {
+            subtitleCuesByTrackId[trackId] = WebVttSrtParser.parse(rawText)
+        }
         val impl = typedNative<VideoPlayerNativeImpl<*>>()
         if (impl != null) {
             impl.addExternalSubtitleTrack(label, language, vttOrSrtUrl)
@@ -651,7 +690,8 @@ open class VideoPlayer(
     }
 
     protected override fun createNativeImpl(factory: NativeFactory): VideoPlayerNativeImpl<*> =
-        MediaExtension.createVideoPlayerNativeOrFallback()
+        (factory.createExtensionNativeImpl(this) as? VideoPlayerNativeImpl<*>)
+            ?: MediaExtension.createVideoPlayerNativeOrFallback()
 
     private inline fun runOnLogicIfActive(crossinline block: () -> Unit) {
         if (GenericUI.activeFactory != null &&
@@ -682,6 +722,8 @@ open class VideoPlayer(
         impl.setMuted(isMuted)
         impl.setPlaybackSpeed(playbackSpeed)
         impl.setResizeMode(resizeMode)
+        impl.setLoop(loop)
+        explicitOffscreenFrameCaptureState?.let { impl.enableOffscreenFrameCapture(it) }
         impl.setOnMediaReady {
             runOnLogicIfActive {
                 notifyMediaReady()

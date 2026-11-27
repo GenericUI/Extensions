@@ -1,10 +1,8 @@
-# `:extensions:ui:pip` & `:extensions:ui:pip:dsl` — Cross-Platform Picture-in-Picture (`@PiPCompatible`, `FragmentPipHelper`, `PipControlOverlay`)
+# `:extensions:ui:pip` — Cross-Platform Picture-in-Picture (`@PiPCompatible`, `FragmentPipHelper`, `PipControlOverlay`)
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Fragments & Windows (`../../docs/fragments-and-windows.md`)**](../../docs/fragments-and-windows.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:ui:pip` (`com.nexustools.genericui.ext.pip`) is a **Single Consolidated KMP Project** depending on `:common` and [`:extensions:ui:overlay`](overlay.md) (`api`). It provides an architecture-agnostic Picture-in-Picture framework allowing `@PiPCompatible` fragments to detach a target component (video player, interactive 2D/3D canvas, or custom widget subtree) into an OS-native or always-on-top floating PiP window with non-destructive DOM/hierarchy restoration upon exit.
-
-Its companion module `:extensions:ui:pip:dsl` (`com.nexustools.genericui.ext.pip.dsl`) exposes `Fragment.installPipHelper { ... }` and `Fragment.pipHelper`.
+`:extensions:ui:pip` (`com.nexustools.genericui.ext.pip`) is a **Single Consolidated KMP Project** depending on `:common` and [`:extensions:ui:overlay`](overlay.md) (`api`), with zero separate `:dsl` companion module. It provides an architecture-agnostic Picture-in-Picture framework allowing `@PiPCompatible` fragments to detach a target component (video player, interactive 2D/3D canvas, or custom widget subtree) into an OS-native or always-on-top floating PiP window with non-destructive DOM/hierarchy restoration upon exit.
 
 ---
 
@@ -22,7 +20,7 @@ Its companion module `:extensions:ui:pip:dsl` (`com.nexustools.genericui.ext.pip
 
 ## 2. Gradle Plugin Configuration
 
-Enabling `pip()` automatically enables `overlay()`, registers [`PlatformPipBootstrap`](../ui/pip/src/commonMain/kotlin/com/nexustools/genericui/ext/pip/PlatformPipBootstrap.kt), and includes `:extensions:ui:pip:dsl` when `dsl()` is active:
+Enabling `pip()` automatically enables `overlay()` and registers [`PlatformPipBootstrap`](../ui/pip/src/commonMain/kotlin/com/nexustools/genericui/ext/pip/PlatformPipBootstrap.kt) (and configures `@PiPCompatible` Android Activities with `android:supportsPictureInPicture="true"` via [`PipAndroidActivityExtensionContributor`](../../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/PipAndroidActivityExtensionContributor.kt)):
 
 ```kotlin
 plugins {
@@ -34,7 +32,6 @@ genericui {
         allExceptSwing()
     }
     extensions {
-        dsl() // Auto-wires :extensions:ui:pip:dsl
         pip() // Enables :extensions:ui:pip + :extensions:ui:overlay
     }
 }
@@ -57,7 +54,7 @@ genericui {
 
 ---
 
-## 4. Usage Example with `:extensions:ui:pip:dsl`
+## 4. Usage Example (`@PiPCompatible` & `FragmentPipHelper`)
 
 ```kotlin
 import com.nexustools.genericui.component.fragment.AppFragment
@@ -68,16 +65,17 @@ import com.nexustools.genericui.ext.dsl.button
 import com.nexustools.genericui.ext.dsl.div
 import com.nexustools.genericui.ext.media.dsl.videoOverlayHost
 import com.nexustools.genericui.ext.overlay.dsl.attachYoutubePlayerOverlay
+import com.nexustools.genericui.ext.pip.FragmentPipHelper
 import com.nexustools.genericui.ext.pip.PiPCompatible
 import com.nexustools.genericui.ext.pip.PipAction
 import com.nexustools.genericui.ext.pip.PipActionIcon
 import com.nexustools.genericui.ext.pip.PipSessionConfig
-import com.nexustools.genericui.ext.pip.dsl.installPipHelper
-import com.nexustools.genericui.ext.pip.dsl.pipHelper
 
 @PiPCompatible
 @AppFragment(label = "PiP Theatre", route = "theatre")
 class PipTheatreFragment : Fragment() {
+    private var pipHelper: FragmentPipHelper? = null
+
     override fun onCreate(savedState: FragmentBundle?) {
         super.onCreate(savedState)
 
@@ -90,7 +88,7 @@ class PipTheatreFragment : Fragment() {
                 }
                 val player = overlayHost.videoPlayer
 
-                installPipHelper {
+                val helper = FragmentPipHelper(this@PipTheatreFragment).apply {
                     pipTarget = overlayHost
                     configProvider = {
                         PipSessionConfig(
@@ -119,13 +117,21 @@ class PipTheatreFragment : Fragment() {
                     onPipModeChanged = { inPip ->
                         overlayHost.setPictureInPictureMode(inPip)
                     }
+                    bindWindow()
                 }
+                pipHelper = helper
 
                 button("Toggle PiP") {
-                    onClick = { pipHelper?.togglePip() }
+                    onClick = { helper.togglePip() }
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        pipHelper?.dispose()
+        pipHelper = null
+        super.onDestroy()
     }
 }
 ```

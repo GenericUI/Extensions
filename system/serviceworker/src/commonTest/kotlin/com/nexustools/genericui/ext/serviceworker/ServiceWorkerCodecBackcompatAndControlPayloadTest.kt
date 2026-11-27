@@ -1,76 +1,50 @@
 package com.nexustools.genericui.ext.serviceworker
 
 import com.nexustools.genericui.component.fragment.FragmentBundle
+import com.nexustools.genericui.component.system.PreferenceElement
+import com.nexustools.genericui.util.BinaryJson
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ServiceWorkerCodecBackcompatAndControlPayloadTest {
 
-    private fun buildLegacyFourFieldBinaryBody(
-        kind: Byte,
-        correlationId: Long,
-        clientId: String,
-        typeId: String,
-        payloadJson: String,
-        error: String
-    ): ByteArray {
-        val parts = listOf(
-            clientId.encodeToByteArray(),
-            typeId.encodeToByteArray(),
-            payloadJson.encodeToByteArray(),
-            error.encodeToByteArray()
-        )
-        val total = 1 + 8 + parts.sumOf { 4 + it.size }
-        val out = ByteArray(total)
-        var offset = 0
-        out[offset++] = kind
-        for (shift in 56 downTo 0 step 8) {
-            out[offset++] = ((correlationId ushr shift) and 0xFF).toByte()
-        }
-        for (part in parts) {
-            val len = part.size
-            out[offset++] = ((len ushr 24) and 0xFF).toByte()
-            out[offset++] = ((len ushr 16) and 0xFF).toByte()
-            out[offset++] = ((len ushr 8) and 0xFF).toByte()
-            out[offset++] = (len and 0xFF).toByte()
-            part.copyInto(out, destinationOffset = offset)
-            offset += len
-        }
-        return out
-    }
-
     @Test
-    fun decodesLegacyFourFieldBinaryAndWebFramesWithNullFragmentRouting() {
-        val legacyBody = buildLegacyFourFieldBinaryBody(
-            kind = ServiceWorkerEnvelope.KIND_REQUEST,
-            correlationId = 42L,
-            clientId = "client-1",
-            typeId = "test.Legacy",
-            payloadJson = """{"hello":"world"}""",
-            error = ""
+    fun encodesBinaryJsonTypeObjectRejectsRawTextJsonAndDecodesOmittedRoutingFields() {
+        val minimalObject = PreferenceElement.ofObject(
+            mapOf(
+                "kind" to PreferenceElement.ofByte(ServiceWorkerEnvelope.KIND_REQUEST),
+                "correlationId" to PreferenceElement.ofLong(42L),
+                "clientId" to PreferenceElement.ofString("client-1"),
+                "typeId" to PreferenceElement.ofString("test.Minimal"),
+                "payload" to PreferenceElement.ofObject(
+                    mapOf("hello" to PreferenceElement.ofString("world"))
+                ),
+                "error" to PreferenceElement.ofString("")
+            )
         )
-        val decodedLegacy = ServiceWorkerFrameCodec.decodeBinaryBody(legacyBody)
-        assertNotNull(decodedLegacy)
-        assertEquals(ServiceWorkerEnvelope.KIND_REQUEST, decodedLegacy.kind)
-        assertEquals(42L, decodedLegacy.correlationId)
-        assertEquals("client-1", decodedLegacy.clientId)
-        assertEquals("test.Legacy", decodedLegacy.typeId)
-        assertEquals("""{"hello":"world"}""", decodedLegacy.payloadJson)
-        assertEquals("", decodedLegacy.error)
-        assertNull(decodedLegacy.targetFragmentId)
-        assertNull(decodedLegacy.sourceFragmentId)
+        val minimalBytes = BinaryJson.encodeElement(minimalObject)
+        assertEquals(BinaryJson.TYPE_OBJECT, minimalBytes[0])
 
-        val legacyWebText =
-            """__gsw_frame__:{"k":1,"c":7,"cid":"web-1","t":"kotlin.String","p":"\"ping\"","e":""}"""
-        val decodedWeb = ServiceWorkerFrameCodec.decodeWebText(legacyWebText)
-        assertNotNull(decodedWeb)
-        assertEquals("web-1", decodedWeb.clientId)
-        assertEquals("kotlin.String", decodedWeb.typeId)
-        assertNull(decodedWeb.targetFragmentId)
-        assertNull(decodedWeb.sourceFragmentId)
+        val decodedMinimal = ServiceWorkerFrameCodec.decodeBinaryBody(minimalBytes)
+        assertNotNull(decodedMinimal)
+        assertEquals(ServiceWorkerEnvelope.KIND_REQUEST, decodedMinimal.kind)
+        assertEquals(42L, decodedMinimal.correlationId)
+        assertEquals("client-1", decodedMinimal.clientId)
+        assertEquals("test.Minimal", decodedMinimal.typeId)
+        assertEquals("world", decodedMinimal.payload["hello"]?.asString())
+        assertEquals("", decodedMinimal.error)
+        assertNull(decodedMinimal.targetFragmentId)
+        assertNull(decodedMinimal.sourceFragmentId)
+
+        // Raw UTF-8 JSON text must never be accepted by BinaryJson binary frame decoding.
+        assertNull(ServiceWorkerFrameCodec.decodeBinaryBody("""{"kind":5,"clientId":"c"}""".encodeToByteArray()))
+        assertFailsWith<ServiceWorkerIpcException> {
+            ServiceWorkerFrameCodec.decodeWebText("""__gsw_frame__:{"k":1,"c":7}""")
+        }
     }
 
     @Test
@@ -81,7 +55,7 @@ class ServiceWorkerCodecBackcompatAndControlPayloadTest {
                 correlationId = 101L,
                 clientId = "c-a",
                 typeId = "t.A",
-                payloadJson = "{}",
+                payload = PreferenceElement.ofObject(emptyMap()),
                 error = "",
                 targetFragmentId = "com.example.SettingsFragment",
                 sourceFragmentId = null
@@ -91,7 +65,7 @@ class ServiceWorkerCodecBackcompatAndControlPayloadTest {
                 correlationId = 202L,
                 clientId = "c-b",
                 typeId = "t.B",
-                payloadJson = """{"v":1}""",
+                payload = PreferenceElement.ofObject(mapOf("v" to PreferenceElement.ofInt(1))),
                 error = "",
                 targetFragmentId = null,
                 sourceFragmentId = "com.example.MainFragment"
@@ -101,7 +75,7 @@ class ServiceWorkerCodecBackcompatAndControlPayloadTest {
                 correlationId = 303L,
                 clientId = "c-c",
                 typeId = "t.C",
-                payloadJson = "true",
+                payload = PreferenceElement.ofBoolean(true),
                 error = "",
                 targetFragmentId = "com.example.MainFragment",
                 sourceFragmentId = "com.example.SettingsFragment"
@@ -109,9 +83,9 @@ class ServiceWorkerCodecBackcompatAndControlPayloadTest {
         )
 
         for (env in cases) {
-            val binDecoded = ServiceWorkerFrameCodec.decodeBinaryBody(
-                ServiceWorkerFrameCodec.encodeBinaryBody(env)
-            )
+            val binaryBytes = ServiceWorkerFrameCodec.encodeBinaryBody(env)
+            assertEquals(BinaryJson.TYPE_OBJECT, binaryBytes[0])
+            val binDecoded = ServiceWorkerFrameCodec.decodeBinaryBody(binaryBytes)
             assertEquals(env, binDecoded)
 
             val webDecoded = ServiceWorkerFrameCodec.decodeWebText(
@@ -136,8 +110,8 @@ class ServiceWorkerCodecBackcompatAndControlPayloadTest {
             clearTask = false,
             bringToFront = true
         )
-        val decodedLaunch = ServiceWorkerFragmentLaunchRequest.fromControlPayloadJson(
-            launchReq.toControlPayloadJson()
+        val decodedLaunch = ServiceWorkerFragmentLaunchRequest.fromControlPayloadElement(
+            launchReq.toControlPayloadElement()
         )
         assertNotNull(decodedLaunch)
         assertEquals("com.example.SettingsFragment", decodedLaunch.fragmentId)

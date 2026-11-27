@@ -259,6 +259,9 @@ abstract class AlienImpl(
     override fun setEnabled(enabled: Boolean) {
         if (node.enabled != enabled) {
             node.enabled = enabled
+            if (!enabled) {
+                setFocusedState(false)
+            }
             node.invalidateBounds()
         }
     }
@@ -286,7 +289,7 @@ abstract class AlienImpl(
             node.attributes.remove(name)
         } else {
             node.attributes[name] = value
-            if (name == "data-genericui-tag" && value.isNotBlank()) {
+            if (name == "data-genericui-tag" && value.isNotBlank() && value != "genericui:component") {
                 node.tagName = value
                 node.markLayoutDirty()
             }
@@ -398,9 +401,13 @@ abstract class AlienImpl(
     override fun isHoveredState(): Boolean = node.hoveredState
 
     override fun setFocusedState(focused: Boolean) {
-        if (node.focusedState != focused) {
-            node.focusedState = focused
+        val coerced = if (focused && !node.enabled) false else focused
+        if (node.focusedState != coerced) {
+            node.focusedState = coerced
+            node.session?.eventDispatcher?.syncProgrammaticFocus(node, coerced)
             node.invalidateBounds()
+        } else if (coerced) {
+            node.session?.eventDispatcher?.syncProgrammaticFocus(node, true)
         }
     }
 

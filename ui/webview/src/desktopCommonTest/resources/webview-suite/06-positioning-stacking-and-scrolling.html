@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>06 - Positioning, Stacking Contexts &amp; Scrolling</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 1500px; }
+    h1 { margin: 0 0 8px 0; font-size: 20px; color: #38bdf8; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+
+    #cb-host { position: relative; width: 260px; height: 120px; background: #0b1220; border: 1px solid #475569; }
+    #pos-static { width: 80px; height: 24px; background: #475569; top: 99px; left: 99px; }
+    #pos-rel { position: relative; top: 12px; left: 20px; width: 80px; height: 24px; background: #0284c7; }
+    #pos-abs { position: absolute; right: 10px; bottom: 10px; width: 70px; height: 30px; background: #16a34a; }
+
+    #fixed-el { position: fixed; top: 12px; right: 12px; width: 90px; height: 24px; background: #7c3aed; z-index: 50; font-size: 11px; text-align: center; line-height: 24px; border-radius: 4px; }
+
+    #hit-stage { position: relative; width: 200px; height: 80px; background: #0b1220; }
+    #z-low { position: absolute; left: 10px; top: 10px; width: 80px; height: 60px; background: #dc2626; z-index: 1; }
+    #z-high { position: absolute; left: 30px; top: 10px; width: 80px; height: 60px; background: #22c55e; z-index: 10; }
+    #z-passthrough { position: absolute; left: 10px; top: 10px; width: 100px; height: 60px; z-index: 99; pointer-events: none; }
+
+    #scroll-box {
+      width: 240px; height: 110px; overflow: auto; background: #0b1220; border: 1px solid #475569; position: relative;
+    }
+    #sticky-hdr { position: sticky; top: 0; height: 24px; background: #eab308; color: #000; font-weight: 700; z-index: 5; }
+    #scroll-tall { width: 420px; height: 360px; padding-top: 200px; }
+    #scroll-target { width: 120px; height: 30px; background: #ec4899; }
+  </style>
+</head>
+<body>
+  <div id="fixed-el">Fixed Box</div>
+  <h1>06 &mdash; Positioning, Stacking Contexts &amp; Scrolling</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <div id="cb-host">
+      <div id="pos-static">Static</div>
+      <div id="pos-rel">Relative</div>
+      <div id="pos-abs">Absolute</div>
+    </div>
+
+    <div id="hit-stage">
+      <div id="z-low">Low z=1</div>
+      <div id="z-high">High z=10</div>
+      <div id="z-passthrough">PointerNone z=99</div>
+    </div>
+
+    <div id="scroll-box">
+      <div id="sticky-hdr">Sticky Header</div>
+      <div id="scroll-tall">
+        <div id="scroll-target">Target</div>
+      </div>
+    </div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] }, q = [];
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) (function (tc) {
+          q.push(function () {
+            sum.total++; var row = document.createElement("div"); c.appendChild(row);
+            try {
+              var r = tc.fn();
+              if (r && typeof r.then === "function") return r.then(function () { sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }, function (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; });
+              sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name;
+            } catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+          });
+        })(suites[i].tests[j]);
+        (function run(k) {
+          if (k >= q.length) {
+            root.__suiteSummary = sum;
+            var bar = document.getElementById("suite-summary-bar");
+            bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+            bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+            return;
+          }
+          var out = q[k]();
+          if (out && typeof out.then === "function") out.then(function () { run(k + 1); }, function () { run(k + 1); }); else run(k + 1);
+        })(0);
+      });
+    }
+  })(window);
+  </script>
+
+  <script>
+  describe("06 - Positioning, Stacking Contexts & Scrolling", function () {
+    it("ignores top/left on position: static and offsets relative/absolute accurately", function () {
+      var host = document.getElementById("cb-host").getBoundingClientRect();
+      var st = document.getElementById("pos-static").getBoundingClientRect();
+      var rel = document.getElementById("pos-rel").getBoundingClientRect();
+      var abs = document.getElementById("pos-abs").getBoundingClientRect();
+
+      expect(Math.round(st.left - host.left)).toBe(1);
+      expect(Math.round(rel.left - host.left)).toBe(21);
+      expect(Math.round(rel.top - st.bottom)).toBe(12);
+      expect(Math.round(host.right - 1 - abs.right)).toBe(10);
+      expect(Math.round(host.bottom - 1 - abs.bottom)).toBe(10);
+    });
+
+    it("resolves pointer-events: none pass-through and z-index stacking in elementFromPoint", function () {
+      var low = document.getElementById("z-low");
+      var high = document.getElementById("z-high");
+      var lowRect = low.getBoundingClientRect();
+      var highRect = high.getBoundingClientRect();
+
+      // Overlap area around left=45 should hit #z-high (z=10), bypassing #z-passthrough (z=99, pointer-events: none)
+      var hitOverlap = document.elementFromPoint(Math.round(highRect.left + 15), Math.round(highRect.top + 15));
+      expect(hitOverlap).toBe(high);
+
+      // Non-overlapping left strip (left + 5) should hit #z-low (z=1)
+      var hitLowOnly = document.elementFromPoint(Math.round(lowRect.left + 5), Math.round(lowRect.top + 15));
+      expect(hitLowOnly).toBe(low);
+    });
+
+    it("reports scrollWidth/scrollHeight/clientWidth/clientHeight and executes scrollTo, scrollBy & sticky clamp", function () {
+      var sb = document.getElementById("scroll-box");
+      var sticky = document.getElementById("sticky-hdr");
+      expect(sb.scrollWidth).toBeGreaterThan(sb.clientWidth);
+      expect(sb.scrollHeight).toBeGreaterThan(sb.clientHeight);
+
+      sb.scrollTo(40, 80);
+      expect(Math.round(sb.scrollLeft)).toBe(40);
+      expect(Math.round(sb.scrollTop)).toBe(80);
+
+      // Sticky header stays pinned to top edge of scroll container when scrolled past 0
+      var sbRect = sb.getBoundingClientRect();
+      var stickyRect = sticky.getBoundingClientRect();
+      expect(Math.round(stickyRect.top)).toBeGreaterThanOrEqual(Math.round(sbRect.top));
+      expect(Math.round(stickyRect.top)).toBeLessThanOrEqual(Math.round(sbRect.top + 4));
+
+      sb.scrollBy(20, 30);
+      expect(Math.round(sb.scrollLeft)).toBe(60);
+      expect(Math.round(sb.scrollTop)).toBe(110);
+
+      var target = document.getElementById("scroll-target");
+      target.scrollIntoView();
+      expect(sb.scrollTop).toBeGreaterThanOrEqual(110);
+      sb.scrollTo(0, 0);
+    });
+
+    it("pins position: fixed element relative to viewport across window scrolling", function () {
+      var fixed = document.getElementById("fixed-el");
+      var beforeRect = fixed.getBoundingClientRect();
+      expect(Math.round(beforeRect.top)).toBe(12);
+
+      window.scrollTo(0, 120);
+      var afterRect = fixed.getBoundingClientRect();
+      expect(Math.round(afterRect.top)).toBe(12);
+      if (window.scrollY > 0) {
+        expect(Math.round(window.scrollY)).toBeGreaterThan(0);
+      }
+      window.scrollTo(0, 0);
+    });
+
+    it("fires scroll events when a scrollable container scrolls", function () {
+      var sb = document.getElementById("scroll-box");
+      var scrollEvents = 0;
+      sb.addEventListener("scroll", function () { scrollEvents++; });
+      sb.scrollTop = 55;
+      if (typeof Promise === "undefined") {
+        expect(sb.scrollTop).toBe(55);
+        return;
+      }
+      return new Promise(function (resolve, reject) {
+        setTimeout(function () {
+          try {
+            expect(Math.round(sb.scrollTop)).toBe(55);
+            expect(scrollEvents).toBeGreaterThanOrEqual(1);
+            sb.scrollTop = 0;
+            resolve();
+          } catch (e) { reject(e); }
+        }, 50);
+      });
+    });
+  });
+  </script>
+</body>
+</html>

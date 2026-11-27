@@ -187,7 +187,7 @@ class ServiceWorkerChannelConcurrencyAndReconnectTest {
         }
         assertEquals(1, initialMounted.size)
         val initialMountPayload = ServiceWorkerFragmentLaunchRequest.decodeMountControlPayload(
-            initialMounted.single().payloadJson
+            initialMounted.single().payload
         )
         assertEquals("com.test.SampleUiFragment", initialMountPayload?.first)
         assertEquals(binding.instanceId, initialMountPayload?.second)
@@ -200,18 +200,18 @@ class ServiceWorkerChannelConcurrencyAndReconnectTest {
         val secondMounted = runtime.snapshotSent().filter {
             it.typeId == ServiceWorkerEnvelope.CONTROL_FRAGMENT_MOUNTED
         }.last()
-        val secondMountPayload = ServiceWorkerFragmentLaunchRequest.decodeMountControlPayload(secondMounted.payloadJson)
+        val secondMountPayload = ServiceWorkerFragmentLaunchRequest.decodeMountControlPayload(secondMounted.payload)
         assertEquals(binding.instanceId, secondMountPayload?.second)
 
         // Inbound targeted message arrives cleanly while bound.
-        val (typeId, payloadJson) = ServiceWorkerCodecRegistry.encodePayload("hello-bound")
+        val (typeId, payload) = ServiceWorkerCodecRegistry.encodePayload("hello-bound")
         runtime.simulateIncoming(
             ServiceWorkerEnvelope(
                 kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                 correlationId = 0L,
                 clientId = "ui",
                 typeId = typeId,
-                payloadJson = payloadJson,
+                payload = payload,
                 targetFragmentId = "com.test.SampleUiFragment"
             )
         )
@@ -228,7 +228,7 @@ class ServiceWorkerChannelConcurrencyAndReconnectTest {
         val unmounted = runtime.snapshotSent().first {
             it.typeId == ServiceWorkerEnvelope.CONTROL_FRAGMENT_UNMOUNTED
         }
-        val unmountPayload = ServiceWorkerFragmentLaunchRequest.decodeMountControlPayload(unmounted.payloadJson)
+        val unmountPayload = ServiceWorkerFragmentLaunchRequest.decodeMountControlPayload(unmounted.payload)
         assertEquals("com.test.SampleUiFragment", unmountPayload?.first)
         assertEquals(binding.instanceId, unmountPayload?.second)
 
@@ -240,7 +240,7 @@ class ServiceWorkerChannelConcurrencyAndReconnectTest {
                 correlationId = 0L,
                 clientId = "ui",
                 typeId = t2,
-                payloadJson = p2,
+                payload = p2,
                 targetFragmentId = "com.test.SampleUiFragment"
             )
         )
@@ -297,7 +297,7 @@ class ServiceWorkerChannelConcurrencyAndReconnectTest {
                 correlationId = 0L,
                 clientId = "ui",
                 typeId = t1,
-                payloadJson = p1,
+                payload = p1,
                 targetFragmentId = "com.test.SampleUiFragment"
             )
         )
@@ -307,7 +307,7 @@ class ServiceWorkerChannelConcurrencyAndReconnectTest {
                 correlationId = 0L,
                 clientId = "ui",
                 typeId = t2,
-                payloadJson = p2,
+                payload = p2,
                 targetFragmentId = "com.test.SampleUiFragment"
             )
         )

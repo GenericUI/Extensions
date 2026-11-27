@@ -145,11 +145,11 @@ object ServiceWorkerExtension : ApplicationLifecycleExtensionHook {
      * Invoked by generated Desktop main launchers before creating/showing any GUI window.
      * Returns `true` if the GUI window should proceed to launch, or `false` when
      * `openWindowOnLaunch == false` and `--open-window`/`--settings-only` were omitted after
-     * ensuring the singleton background `serviceworker` process is active.
+     * ensuring the singleton background `<baseName>-sw` process is active.
      */
     fun prepareDesktopMainLaunch(
         args: Array<String>,
-        workerBinaryBaseName: String = "serviceworker"
+        workerBinaryBaseName: String = options.resolvedWorkerBinaryBaseName()
     ): Boolean {
         if (!isSupported) return true
         ensureLifecycleHookRegistered()
@@ -161,7 +161,7 @@ object ServiceWorkerExtension : ApplicationLifecycleExtensionHook {
     }
 
     /**
-     * Entrypoint invoked by the generated secondary Desktop `serviceworker` executable (and Swing
+     * Entrypoint invoked by the generated secondary Desktop `<baseName>-sw` executable (and Swing
      * `GeneratedSwingServiceWorkerMain`). Runs the singleton lock, loopback IPC server, system tray,
      * `@MainServiceWorker`, and headless OS event loop.
      */

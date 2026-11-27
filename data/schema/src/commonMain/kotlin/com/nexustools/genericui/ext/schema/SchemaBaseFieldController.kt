@@ -2,6 +2,7 @@ package com.nexustools.genericui.ext.schema
 
 import com.nexustools.genericui.component.layout.HStack
 import com.nexustools.genericui.component.layout.VStack
+import com.nexustools.genericui.component.typography.ILabelTarget
 import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.component.typography.Text
 import com.nexustools.genericui.core.AbstractComponent
@@ -63,6 +64,23 @@ internal abstract class SchemaBaseFieldController(
     protected var dynamicDefaultOverride: Any? = null
     protected var hasDynamicDefaultOverride: Boolean = false
     private var rawLabelText: String = initialLabel
+    private var resolvedPrimaryLabelTarget: ILabelTarget? = null
+
+    override val primaryLabelTarget: ILabelTarget?
+        get() = resolvedPrimaryLabelTarget ?: super.primaryLabelTarget
+
+    protected fun bindLabelTarget(target: ILabelTarget?) {
+        resolvedPrimaryLabelTarget = target
+        syncPrimaryLabelTarget()
+    }
+
+    protected fun syncPrimaryLabelTarget() {
+        val label = (this as SchemaFieldController).labelComponent ?: return
+        val resolved = resolvedPrimaryLabelTarget
+        if (label.target !== resolved) {
+            label.target = resolved
+        }
+    }
 
     protected fun mountStandardBody(
         controlComponent: AbstractComponent,
@@ -71,6 +89,10 @@ internal abstract class SchemaBaseFieldController(
     ) {
         invalidTargetControls.clear()
         invalidTargetControls.addAll(invalidTargets.ifEmpty { arrayOf(controlComponent) })
+        if (resolvedPrimaryLabelTarget == null) {
+            resolvedPrimaryLabelTarget = invalidTargetControls.firstOrNull { it is ILabelTarget } as? ILabelTarget
+        }
+        syncPrimaryLabelTarget()
         if (compactInline) {
             val row = rootComponent as HStack
             row.addChild(labelHeaderContainer)

@@ -924,18 +924,14 @@ ${'$'}border-radius-pill: 9999px;
         sheet: CssStyleSheet,
         node: AlienWidgetNode,
         darkTheme: Boolean,
-        viewportWidthPx: Int = 1280
-    ): ComputedStyle {
-        val classes = collectBootstrapClassesForNode(node)
-        val ancestorChain = buildAncestorChain(node, darkTheme)
-        return sheet.resolveStyleForClasses(
-            classes = classes,
-            tagName = node.tagName.ifEmpty { "div" },
-            id = node.attributes["id"],
-            ancestorChain = ancestorChain,
-            viewportWidthPx = viewportWidthPx
-        )
-    }
+        viewportWidthPx: Int = 1280,
+        viewportHeightPx: Int = 800
+    ): ComputedStyle = sheet.resolveStyleForNode(
+        node = node,
+        viewportWidthPx = viewportWidthPx,
+        viewportHeightPx = viewportHeightPx,
+        isDarkThemeOverride = darkTheme
+    )
 
     /**
      * Compiles a Bootstrap `.scss` source string into specificity-ordered [CompiledStyleRule] entries.
@@ -987,18 +983,14 @@ ${'$'}border-radius-pill: 9999px;
     fun resolveForNode(
         node: AlienWidgetNode,
         darkTheme: Boolean,
-        viewportWidthPx: Int = 1280
-    ): ComputedStyle {
-        val classes = collectBootstrapClassesForNode(node)
-        val ancestorChain = buildAncestorChain(node, darkTheme)
-        return styleSheet.resolveStyleForClasses(
-            classes = classes,
-            tagName = node.tagName.ifEmpty { "div" },
-            id = node.attributes["id"],
-            ancestorChain = ancestorChain,
-            viewportWidthPx = viewportWidthPx
-        )
-    }
+        viewportWidthPx: Int = 1280,
+        viewportHeightPx: Int = 800
+    ): ComputedStyle = styleSheet.resolveStyleForNode(
+        node = node,
+        viewportWidthPx = viewportWidthPx,
+        viewportHeightPx = viewportHeightPx,
+        isDarkThemeOverride = darkTheme
+    )
 
     private fun buildAncestorChain(node: AlienWidgetNode, darkTheme: Boolean): List<Set<String>> {
         val chain = mutableListOf<Set<String>>()

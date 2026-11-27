@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>GenericUI WebView (Alien + Stylesheet Engine + NJS) Compliance Suite</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 24px; font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      background: #0f172a; color: #e2e8f0; line-height: 1.5;
+    }
+    header { margin-bottom: 20px; border-bottom: 1px solid #334155; padding-bottom: 14px; }
+    h1 { margin: 0 0 6px 0; font-size: 24px; color: #38bdf8; }
+    p { margin: 0; color: #94a3b8; font-size: 14px; }
+    .fixtures {
+      display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0 20px 0;
+    }
+    .fixture-pill {
+      padding: 4px 10px; border-radius: 999px; background: #1e293b; border: 1px solid #334155;
+      color: #cbd5e1; font-size: 12px; text-decoration: none;
+    }
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px;
+    }
+    .card {
+      display: block; text-decoration: none; color: inherit;
+      background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px;
+    }
+    .card:hover { border-color: #38bdf8; }
+    .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
+    .num { font-family: monospace; font-weight: 700; color: #38bdf8; font-size: 13px; }
+    .tag {
+      font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+      background: #0f172a; color: #7dd3fc; border: 1px solid #334155;
+    }
+    .title { font-weight: 700; font-size: 15px; margin-bottom: 4px; color: #f8fafc; }
+    .desc { font-size: 12px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>GenericUI Alien WebView &mdash; 20-Suite Compliance Dashboard</h1>
+    <p>Comprehensive DOM, CSS3, Layout, Canvas 2D, Canvas 3D/WebGL, Video/Audio/WebAudio, SVG, Animations, Observers, Storage, Network/IPC &amp; Shadow DOM tests.</p>
+    <div class="fixtures">
+      <a class="fixture-pill" href="assets/test-video.mp4">Fixture: assets/test-video.mp4 (128x96 H.264+AAC)</a>
+      <a class="fixture-pill" href="assets/test-audio.wav">Fixture: assets/test-audio.wav (16kHz 440Hz PCM)</a>
+      <a class="fixture-pill" href="assets/test-subtitles.vtt">Fixture: assets/test-subtitles.vtt (WebVTT)</a>
+    </div>
+  </header>
+
+  <main id="suite-grid" class="grid"></main>
+
+  <script>
+  (function () {
+    var items = [
+      ["01", "DOM", "01-html5-parser-and-dom-tree.html", "HTML5 Parser & Full DOM Tree", "Tokenizer, deep nesting, void/raw elements, comments, entities, traversal, mutations, attributes, classList, dataset."],
+      ["02", "CSS3", "02-css-selectors-cascade-and-variables.html", "CSS Selectors, Cascade & Variables", "Selectors L4, all 7 attr selectors, combinators, pseudo-classes/elements, specificity, !important, --* var(), calc(), @media."],
+      ["03", "Box", "03-box-model-borders-backgrounds-and-visuals.html", "Box Model, Borders & Visuals", "content-box vs border-box, auto margin, min/max bounds, per-side borders/radii, gradients, opacity, visibility, overflow, 2D transform."],
+      ["04", "Flex", "04-css-flexbox-layout.html", "CSS Flexbox Layout Geometry", "inline-flex, row/col reverse, wrap/wrap-reverse, all 6 justify-content modes, align-self, flex-grow/shrink, order, nesting."],
+      ["05", "Grid", "05-css-grid-layout.html", "CSS Grid Layout Geometry", "inline-grid, px/fr tracks, repeat(minmax()), grid-template-areas, row/col spans, dense/column auto-flow, cell alignment."],
+      ["06", "Layout", "06-positioning-stacking-and-scrolling.html", "Positioning, Stacking & Scrolling", "static/relative/absolute/fixed/sticky, z-index, pointer-events, elementFromPoint, scrollTop/scrollLeft/scrollIntoView & scroll event."],
+      ["07", "Text/Table", "07-typography-inline-flow-lists-and-tables.html", "Typography, Inline Flow, Lists & Tables", "h1-h6 UA scale, inline formatting, white-space, ul/ol/dl, semantic table thead/tbody/tfoot/colspan/rowspan & display: table."],
+      ["08", "Forms", "08-forms-inputs-and-validation.html", "HTML5 Forms & Constraint Validation", "All input types, label activation, checkbox indeterminate, radios, textarea selection, multi-select, validity API & FormData."],
+      ["09", "Events", "09-dom-events-bubbling-capture-and-input.html", "DOM Events & Input Propagation", "Capture/target/bubble phases, stopPropagation, stopImmediatePropagation, once/passive, AbortController, Mouse/Pointer/Wheel/Key/Focus."],
+      ["10", "Canvas2D", "10-canvas2d-drawing-paths-and-transforms.html", "Canvas 2D Paths & Transform Stack", "fillRect/strokeRect/clearRect, paths/arcs/beziers, nonzero vs evenodd, lineDash, clip, matrix stack + exact getImageData pixels."],
+      ["11", "Canvas2D", "11-canvas2d-gradients-images-text-and-pixels.html", "Canvas 2D Gradients, Images & Alien Overlap", "Linear/radial gradients, CanvasPattern, drawImage(3/5/9), fillText/measureText, globalAlpha, blend modes, putImageData, toDataURL, DOM overlap."],
+      ["12", "Canvas3D", "12-canvas3d-webgl-shaders-buffers-and-rendering.html", "Canvas 3D / WebGL Shaders & Depth", "WebGL/WebGL2 clearColor, GLSL VS/FS shaders, VBO/IBO, uniform matrices, DEPTH_TEST occlusion, SCISSOR_TEST & readPixels."],
+      ["13", "Canvas3D", "13-canvas3d-webgl-textures-framebuffers-and-animation.html", "Canvas 3D / WebGL Textures, FBO & rAF", "Uint8Array texture, 2D canvas texture upload, offscreen FBO RTT pass, alpha blending, rAF rotation & Alien DOM overlay pill."],
+      ["14", "Video", "14-media-video-element-playback-and-controls.html", "HTML5 <video> Playback & Tracks", "Embedded 128x96 H.264+AAC MP4 + WebVTT track, metadata/play/pause/seek, Canvas2D video frame capture & Alien overlay compositing."],
+      ["15", "Audio", "15-media-audio-and-webaudio-analyzer.html", "HTML5 <audio> & Web Audio AnalyserNode", "Synthesized 16kHz 440Hz PCM WAV playback, duration/seek & AudioContext Oscillator/Gain/AnalyserNode FFT frequency/time buffers."],
+      ["16", "SVG/Img", "16-images-svg-and-data-uris.html", "Images, Data URIs & Inline SVG", "PNG/SVG data URIs, Image() onload, naturalWidth/Height, all SVG shape/path/gradient/text primitives & dynamic SVG createElementNS."],
+      ["17", "Anim", "17-css-transitions-keyframes-and-raf-animations.html", "CSS Transitions, @keyframes & Event Loop", "queueMicrotask vs Promise vs setTimeout ordering, clearTimeout, cancelAnimationFrame, CSS transitionend & @keyframes fill-mode."],
+      ["18", "Web APIs", "18-observers-storage-url-encoding-and-history.html", "Observers, Storage, URL, UTF-8 & History", "MutationObserver, ResizeObserver, IntersectionObserver, local/sessionStorage, cookie, URLSearchParams, TextEncoder/Decoder, crypto, history."],
+      ["19", "Net/IPC", "19-network-fetch-xhr-websocket-and-host-bridge.html", "Network (fetch/XHR/WS) & Host Bridge", "Headers/Request/Response/fetch, AbortController, XMLHttpRequest, WebSocket contract, console levels, postMessage & GenericUI IPC bridge."],
+      ["20", "ES6+/Shadow", "20-iframes-shadow-dom-dynamic-scripts-and-feature-flags.html", "Template, Shadow DOM, Iframe & ES6+ Stress", "<template>, open/closed Shadow DOM + slots, <iframe srcdoc>, CSSOM insertRule, ES6+ class/async/Map/Set/TypedArray/Symbol & capabilities."]
+    ];
+    var grid = document.getElementById("suite-grid");
+    for (var i = 0; i < items.length; i++) {
+      var itm = items[i];
+      var a = document.createElement("a");
+      a.className = "card";
+      a.href = itm[2];
+      a.innerHTML =
+        "<div class='card-top'><span class='num'>Suite " + itm[0] + "</span><span class='tag'>" + itm[1] + "</span></div>" +
+        "<div class='title'>" + itm[3] + "</div>" +
+        "<div class='desc'>" + itm[4] + "</div>";
+      grid.appendChild(a);
+    }
+  })();
+  </script>
+</body>
+</html>

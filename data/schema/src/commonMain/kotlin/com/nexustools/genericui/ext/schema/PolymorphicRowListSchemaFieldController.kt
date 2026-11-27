@@ -4,8 +4,8 @@ import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.form.Select
 import com.nexustools.genericui.component.form.SelectOption
 import com.nexustools.genericui.component.layout.HStack
-import com.nexustools.genericui.component.layout.StyledContainer
 import com.nexustools.genericui.component.layout.VStack
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.typography.Badge
 import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
@@ -64,6 +64,7 @@ internal class PolymorphicRowListSchemaFieldController(
             addChild(headerBar)
             addChild(rowsContainer)
         }
+        bindLabelTarget(if (polySpec.variants.size > 1) variantPicker else addButton)
         mountStandardBody(bodyContainer, compactInline, rowsContainer)
         rebuildRows()
         syncHeaderState()

@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>12 - Canvas 3D / WebGL Shaders, Buffers, Depth Test &amp; Scissor</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; gap: 16px; align-items: center; }
+    canvas { border: 1px solid #38bdf8; border-radius: 8px; background: #000; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+  </style>
+</head>
+<body>
+  <h1>12 &mdash; Canvas 3D / WebGL Shaders, VBO/IBO, Depth Testing, Uniforms &amp; readPixels</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <canvas id="gl-main" width="240" height="160"></canvas>
+    <div><span id="gl-info">WebGL Context Pending</span></div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) {
+          var tc = suites[i].tests[j]; sum.total++; var row = document.createElement("div"); c.appendChild(row);
+          try { tc.fn(); sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }
+          catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+        }
+        root.__suiteSummary = sum;
+        var bar = document.getElementById("suite-summary-bar");
+        bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+        bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+      });
+    }
+  })(window);
+
+  function compileProgram(gl, vsSrc, fsSrc) {
+    var vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, vsSrc);
+    gl.compileShader(vs);
+    if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) throw new Error("VS error: " + gl.getShaderInfoLog(vs));
+
+    var fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, fsSrc);
+    gl.compileShader(fs);
+    if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) throw new Error("FS error: " + gl.getShaderInfoLog(fs));
+
+    var prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error("Link error: " + gl.getProgramInfoLog(prog));
+    return prog;
+  }
+
+  function readGlPx(gl, x, y) {
+    var out = new Uint8Array(4);
+    gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
+    return [out[0], out[1], out[2], out[3]];
+  }
+  </script>
+
+  <script>
+  describe("12 - Canvas 3D / WebGL Shaders, Buffers, Depth Test & Scissor", function () {
+    var gl = null;
+
+    it("initializes WebGL2 or WebGL context with valid GPU parameters", function () {
+      var canvas = document.getElementById("gl-main");
+      var opts = { preserveDrawingBuffer: true, alpha: true, depth: true, antialias: false };
+      gl = canvas.getContext("webgl2", opts) || canvas.getContext("webgl", opts);
+      expect(gl).toBeTruthy();
+      expect(gl.drawingBufferWidth).toBe(240);
+      expect(gl.drawingBufferHeight).toBe(160);
+      expect(gl.getParameter(gl.MAX_TEXTURE_SIZE)).toBeGreaterThanOrEqual(512);
+      document.getElementById("gl-info").textContent = String(gl.getParameter(gl.VERSION) || "WebGL Active");
+    });
+
+    it("clears color buffer accurately and verifies pixels via gl.readPixels", function () {
+      gl.disable(gl.SCISSOR_TEST);
+      gl.disable(gl.DEPTH_TEST);
+      gl.viewport(0, 0, 240, 160);
+      gl.clearColor(0.2, 0.4, 0.8, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      var px = readGlPx(gl, 120, 80);
+      expect(Math.abs(px[0] - 51)).toBeLessThanOrEqual(3);
+      expect(Math.abs(px[1] - 102)).toBeLessThanOrEqual(3);
+      expect(Math.abs(px[2] - 204)).toBeLessThanOrEqual(3);
+      expect(px[3]).toBe(255);
+    });
+
+    it("compiles GLSL shaders, binds VBO/IBO attributes, and draws an interpolated colored triangle", function () {
+      var vs = "attribute vec3 aPos; attribute vec3 aCol; varying vec3 vCol; void main() { vCol = aCol; gl_Position = vec4(aPos, 1.0); }";
+      var fs = "precision mediump float; varying vec3 vCol; void main() { gl_FragColor = vec4(vCol, 1.0); }";
+      var prog = compileProgram(gl, vs, fs);
+      gl.useProgram(prog);
+
+      var verts = new Float32Array([
+         0.0,  0.8, 0.0,   1.0, 0.0, 0.0,
+        -0.8, -0.8, 0.0,   0.0, 1.0, 0.0,
+         0.8, -0.8, 0.0,   0.0, 0.0, 1.0
+      ]);
+      var indices = new Uint16Array([0, 1, 2]);
+
+      var vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+
+      var ibo = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+      var locPos = gl.getAttribLocation(prog, "aPos");
+      var locCol = gl.getAttribLocation(prog, "aCol");
+      gl.enableVertexAttribArray(locPos);
+      gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 24, 0);
+      gl.enableVertexAttribArray(locCol);
+      gl.vertexAttribPointer(locCol, 3, gl.FLOAT, false, 24, 12);
+
+      gl.clearColor(0.0, 0.0, 0.0, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawElements(gl.TRIANGLES, 3, gl.UNSIGNED_SHORT, 0);
+
+      // Near top apex (120, 140 in bottom-left WebGL coords): red dominant
+      var topPx = readGlPx(gl, 120, 136);
+      expect(topPx[0]).toBeGreaterThan(170);
+      expect(topPx[1]).toBeLessThan(80);
+
+      // Corner (4, 4) untouched black background
+      var bgPx = readGlPx(gl, 4, 4);
+      expect(bgPx).toEqual([0, 0, 0, 255]);
+      expect(gl.getError()).toBe(gl.NO_ERROR);
+    });
+
+    it("enforces DEPTH_TEST occlusion with uniformMatrix4fv and uniform4fv transforms", function () {
+      var vs = "attribute vec3 aPos; uniform mat4 uMat; void main() { gl_Position = uMat * vec4(aPos, 1.0); }";
+      var fs = "precision mediump float; uniform vec4 uColor; void main() { gl_FragColor = uColor; }";
+      var prog = compileProgram(gl, vs, fs);
+      gl.useProgram(prog);
+
+      var quad = new Float32Array([
+        -0.5, -0.5, 0.0,
+         0.5, -0.5, 0.0,
+         0.5,  0.5, 0.0,
+        -0.5,  0.5, 0.0
+      ]);
+      var idx = new Uint16Array([0, 1, 2, 0, 2, 3]);
+      var vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+      var ibo = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+
+      var posLoc = gl.getAttribLocation(prog, "aPos");
+      gl.enableVertexAttribArray(posLoc);
+      gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
+
+      var matLoc = gl.getUniformLocation(prog, "uMat");
+      var colLoc = gl.getUniformLocation(prog, "uColor");
+
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthFunc(gl.LESS);
+      gl.clearColor(0.0, 0.0, 0.0, 1.0);
+      gl.clearDepth(1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+      // Closer quad at z = -0.3 painted green
+      gl.uniformMatrix4fv(matLoc, false, new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-0.3,1]));
+      gl.uniform4fv(colLoc, new Float32Array([0.0, 1.0, 0.0, 1.0]));
+      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+
+      // Farther quad at z = +0.5 in red must be rejected behind green
+      gl.uniformMatrix4fv(matLoc, false, new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0.5,1]));
+      gl.uniform4fv(colLoc, new Float32Array([1.0, 0.0, 0.0, 1.0]));
+      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+
+      expect(readGlPx(gl, 120, 80)).toEqual([0, 255, 0, 255]);
+      gl.disable(gl.DEPTH_TEST);
+    });
+
+    it("clips clears via SCISSOR_TEST and performs front/back face culling without GL errors", function () {
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(10, 10, 30, 30);
+      gl.clearColor(1.0, 1.0, 0.0, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.disable(gl.SCISSOR_TEST);
+
+      expect(readGlPx(gl, 25, 25)).toEqual([255, 255, 0, 255]);
+      expect(readGlPx(gl, 5, 5)).toEqual([0, 0, 0, 255]);
+
+      gl.enable(gl.CULL_FACE);
+      gl.cullFace(gl.BACK);
+      expect(gl.getParameter(gl.CULL_FACE)).toBe(true);
+      gl.disable(gl.CULL_FACE);
+      expect(gl.getError()).toBe(gl.NO_ERROR);
+    });
+  });
+  </script>
+</body>
+</html>

@@ -42,7 +42,7 @@ flowchart TD
 
 ## 2. Gradle Plugin Configuration
 
-Enabling `canvas3d()` in `genericui { extensions { ... } }` inside `build.gradle.kts` automatically configures `:extensions:graphics:canvas3d`, `:extensions:graphics:gpu`, `:extensions:graphics:canvas2d`, and `:extensions:ui:overlay`, and includes `:extensions:graphics:canvas3d:dsl` when `dsl()` is enabled:
+Enabling `canvas3d()` in `genericui { extensions { ... } }` inside `build.gradle.kts` automatically configures `:extensions:graphics:canvas3d`, `:extensions:graphics:gpu`, `:extensions:graphics:canvas2d`, and `:extensions:ui:overlay`, includes `:extensions:graphics:canvas3d:dsl` when `dsl()` is enabled, and auto-adds & auto-registers **`:extensions:graphics:canvas3d:alien`** ([`Canvas3DAlienExtension`](../graphics/canvas3d/alien/src/commonMain/kotlin/com/nexustools/genericui/ext/canvas3d/alien/Canvas3DAlienExtension.kt) $\rightarrow$ `Canvas3DAlienImpl` + offscreen `AlienOffscreenGlContext` / `VKContext` fallback) whenever `alien()` (or Desktop `webView()`) is active:
 
 ```kotlin
 plugins {
@@ -255,6 +255,7 @@ val dual3DViewportComparison = buildDiv(classes = "p-3") {
   - [`:extensions:graphics:threejs` (`threejs.md`)](threejs.md) — High-level 3D scene graph (`Scene`, `PerspectiveCamera`, `WebGLRenderer`, PBR materials, lights, `OrbitControls`) rendered onto `Canvas3D`.
   - [`:extensions:physics:box3d` (`box3d.md`)](box3d.md) — 3D rigid-body physics engine with `Box3DDebugRenderer` bound to `Canvas3D`.
   - [`:extensions:graphics:canvas2d` (`canvas2d.md`)](canvas2d.md) — Sister 2D vector/raster canvas extension (`Canvas2D`, `ScrollCanvas2D`, `CurveEditor`).
+  - [`:extensions:ui:alien` (`alien.md`)](alien.md) — Auto-registers `:extensions:graphics:canvas3d:alien` (`Canvas3DAlienExtension` / `Canvas3DAlienImpl`) when `alien()` or Desktop `webView()` is active.
   - [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
 - **Root & Backend Documentation**:
   - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Source Sets (`../../docs/sourcesets.md`)](../../docs/sourcesets.md) · [Backends (`../../docs/backends.md`)](../../docs/backends.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)

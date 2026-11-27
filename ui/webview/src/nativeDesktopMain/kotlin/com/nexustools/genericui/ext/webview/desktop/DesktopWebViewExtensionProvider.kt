@@ -1,18 +1,19 @@
 package com.nexustools.genericui.ext.webview.desktop
 
+import com.nexustools.genericui.ext.ipc.IpcExtension
 import com.nexustools.genericui.ext.webview.WebViewEngineType
 import com.nexustools.genericui.ext.webview.WebViewExtension
-import com.nexustools.njs.compiler.NativeJitCompiler
 
 /**
- * Installs the Desktop Chromium + NJS Native JIT provider into [WebViewExtension]
+ * Installs the Native Desktop Alien + NJS isolated OS-worker provider into [WebViewExtension]
  * for `:windows`, `:macos`, `:gtk`, and `:kde`.
  */
 object DesktopWebViewExtensionProvider {
     fun install() {
-        NativeJitCompiler.installIntoRuntimeCompiler()
-        WebViewExtension.registerProvider(WebViewEngineType.CHROMIUM_NJS_JIT_DESKTOP) { config ->
-            DesktopChromiumNjsWebViewImpl(config)
+        IpcExtension.registerProviders()
+        NjsPlatformCompilerBootstrap.ensureInitialized()
+        WebViewExtension.registerProvider(WebViewEngineType.ALIEN_NJS) { config ->
+            DesktopAlienNjsWebViewImpl(config)
         }
     }
 }

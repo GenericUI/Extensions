@@ -19,6 +19,9 @@ import com.nexustools.genericui.component.form.CheckBox
 import com.nexustools.genericui.component.form.RangeSlider
 import com.nexustools.genericui.component.form.Select
 import com.nexustools.genericui.component.form.TextField
+import com.nexustools.genericui.component.form.styled.StyledSlider
+import com.nexustools.genericui.component.form.styled.StyledTextArea
+import com.nexustools.genericui.component.form.styled.StyledTextField
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.Divider
 import com.nexustools.genericui.component.layout.ScrollView
@@ -34,9 +37,12 @@ import com.nexustools.genericui.component.shell.MenuBar
 import com.nexustools.genericui.component.shell.MenuItem
 import com.nexustools.genericui.component.shell.SplitPane
 import com.nexustools.genericui.component.surface.CollapsiblePanel
+import com.nexustools.genericui.component.surface.styled.StyledComponent
 import com.nexustools.genericui.component.tabs.Tab
 import com.nexustools.genericui.component.tabs.TabContainer
+import com.nexustools.genericui.component.tabs.TabIconPlacement
 import com.nexustools.genericui.component.typography.Heading
+import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.component.typography.MarkdownView
 import com.nexustools.genericui.component.typography.Text
 import com.nexustools.genericui.core.AbstractComponent
@@ -47,6 +53,7 @@ import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.bootstrap.PositionMode
 import com.nexustools.genericui.enums.dock.DockPosition
+import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.ext.alien.impl.*
 import com.nexustools.genericui.geometry.Rect
@@ -173,6 +180,8 @@ class AlienExtensionTest {
         override fun createTable() = delegate.createTable()
         override fun createDropdown() = delegate.createDropdown()
         override fun createTextInput(multiline: Boolean) = delegate.createTextInput(multiline)
+        override fun createStyledTextInput(multiline: Boolean, classPrefix: String) =
+            delegate.createStyledTextInput(multiline, classPrefix)
         override fun createSelect() = delegate.createSelect()
         override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean) = delegate.createCheckbox(switchStyle, radioStyle)
         override fun createRangeSlider() = delegate.createRangeSlider()
@@ -1060,14 +1069,14 @@ class AlienExtensionTest {
             widthPx = 640
             heightPx = 480
         }
-        val styledComp = com.nexustools.genericui.component.surface.StyledComponent("alien-chip")
+        val styledComp = StyledComponent("alien-chip")
         styledComp.getStyle().apply {
             setOpacity(0.8f)
             setCursor(com.nexustools.genericui.enums.css.CssCursor.NONE)
             setPointerEvents(com.nexustools.genericui.enums.css.CssPointerEvents.NONE)
             setBackdropFilter(com.nexustools.genericui.style.css.CssFilter.blur(com.nexustools.genericui.style.css.CssLength.px(6f)))
         }
-        val slider = com.nexustools.genericui.component.form.StyledSlider(value = 0.25, min = 0.0, max = 1.0)
+        val slider = StyledSlider(value = 0.25, min = 0.0, max = 1.0)
         alienRoot.addChild(styledComp)
         alienRoot.addChild(slider)
         alienRoot.ensureNativeImpl()
@@ -1126,7 +1135,7 @@ class AlienExtensionTest {
             }
         }
         val staticWrapper = Container("static-wrap")
-        val absChild = com.nexustools.genericui.component.surface.StyledComponent("abs-child").apply {
+        val absChild = StyledComponent("abs-child").apply {
             getStyle().apply {
                 setPosition(com.nexustools.genericui.enums.css.CssPosition.ABSOLUTE)
                 setLeft(com.nexustools.genericui.style.css.CssLength.px(10f))
@@ -1146,5 +1155,223 @@ class AlienExtensionTest {
         assertEquals(relNode.bounds.x + 10, absNode.bounds.x)
         assertEquals(relNode.bounds.y + 15, absNode.bounds.y)
         assertEquals((relNode.bounds.width - 20).coerceAtLeast(1), absNode.bounds.width)
+    }
+
+    @Test
+    fun testStyledTextInputAlienVisualStatesMultilineAndPlaceholder() {
+        val alienRoot = AlienContainer().apply {
+            widthPx = 640
+            heightPx = 480
+        }
+        val field = StyledTextField(placeholder = "Enter token").apply {
+            backgroundColor = RgbaColor(20, 24, 30)
+            textColor = RgbaColor(240, 244, 248)
+            placeholderColor = RgbaColor(110, 130, 150)
+            borderColor = RgbaColor(60, 70, 85)
+            borderWidthPx = 2f
+            borderRadiusPx = 8f
+            hoverBackgroundColor = RgbaColor(28, 34, 42)
+            focusBackgroundColor = RgbaColor(32, 40, 52)
+            focusBorderColor = RgbaColor(90, 160, 255)
+            focusRingColor = RgbaColor(90, 160, 255, 96)
+            focusRingWidthPx = 3f
+            activeBackgroundColor = RgbaColor(15, 20, 26)
+            disabledBackgroundColor = RgbaColor(50, 50, 50)
+            disabledOpacity = 0.45f
+        }
+        val area = StyledTextArea(placeholder = "Longer description", rows = 6).apply {
+            backgroundColor = RgbaColor(18, 20, 24)
+            textColor = RgbaColor(225, 230, 235)
+        }
+        alienRoot.addChild(field)
+        alienRoot.addChild(area)
+        alienRoot.ensureNativeImpl()
+
+        val session = assertNotNull(alienRoot.renderSession)
+        session.forceFullRepaint(0f)
+
+        val fieldImpl = assertIs<StyledTextInputAlienImpl>(field.nativeImpl)
+        val areaImpl = assertIs<StyledTextInputAlienImpl>(area.nativeImpl)
+        assertEquals("input", fieldImpl.node.tagName)
+        assertEquals("styled-textfield", fieldImpl.componentClassPrefix)
+        assertEquals("textarea", areaImpl.node.tagName)
+        assertEquals("styled-textarea", areaImpl.componentClassPrefix)
+        assertEquals("6", areaImpl.node.attributes["rows"])
+        assertTrue(areaImpl.node.bounds.height > fieldImpl.node.bounds.height)
+
+        assertEquals(RgbaColor(20, 24, 30), fieldImpl.resolveCurrentVisuals().backgroundColor)
+        assertEquals(RgbaColor(110, 130, 150), fieldImpl.resolveCurrentVisuals().placeholderColor)
+
+        val fx = fieldImpl.node.bounds.x + fieldImpl.node.bounds.width / 2f
+        val fy = fieldImpl.node.bounds.y + fieldImpl.node.bounds.height / 2f
+        session.eventDispatcher.dispatchPointerMove(PointerEvent(x = fx, y = fy))
+        assertEquals(RgbaColor(28, 34, 42), fieldImpl.resolveCurrentVisuals().backgroundColor)
+
+        session.eventDispatcher.dispatchPointerDown(PointerEvent(x = fx, y = fy))
+        assertEquals(RgbaColor(15, 20, 26), fieldImpl.resolveCurrentVisuals().backgroundColor)
+        session.eventDispatcher.dispatchPointerUp(PointerEvent(x = fx, y = fy))
+        assertEquals(RgbaColor(32, 40, 52), fieldImpl.resolveCurrentVisuals().backgroundColor)
+        session.forceFullRepaint(250f)
+        assertEquals(RgbaColor(90, 160, 255), fieldImpl.node.resolveVisualStyle().borderColor)
+        assertEquals(3f, fieldImpl.node.resolveVisualStyle().focusRingSpreadPx)
+
+        field.isEnabled = false
+        assertFalse(field.isFocused)
+        assertEquals(0.45f, fieldImpl.resolveCurrentVisuals().opacity ?: 1f, 0.01f)
+    }
+
+    @Test
+    fun testLabelTargetProgrammaticFocusAndKeyDispatchInAlien() {
+        val alienRoot = AlienContainer().apply {
+            widthPx = 640
+            heightPx = 480
+        }
+        val firstInput = StyledTextField(placeholder = "First").apply {
+            focusBackgroundColor = RgbaColor(45, 65, 95)
+        }
+        val secondInput = StyledTextArea(placeholder = "Second", rows = 3).apply {
+            focusBackgroundColor = RgbaColor(55, 75, 45)
+        }
+        val firstLabel = Label("First Field", target = firstInput)
+        val secondLabel = Label("Second Field", target = secondInput)
+
+        alienRoot.addChild(firstLabel)
+        alienRoot.addChild(firstInput)
+        alienRoot.addChild(secondLabel)
+        alienRoot.addChild(secondInput)
+        alienRoot.ensureNativeImpl()
+
+        val session = assertNotNull(alienRoot.renderSession)
+        session.forceFullRepaint(0f)
+
+        val firstImpl = assertIs<StyledTextInputAlienImpl>(firstInput.nativeImpl)
+        val secondImpl = assertIs<StyledTextInputAlienImpl>(secondInput.nativeImpl)
+        val secondLabelNode = (secondLabel.nativeImpl as AlienImpl).node
+
+        assertNull(firstLabel.getAttribute("for"))
+        assertNull(secondLabel.getAttribute("for"))
+
+        firstLabel.triggerClick()
+        assertTrue(firstInput.isFocused)
+        assertSame(firstImpl.node, session.eventDispatcher.focusedNode)
+        assertEquals(RgbaColor(45, 65, 95), firstImpl.resolveCurrentVisuals().backgroundColor)
+
+        session.eventDispatcher.dispatchKeyDown(KeyEvent(key = "a"))
+        assertEquals("a", firstInput.value)
+
+        // Clicking the second label in Alien canvas shifts dispatcher focus + clears first field focus
+        val lx = secondLabelNode.bounds.x + (secondLabelNode.bounds.width / 2f).coerceAtLeast(1f)
+        val ly = secondLabelNode.bounds.y + (secondLabelNode.bounds.height / 2f).coerceAtLeast(1f)
+        session.eventDispatcher.dispatchPointerDown(PointerEvent(x = lx, y = ly))
+        session.eventDispatcher.dispatchPointerUp(PointerEvent(x = lx, y = ly))
+
+        assertFalse(firstInput.isFocused)
+        assertTrue(secondInput.isFocused)
+        assertSame(secondImpl.node, session.eventDispatcher.focusedNode)
+        assertEquals(RgbaColor(55, 75, 45), secondImpl.resolveCurrentVisuals().backgroundColor)
+
+        session.eventDispatcher.dispatchKeyDown(KeyEvent(key = "z"))
+        assertEquals("z", secondInput.value)
+        assertEquals("a", firstInput.value)
+    }
+
+    @Test
+    fun testTabAlienFullColorIconAndDynamicClosableCloseButtonHit() {
+        val alienRoot = AlienContainer().apply {
+            widthPx = 640
+            heightPx = 320
+        }
+        val faviconBuf = com.nexustools.genericui.image.ImageBuffer(
+            width = 2,
+            height = 2,
+            pixelFormat = com.nexustools.genericui.image.PixelFormat.RGBA_8888
+        ).apply {
+            setPixel(0, 0, RgbaColor(235, 30, 30, 1f))
+            setPixel(1, 0, RgbaColor(30, 210, 45, 1f))
+            setPixel(0, 1, RgbaColor(30, 80, 235, 1f))
+            setPixel(1, 1, RgbaColor(235, 210, 30, 1f))
+        }
+        val memUri = "memory://alien_tab_favicon_test"
+        com.nexustools.genericui.image.ImageLoader.registerMemoryBuffer(memUri, faviconBuf)
+
+        val tabs = TabContainer()
+        val tab1 = Tab(title = "Site").apply {
+            icon = memUri
+            iconSizePx = 16
+            tintImageToTheme = false
+            iconPlacement = TabIconPlacement.START
+        }
+        val tab2 = Tab(title = "Vector").apply {
+            icon = memUri
+            iconSizePx = 16
+            tintImageToTheme = true
+        }
+        var closedClicked = false
+        tabs.addTab(tab1, Button("One"))
+        tabs.addTab(tab2, Button("Two"))
+        alienRoot.addChild(tabs)
+        alienRoot.ensureNativeImpl()
+
+        val impl1 = assertIs<TabAlienImpl>(tab1.nativeImpl)
+        val impl2 = assertIs<TabAlienImpl>(tab2.nativeImpl)
+        assertFalse(impl1.tintImageToTheme)
+        assertTrue(impl2.tintImageToTheme)
+
+        val untinted = assertNotNull(impl1.preparedIconBuffer(RgbaColor(255, 255, 255, 1f), isDark = true))
+        assertEquals(16, untinted.width)
+        assertEquals(16, untinted.height)
+        assertTrue(untinted.getPixel(1, 1).r > 180 && untinted.getPixel(1, 1).b < 80)
+        assertTrue(untinted.getPixel(14, 1).g > 180 && untinted.getPixel(14, 1).r < 80)
+        assertTrue(untinted.getPixel(1, 14).b > 180 && untinted.getPixel(1, 14).r < 80)
+
+        val tintColor = RgbaColor(10, 100, 220, 1f)
+        val tinted = assertNotNull(impl2.preparedIconBuffer(tintColor, isDark = false))
+        assertEquals(10, tinted.getPixel(0, 0).r)
+        assertEquals(220, tinted.getPixel(0, 0).b)
+
+        // Dynamic closable toggled on base Tab after attach exposes clickable close rect
+        impl1.setClosableNative(true)
+        impl1.setOnCloseClicked { closedClicked = true }
+        assertTrue(impl1.closableState)
+
+        val session = assertNotNull(alienRoot.renderSession)
+        session.forceFullRepaint(0f)
+        val tabContainerImpl = assertIs<TabContainerAlienImpl>(tabs.nativeImpl)
+        val tcBounds = tabContainerImpl.node.bounds
+        assertTrue(impl1.formatDisplayHeader().endsWith("×"))
+        val impl1CloseRect = assertNotNull(impl1.lastCloseBounds, "Paint must compute close rect for closable tab in container")
+        session.eventDispatcher.dispatchPointerDown(
+            PointerEvent(
+                x = (impl1CloseRect.x + impl1CloseRect.width / 2).toFloat(),
+                y = (impl1CloseRect.y + impl1CloseRect.height / 2).toFloat()
+            )
+        )
+        assertTrue(
+            closedClicked,
+            "Clicking close rect $impl1CloseRect (tcBounds=${tabContainerImpl.node.bounds}, children=${tabContainerImpl.node.children.map { it.tagName to it.bounds }}, hasListener=${impl1.onCloseClickedListener != null}) must invoke close callback"
+        )
+
+        // Verify TabAlienImpl standalone close rect paint & pointer hit work accurately
+        val standalone = TabAlienImpl(initialClosable = false, session = session)
+        var standaloneClosed = false
+        standalone.setClosableNative(true)
+        standalone.setOnCloseClicked { standaloneClosed = true }
+        standalone.node.bounds = com.nexustools.genericui.geometry.Rect(10, 10, 120, 36)
+        val ctxBuf = com.nexustools.genericui.ext.imageprocessing.context2d.DefaultCpuImageBuffer(140, 60)
+        val ctx = ctxBuf.getContext("2d")
+        val closeRect = assertNotNull(
+            standalone.paintTabHeaderContent(
+                ctx = ctx,
+                bounds = standalone.node.bounds,
+                textColor = RgbaColor.BLACK,
+                style = com.nexustools.genericui.ext.alien.AlienResolvedVisualStyle(),
+                isSelected = true
+            )
+        )
+        standalone.node.onPointerDown?.invoke(
+            PointerEvent(x = (closeRect.x + closeRect.width / 2).toFloat(), y = (closeRect.y + closeRect.height / 2).toFloat())
+        )
+        assertTrue(standaloneClosed, "Clicking TabAlienImpl close hit box must trigger onCloseClickedListener")
+        assertTrue(tcBounds.width > 0)
     }
 }

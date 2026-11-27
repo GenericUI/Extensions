@@ -8,6 +8,7 @@ import com.nexustools.genericui.component.form.PasswordField
 import com.nexustools.genericui.component.form.SelectOption
 import com.nexustools.genericui.component.form.TextArea
 import com.nexustools.genericui.component.form.TextField
+import com.nexustools.genericui.component.typography.ILabelTarget
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
@@ -134,6 +135,8 @@ internal class StringSchemaFieldController(
                 control = tf
             }
         }
+        val primaryTarget = (textFieldWidget ?: comboBoxWidget ?: control) as? ILabelTarget
+        bindLabelTarget(primaryTarget)
         mountStandardBody(control, compactInline, textFieldWidget ?: comboBoxWidget ?: control)
     }
 

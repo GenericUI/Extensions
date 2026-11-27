@@ -3,8 +3,8 @@ package com.nexustools.genericui.ext.schema
 import com.nexustools.genericui.component.feedback.Alert
 import com.nexustools.genericui.component.feedback.Spinner
 import com.nexustools.genericui.component.layout.HStack
-import com.nexustools.genericui.component.layout.StyledContainer
 import com.nexustools.genericui.component.layout.VStack
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.surface.Card
 import com.nexustools.genericui.component.surface.CollapsiblePanel
 import com.nexustools.genericui.component.typography.Label

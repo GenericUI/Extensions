@@ -4,6 +4,7 @@ import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.action.ButtonGroup
 import com.nexustools.genericui.component.action.DropdownButton
 import com.nexustools.genericui.component.action.IconButton
+import com.nexustools.genericui.component.action.styled.StyledButton
 import com.nexustools.genericui.component.form.CheckBox
 import com.nexustools.genericui.component.form.CompoundUnitInput
 import com.nexustools.genericui.component.form.FormGroup
@@ -16,9 +17,13 @@ import com.nexustools.genericui.component.form.RangeSlider
 import com.nexustools.genericui.component.form.SearchField
 import com.nexustools.genericui.component.form.Select
 import com.nexustools.genericui.component.form.SelectOption
+import com.nexustools.genericui.component.form.Slider
 import com.nexustools.genericui.component.form.Switch
 import com.nexustools.genericui.component.form.TextArea
 import com.nexustools.genericui.component.form.TextField
+import com.nexustools.genericui.component.form.styled.StyledSlider
+import com.nexustools.genericui.component.form.styled.StyledTextArea
+import com.nexustools.genericui.component.form.styled.StyledTextField
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
@@ -52,6 +57,35 @@ inline fun AbstractContainer.button(
 ): Button = mountDslComponent(
     this,
     Button(text = text, icon = icon, type = type, size = size, outline = outline),
+    classes,
+    id
+) {
+    if (tooltipText != null) {
+        this.tooltipText = tooltipText
+    }
+    if (onClick != null) {
+        this.onClick = onClick
+    }
+    block()
+}
+
+/**
+ * In-place [StyledButton] builder supporting full base/hover/focus/active/disabled visuals.
+ */
+inline fun AbstractContainer.styledButton(
+    text: String = "",
+    icon: String? = null,
+    tooltipText: String? = null,
+    type: BootstrapType? = null,
+    size: BootstrapSize = BootstrapSize.MD,
+    outline: Boolean = false,
+    classes: String? = null,
+    id: String? = null,
+    noinline onClick: (() -> Unit)? = null,
+    block: (@GenericUiDslMarker StyledButton).() -> Unit = {}
+): StyledButton = mountDslComponent(
+    this,
+    StyledButton(text = text, icon = icon, type = type, size = size, outline = outline),
     classes,
     id
 ) {
@@ -148,6 +182,37 @@ inline fun AbstractContainer.textField(
     onValueChanged = onValueChanged,
     block = block
 )
+
+/**
+ * In-place [StyledTextField] builder with full base/hover/focus/active/disabled visual state styling.
+ */
+inline fun AbstractContainer.styledTextField(
+    value: String = "",
+    placeholder: String = "",
+    multilineMode: Boolean = false,
+    passwordMode: Boolean = false,
+    label: String? = null,
+    classes: String? = null,
+    id: String? = null,
+    noinline onValueChanged: ((String) -> Unit)? = null,
+    block: (@GenericUiDslMarker StyledTextField).() -> Unit = {}
+): StyledTextField = mountDslComponent(
+    this,
+    StyledTextField(
+        value = value,
+        placeholder = placeholder,
+        multilineMode = multilineMode,
+        passwordMode = passwordMode,
+        label = label
+    ),
+    classes,
+    id
+) {
+    if (onValueChanged != null) {
+        this.onValueChanged = onValueChanged
+    }
+    block()
+}
 
 /**
  * Alias for [textInput] (`input` matching `kotlinx.html`'s `input`).
@@ -263,6 +328,35 @@ inline fun AbstractContainer.textArea(
 ): TextArea = mountDslComponent(
     this,
     TextArea(value = value, placeholder = placeholder, rows = rows),
+    classes,
+    id
+) {
+    if (onValueChanged != null) {
+        this.onValueChanged = onValueChanged
+    }
+    block()
+}
+
+/**
+ * In-place [StyledTextArea] builder with multi-line [rows] and full visual/state styling.
+ */
+inline fun AbstractContainer.styledTextArea(
+    value: String = "",
+    placeholder: String = "",
+    rows: Int = 4,
+    label: String? = null,
+    classes: String? = null,
+    id: String? = null,
+    noinline onValueChanged: ((String) -> Unit)? = null,
+    block: (@GenericUiDslMarker StyledTextArea).() -> Unit = {}
+): StyledTextArea = mountDslComponent(
+    this,
+    StyledTextArea(
+        value = value,
+        placeholder = placeholder,
+        rows = rows,
+        label = label
+    ),
     classes,
     id
 ) {
@@ -429,6 +523,54 @@ inline fun AbstractContainer.radioGroup(
     if (selectedValue != null) {
         this.selectedValue = selectedValue
     }
+}
+
+/**
+ * In-place [Slider] builder (`<input type="range">`).
+ */
+inline fun AbstractContainer.slider(
+    value: Double = 0.0,
+    min: Double = 0.0,
+    max: Double = 100.0,
+    step: Double = 1.0,
+    classes: String? = null,
+    id: String? = null,
+    noinline onValueChanged: ((Double) -> Unit)? = null,
+    block: (@GenericUiDslMarker Slider).() -> Unit = {}
+): Slider = mountDslComponent(
+    this,
+    Slider(value = value, min = min, max = max, step = step),
+    classes,
+    id
+) {
+    if (onValueChanged != null) {
+        this.onValueChanged = onValueChanged
+    }
+    block()
+}
+
+/**
+ * In-place [StyledSlider] composite slider builder.
+ */
+inline fun AbstractContainer.styledSlider(
+    min: Double = 0.0,
+    max: Double = 100.0,
+    value: Double = 0.0,
+    step: Double = 0.0,
+    classes: String? = null,
+    id: String? = null,
+    noinline onValueChanged: ((Double) -> Unit)? = null,
+    block: (@GenericUiDslMarker StyledSlider).() -> Unit = {}
+): StyledSlider = mountDslComponent(
+    this,
+    StyledSlider(min = min, max = max, value = value, step = step),
+    classes,
+    id
+) {
+    if (onValueChanged != null) {
+        this.onValueChanged = onValueChanged
+    }
+    block()
 }
 
 /**

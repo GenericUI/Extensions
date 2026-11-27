@@ -10,17 +10,13 @@ class WebViewComponentTest {
 
     @Test
     fun testWebViewEngineTypesAndInvariants() {
-        assertTrue(WebViewEngineType.CHROMIUM_NJS_JIT_DESKTOP.usesChromium)
-        assertTrue(WebViewEngineType.CHROMIUM_NJS_JIT_DESKTOP.usesNjsJitRuntime)
+        assertTrue(WebViewEngineType.ALIEN_NJS.usesNjsJitRuntime)
 
-        assertTrue(WebViewEngineType.ANDROID_NATIVE_WEBKIT.usesChromium)
-        assertFalse(WebViewEngineType.ANDROID_NATIVE_WEBKIT.usesNjsJitRuntime)
+        assertFalse(WebViewEngineType.ANDROID_WEBVIEW.usesNjsJitRuntime)
 
-        assertFalse(WebViewEngineType.IOS_NATIVE_WKWEBVIEW.usesChromium)
-        assertFalse(WebViewEngineType.IOS_NATIVE_WKWEBVIEW.usesNjsJitRuntime)
+        assertFalse(WebViewEngineType.APPLE_WKWEBVIEW.usesNjsJitRuntime)
 
-        assertFalse(WebViewEngineType.WEB_NATIVE_IFRAME.usesChromium)
-        assertFalse(WebViewEngineType.WEB_NATIVE_IFRAME.usesNjsJitRuntime)
+        assertFalse(WebViewEngineType.WEB_IFRAME.usesNjsJitRuntime)
     }
 
     @Test

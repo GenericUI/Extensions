@@ -15,9 +15,8 @@ class AndroidNativeWebViewTest {
     @Test
     fun testAndroidNativeWebViewEngineAndViewHandle() {
         AndroidWebViewExtensionProvider.install()
-        assertEquals(WebViewEngineType.ANDROID_NATIVE_WEBKIT, WebViewExtension.activeEngineType)
+        assertEquals(WebViewEngineType.ANDROID_WEBVIEW, WebViewExtension.activeEngineType)
         assertFalse(WebViewExtension.activeEngineType.usesNjsJitRuntime)
-        assertTrue(WebViewExtension.activeEngineType.usesChromium)
 
         val config = WebViewConfig(
             enableJavaScript = true,
@@ -85,7 +84,7 @@ class AndroidNativeWebViewTest {
         assertEquals("android:via-eval", evalOut)
 
         val webView = WebView()
-        assertEquals(WebViewEngineType.ANDROID_NATIVE_WEBKIT, webView.engineType)
+        assertEquals(WebViewEngineType.ANDROID_WEBVIEW, webView.engineType)
 
         // Verify disabled JS blocks evaluation
         val noJs = AndroidNativeWebViewImpl(WebViewConfig(enableJavaScript = false))

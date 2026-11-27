@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>02 - CSS Selectors, Cascade &amp; Custom Properties</title>
+  <style>
+    :root {
+      --primary-rgb: rgb(56, 189, 248);
+      --accent-rgb: rgb(34, 197, 94);
+      --base-pad: 10px;
+      --derived-pad: calc(var(--base-pad) * 2 + 4px);
+      font-size: 16px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 20px; font-family: system-ui, sans-serif;
+      background: #0f172a; color: rgb(226, 232, 240);
+    }
+    h1 { margin: 0 0 8px 0; font-size: 20px; color: #38bdf8; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+
+    /* Cascade & specificity rules */
+    .spec-box { color: rgb(200, 50, 50); background-color: rgb(30, 41, 59); }
+    .spec-box.extra { color: rgb(50, 200, 50); }
+    #spec-winner { color: rgb(56, 189, 248); }
+    .important-rule { color: rgb(250, 204, 21) !important; }
+
+    /* Combinators */
+    .comb-root > .direct-only { border-left: 6px solid rgb(56, 189, 248); }
+    .comb-trigger + .adj-sib { background-color: rgb(20, 83, 45); }
+    .comb-trigger ~ .gen-sib { letter-spacing: 2px; }
+
+    /* Attribute selectors */
+    [data-attr-exact="hit"] { outline: 2px solid rgb(56, 189, 248); }
+    [data-attr-list~="token"] { z-index: 5; }
+    [data-attr-lang|="en"] { z-index: 6; }
+    [data-attr-pre^="pre-"] { z-index: 7; }
+    [data-attr-suf$="-suf"] { z-index: 8; }
+    [data-attr-sub*="middle"] { z-index: 9; }
+
+    /* Structural pseudo-classes */
+    #struct-list li:first-child { color: rgb(248, 113, 113); }
+    #struct-list li:last-child { color: rgb(74, 222, 128); }
+    #struct-list li:nth-child(2n+1) { font-weight: 700; }
+    #struct-list li:not(.skip-me) { text-indent: 8px; }
+    #type-box p:first-of-type { padding-left: 12px; }
+    #type-box p:last-of-type { padding-right: 14px; }
+    #empty-box:empty { width: 44px; height: 22px; background-color: rgb(14, 165, 233); }
+
+    /* Form state pseudo-classes */
+    #state-check:checked { width: 24px; }
+    #state-disabled:disabled { opacity: 0.4; }
+
+    /* Pseudo-elements */
+    #pseudo-host::before { content: "PRE:"; color: rgb(250, 204, 21); }
+    #pseudo-host::after { content: ":POST"; }
+
+    /* Custom properties & units & calc */
+    .var-scope { --local-color: rgb(244, 114, 182); }
+    #var-target {
+      color: var(--local-color);
+      background-color: var(--missing-var, var(--accent-rgb));
+      padding-left: var(--derived-pad);
+      width: calc(100px + 2rem);
+      font-size: 1.5rem;
+    }
+    #inherit-parent { color: rgb(167, 139, 250); }
+    #media-target { width: 120px; }
+    @media (min-width: 10px) {
+      #media-target { width: 210px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>02 &mdash; CSS Selectors Level 4, Cascade, Custom Properties &amp; Computed Styles</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <div id="spec-winner" class="spec-box extra">Specificity winner</div>
+    <div id="important-winner" class="important-rule" style="color: rgb(255, 0, 0);">Important overrides inline</div>
+
+    <div class="comb-root">
+      <div id="direct-child" class="direct-only">Direct</div>
+      <div><div id="nested-child" class="direct-only">Nested (not direct)</div></div>
+      <div class="comb-trigger">Trigger</div>
+      <div id="adj-target" class="adj-sib gen-sib">Adjacent + General</div>
+      <div id="gen-target" class="gen-sib">General only</div>
+    </div>
+
+    <div id="attr-bag">
+      <span id="a-exact" data-attr-exact="hit">1</span>
+      <span id="a-list" data-attr-list="one token three">2</span>
+      <span id="a-lang" data-attr-lang="en-US">3</span>
+      <span id="a-pre" data-attr-pre="pre-value">4</span>
+      <span id="a-suf" data-attr-suf="value-suf">5</span>
+      <span id="a-sub" data-attr-sub="head-middle-tail">6</span>
+    </div>
+
+    <ul id="struct-list">
+      <li id="li-1">One</li>
+      <li id="li-2" class="skip-me">Two</li>
+      <li id="li-3">Three</li>
+      <li id="li-4">Four</li>
+    </ul>
+    <div id="only-parent"><span id="only-child-el">Solo</span></div>
+    <div id="type-box"><span>S</span><p id="p-first">P1</p><b>B</b><p id="p-last">P2</p></div>
+    <div id="empty-box"></div>
+    <input id="state-check" type="checkbox" checked>
+    <button id="state-disabled" disabled>Disabled</button>
+    <div id="pseudo-host">Core</div>
+
+    <div class="var-scope">
+      <div id="var-target">Scoped CSS Var</div>
+    </div>
+    <div id="inherit-parent"><span id="inherit-child">Inherited</span></div>
+    <div id="media-target">Media Query Box</div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function formatVal(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function extendMatchers(m, actual) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(actual <= n)) throw new Error("Expected " + actual + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (exp, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(actual - exp) >= tol) throw new Error("Expected " + actual + " close to " + exp); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { actual(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected to throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return extendMatchers(oe(a), a); }; }
+    else {
+      root.expect = function (actual) {
+        return extendMatchers({
+          toBe: function (e) { if (actual !== e) throw new Error("Expected " + formatVal(e) + " got " + formatVal(actual)); },
+          toEqual: function (e) { if (formatVal(actual) !== formatVal(e)) throw new Error("Expected " + formatVal(e) + " == " + formatVal(actual)); },
+          toBeTruthy: function () { if (!actual) throw new Error("Expected truthy got " + formatVal(actual)); },
+          toBeFalsy: function () { if (actual) throw new Error("Expected falsy got " + formatVal(actual)); },
+          toBeNull: function () { if (actual != null) throw new Error("Expected null got " + formatVal(actual)); },
+          toBeDefined: function () { if (actual === undefined) throw new Error("Expected defined"); },
+          toContain: function (item) { if (actual == null || String(actual).indexOf(String(item)) === -1) throw new Error("Expected " + formatVal(actual) + " to contain " + item); },
+          toBeGreaterThan: function (n) { if (!(actual > n)) throw new Error("Expected " + actual + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(actual >= n)) throw new Error("Expected " + actual + " >= " + n); },
+          toBeLessThan: function (n) { if (!(actual < n)) throw new Error("Expected " + actual + " < " + n); }
+        }, actual);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var p = activeSuite; var s = { name: p ? p.name + " > " + n : n, beforeAll: [], afterAll: [], beforeEach: [], afterEach: [], tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = p; };
+      root.beforeAll = function (fn) { if (activeSuite) activeSuite.beforeAll.push(fn); };
+      root.afterAll = function (fn) { if (activeSuite) activeSuite.afterAll.push(fn); };
+      root.beforeEach = function (fn) { if (activeSuite) activeSuite.beforeEach.push(fn); };
+      root.afterEach = function (fn) { if (activeSuite) activeSuite.afterEach.push(fn); };
+      root.it = function (n, fn) { if (!activeSuite) root.describe("Suite", function () {}); (activeSuite || suites[suites.length - 1]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] }, q = [];
+        for (var i = 0; i < suites.length; i++) (function (st) {
+          for (var j = 0; j < st.tests.length; j++) (function (tc) {
+            q.push(function () {
+              sum.total++; var row = document.createElement("div"); row.className = "suite-row suite-running"; c.appendChild(row);
+              try {
+                var r = tc.fn();
+                if (r && typeof r.then === "function") return r.then(function () { sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }, function (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; });
+                sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name;
+              } catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+            });
+          })(st.tests[j]);
+        })(suites[i]);
+        (function run(k) {
+          if (k >= q.length) {
+            root.__suiteSummary = sum;
+            var bar = document.getElementById("suite-summary-bar");
+            bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+            bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+            return;
+          }
+          var out = q[k]();
+          if (out && typeof out.then === "function") out.then(function () { run(k + 1); }, function () { run(k + 1); }); else run(k + 1);
+        })(0);
+      });
+    }
+  })(window);
+
+  function parseRgb(str) {
+    var m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(String(str || ""));
+    return m ? [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)] : null;
+  }
+  </script>
+
+  <script>
+  describe("02 - CSS Selectors, Cascade & Custom Properties", function () {
+    it("evaluates specificity hierarchy (#id > .a.b > .a > inline override vs !important)", function () {
+      var winner = document.getElementById("spec-winner");
+      expect(parseRgb(getComputedStyle(winner).color)).toEqual([56, 189, 248]);
+
+      var imp = document.getElementById("important-winner");
+      expect(parseRgb(getComputedStyle(imp).color)).toEqual([250, 204, 21]);
+    });
+
+    it("matches child (>), descendant ( ), adjacent sibling (+), and general sibling (~) combinators", function () {
+      var direct = document.getElementById("direct-child");
+      var nested = document.getElementById("nested-child");
+      expect(document.querySelector(".comb-root > .direct-only")).toBe(direct);
+      expect(document.querySelectorAll(".comb-root .direct-only").length).toBe(2);
+      expect(parseFloat(getComputedStyle(direct).borderLeftWidth)).toBe(6);
+      expect(parseFloat(getComputedStyle(nested).borderLeftWidth)).toBe(0);
+
+      var adj = document.getElementById("adj-target");
+      var gen = document.getElementById("gen-target");
+      expect(document.querySelector(".comb-trigger + .adj-sib")).toBe(adj);
+      expect(parseRgb(getComputedStyle(adj).backgroundColor)).toEqual([20, 83, 45]);
+      expect(document.querySelectorAll(".comb-trigger ~ .gen-sib").length).toBe(2);
+      expect(parseFloat(getComputedStyle(gen).letterSpacing)).toBe(2);
+    });
+
+    it("matches all 7 CSS attribute selector operators cleanly", function () {
+      expect(document.querySelectorAll("#attr-bag [data-attr-exact]").length).toBe(1);
+      expect(document.querySelector('[data-attr-exact="hit"]').id).toBe("a-exact");
+      expect(document.querySelector('[data-attr-list~="token"]').id).toBe("a-list");
+      expect(document.querySelector('[data-attr-lang|="en"]').id).toBe("a-lang");
+      expect(document.querySelector('[data-attr-pre^="pre-"]').id).toBe("a-pre");
+      expect(document.querySelector('[data-attr-suf$="-suf"]').id).toBe("a-suf");
+      expect(document.querySelector('[data-attr-sub*="middle"]').id).toBe("a-sub");
+      expect(getComputedStyle(document.getElementById("a-sub")).zIndex).toBe("9");
+    });
+
+    it("matches structural pseudo-classes (:first/last/only/nth-child/of-type/empty/not)", function () {
+      var li1 = document.getElementById("li-1");
+      var li2 = document.getElementById("li-2");
+      var li3 = document.getElementById("li-3");
+      var li4 = document.getElementById("li-4");
+
+      expect(parseRgb(getComputedStyle(li1).color)).toEqual([248, 113, 113]);
+      expect(parseRgb(getComputedStyle(li4).color)).toEqual([74, 222, 128]);
+      expect(parseInt(getComputedStyle(li1).fontWeight, 10)).toBeGreaterThanOrEqual(600);
+      expect(parseInt(getComputedStyle(li3).fontWeight, 10)).toBeGreaterThanOrEqual(600);
+      expect(parseFloat(getComputedStyle(li1).textIndent)).toBe(8);
+      expect(parseFloat(getComputedStyle(li2).textIndent)).toBe(0);
+
+      expect(document.querySelector("#struct-list li:nth-last-child(2)")).toBe(li3);
+      expect(document.querySelector("#only-parent span:only-child").id).toBe("only-child-el");
+      expect(parseFloat(getComputedStyle(document.getElementById("p-first")).paddingLeft)).toBe(12);
+      expect(parseFloat(getComputedStyle(document.getElementById("p-last")).paddingRight)).toBe(14);
+      expect(parseFloat(getComputedStyle(document.getElementById("empty-box")).width)).toBe(44);
+    });
+
+    it("matches :checked, :disabled, and :enabled form pseudo-classes", function () {
+      var chk = document.getElementById("state-check");
+      var btn = document.getElementById("state-disabled");
+      expect(document.querySelector("#state-check:checked")).toBe(chk);
+      expect(parseFloat(getComputedStyle(chk).width)).toBe(24);
+      expect(document.querySelector("#state-disabled:disabled")).toBe(btn);
+      expect(document.querySelector("#state-check:enabled")).toBe(chk);
+      expect(parseFloat(getComputedStyle(btn).opacity)).toBeCloseTo(0.4, 2);
+    });
+
+    it("resolves CSS custom properties (--*), nested var() fallbacks, calc(), rem units, and inheritance", function () {
+      var target = document.getElementById("var-target");
+      var cs = getComputedStyle(target);
+      expect(parseRgb(cs.color)).toEqual([244, 114, 182]);
+      expect(parseRgb(cs.backgroundColor)).toEqual([34, 197, 94]);
+      expect(parseFloat(cs.paddingLeft)).toBe(24);
+      expect(parseFloat(cs.fontSize)).toBe(24);
+      expect(parseFloat(cs.width)).toBe(132);
+
+      var child = document.getElementById("inherit-child");
+      expect(parseRgb(getComputedStyle(child).color)).toEqual([167, 139, 250]);
+    });
+
+    it("evaluates @media rules and ::before/::after pseudo-elements", function () {
+      var mediaEl = document.getElementById("media-target");
+      expect(parseFloat(getComputedStyle(mediaEl).width)).toBe(210);
+
+      var host = document.getElementById("pseudo-host");
+      var beforeStyle = getComputedStyle(host, "::before");
+      var afterStyle = getComputedStyle(host, "::after");
+      expect(beforeStyle.content).toContain("PRE:");
+      expect(afterStyle.content).toContain(":POST");
+    });
+
+    it("implements Element.matches, Element.closest, getElementsByClassName and getElementsByTagName", function () {
+      var li2 = document.getElementById("li-2");
+      expect(li2.matches("li.skip-me")).toBe(true);
+      expect(li2.matches("#struct-list > li:not(.skip-me)")).toBe(false);
+      expect(li2.closest("#struct-list").id).toBe("struct-list");
+      expect(li2.closest("#test-stage").id).toBe("test-stage");
+      expect(document.getElementsByClassName("direct-only").length).toBe(2);
+      expect(document.getElementById("struct-list").getElementsByTagName("li").length).toBe(4);
+    });
+  });
+  </script>
+</body>
+</html>

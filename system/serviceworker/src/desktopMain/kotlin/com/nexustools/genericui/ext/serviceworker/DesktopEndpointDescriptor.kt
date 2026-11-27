@@ -2,6 +2,7 @@ package com.nexustools.genericui.ext.serviceworker
 
 import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.component.system.PreferenceObjectCodec
+import com.nexustools.genericui.ext.ipc.IpcChannelAddress
 
 /**
  * Authenticated native IPC discovery payload serialized atomically into
@@ -14,6 +15,11 @@ internal data class DesktopEndpointDescriptor(
     val pid: Long,
     val appId: String
 ) {
+    fun toChannelAddress(): IpcChannelAddress = IpcChannelAddress(
+        transportKind = transport,
+        endpointAddress = address
+    )
+
     fun toJson(): String {
         val obj = linkedMapOf(
             "transport" to PreferenceElement.ofString(transport),
@@ -26,10 +32,6 @@ internal data class DesktopEndpointDescriptor(
     }
 
     companion object {
-        const val TRANSPORT_MACOS_XPC_MACH: String = "xpc_mach"
-        const val TRANSPORT_UNIX_SOCKET: String = "unix"
-        const val TRANSPORT_WINDOWS_NAMED_PIPE: String = "named_pipe"
-
         fun parse(jsonText: String?): DesktopEndpointDescriptor? {
             if (jsonText.isNullOrBlank()) return null
             val elem = try {

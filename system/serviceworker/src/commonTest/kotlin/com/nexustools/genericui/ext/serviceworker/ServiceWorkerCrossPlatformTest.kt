@@ -1,6 +1,7 @@
 package com.nexustools.genericui.ext.serviceworker
 
 import com.nexustools.genericui.component.system.PreferenceElement
+import com.nexustools.genericui.util.BinaryJson
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -95,9 +96,9 @@ class ServiceWorkerCrossPlatformTest {
                 attributes = mapOf("k1" to 42, "k2" to 99),
                 nested = NestedInfo(code = 7, note = null)
             )
-            val (typeId, json) = ServiceWorkerCodecRegistry.encodePayload(original)
+            val (typeId, payload) = ServiceWorkerCodecRegistry.encodePayload(original)
             assertEquals("test.SampleMessage", typeId)
-            val decoded = ServiceWorkerCodecRegistry.decodePayload(typeId, json)
+            val decoded = ServiceWorkerCodecRegistry.decodePayload(typeId, payload)
             assertEquals(original, decoded)
 
             val envelope = ServiceWorkerEnvelope(
@@ -105,11 +106,12 @@ class ServiceWorkerCrossPlatformTest {
                 correlationId = 17L,
                 clientId = "c-1",
                 typeId = typeId,
-                payloadJson = json,
+                payload = payload,
                 error = ""
             )
             val wireBytes = ServiceWorkerFrameCodec.encodeLengthPrefixedFrame(envelope)
             assertTrue(wireBytes.size > 4)
+            assertEquals(BinaryJson.TYPE_OBJECT, wireBytes[4])
             val bodyBytes = wireBytes.copyOfRange(4, wireBytes.size)
             val roundTripped = ServiceWorkerFrameCodec.decodeBinaryBody(bodyBytes)
             assertNotNull(roundTripped)
@@ -128,8 +130,8 @@ class ServiceWorkerCrossPlatformTest {
     fun primitiveRoundTripsWorkWithoutCustomCodecs() {
         val inputs: List<Any?> = listOf(Unit, null, "text", 123, 4567890123L, 1.5f, 2.25, true, byteArrayOf(1, 2, 3))
         for (input in inputs) {
-            val (typeId, json) = ServiceWorkerCodecRegistry.encodePayload(input)
-            val decoded = ServiceWorkerCodecRegistry.decodePayload(typeId, json)
+            val (typeId, payload) = ServiceWorkerCodecRegistry.encodePayload(input)
+            val decoded = ServiceWorkerCodecRegistry.decodePayload(typeId, payload)
             if (input is ByteArray && decoded is ByteArray) {
                 assertContentEquals(input, decoded)
             } else {

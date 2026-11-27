@@ -67,6 +67,7 @@ kotlin {
             dependsOn(systemMain)
             dependencies {
                 api(project(":desktop"))
+                api(project(":extensions:system:ipc"))
             }
         }
 
@@ -132,6 +133,7 @@ kotlin {
             dependsOn(mobileMain)
             dependencies {
                 api(project(":jvm"))
+                api(project(":extensions:system:ipc"))
                 implementation(libs.androidx.core.ktx)
                 implementation(libs.androidx.appcompat)
                 implementation(libs.kotlinx.coroutinesAndroid)

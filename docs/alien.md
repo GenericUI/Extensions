@@ -77,12 +77,18 @@ flowchart LR
 
 - **Consolidated Module Layout (`extensions/ui/alien/`)**:
   - `commonMain`: `IAlien`, `AlienImplProvider`, `AlienPrecompiledBootstrapStyleSheet`, `AlienFactory`, `AlienContainer`, `AlienFragment`, `AlienScrollFragment`, `AlienFragmentHostFragment`, `UnalienContainer`, `AlienCssStyleResolver`, `AlienTransitionAnimator`, `AlienRepaintManager`, `AlienUpdateRegionTracker`, and `*AlienImpl` widgets (including `StyledButtonAlienImpl` & `StyledContainerAlienImpl`).
-  - `systemMain`: Renders onto `:extensions:graphics:canvas2d` on System targets (`Windows`, `macOS`, `GTK`, `KDE`, `Swing`, `Android`, `iOS`) with underlay transparent hole cutting (`AlienExtensionLayerMode.CUT_TRANSPARENT_HOLE`) and pointer passthrough.
-  - `webMain`: Zero-overhead pass-through directly to native browser DOM elements (`<genericui:fragment>`).
+  - `systemMain`: Renders onto `:extensions:graphics:canvas2d` on System targets (`Windows`, `macOS`, `GTK`, `KDE`, `Swing`, `Android`, `iOS`) using `SystemAlienBootstrap` with underlay transparent hole cutting (`AlienExtensionLayerMode.CUT_TRANSPARENT_HOLE`) and pointer passthrough.
+  - `webMain`: Zero-overhead pass-through (`WebAlienBootstrap`) directly to native browser DOM elements (`<genericui:fragment>`).
   - `:extensions:ui:alien:dsl`: Declarative `alienContainer` & `unalienContainer` builders.
+- **4 Auto-Wired Companion `:alien` Modules (Zero Underlay Holes)**:
+  When `alien()` (or Desktop `webView()`) is active in `build.gradle.kts`, `GenericUiExtensionsConfig` automatically adds and registers matching `:alien` companion modules for enabled media/graphics extensions so they paint directly into the Alien scene graph without OS HWND/underlay holes:
+  1. **`:extensions:graphics:svg:alien`** ([`SvgAlienExtension`](../graphics/svg/alien/src/commonMain/kotlin/com/nexustools/genericui/ext/svg/alien/SvgAlienExtension.kt) $\rightarrow$ `SvgAlienImpl`) — Self-rendered `Svg` scene graph rasterized & cached per `(sceneVersion, rasterWidth, rasterHeight)`.
+  2. **`:extensions:graphics:canvas2d:alien`** ([`Canvas2DAlienExtension`](../graphics/canvas2d/alien/src/commonMain/kotlin/com/nexustools/genericui/ext/canvas2d/alien/Canvas2DAlienExtension.kt) $\rightarrow$ `Canvas2DAlienImpl`) — Self-rendered child `Canvas2D` backed by `ImageBuffer` / `ImageBuffer2DContext`.
+  3. **`:extensions:graphics:canvas3d:alien`** ([`Canvas3DAlienExtension`](../graphics/canvas3d/alien/src/commonMain/kotlin/com/nexustools/genericui/ext/canvas3d/alien/Canvas3DAlienExtension.kt) $\rightarrow$ `Canvas3DAlienImpl`) — Self-rendered `Canvas3D` / `ScrollCanvas3D` (with offscreen `AlienOffscreenGlContext` / `VKContext` fallback in `Canvas3DRegistry`).
+  4. **`:extensions:media:media:alien`** ([`MediaAlienExtension`](../media/media/alien/src/commonMain/kotlin/com/nexustools/genericui/ext/media/alien/MediaAlienExtension.kt) $\rightarrow$ `VideoPlayerAlienImpl`) — Self-rendered `VideoPlayer` compositing offscreen decoded RGBA video frames into Alien's `ImageBuffer2DContext`.
 - **Mixing Native & Extension Components (`UnalienContainer`)**:
   - **`UnalienContainer`** restores the host OS `NativeFactory` so genuine OS-native `:common` components can be embedded inside an `IAlien` tree.
-  - Underlay components (`Canvas3D`, `VideoPlayer`, `AudioAnalyzer`, `WebView`, `UnalienContainer`) mount beneath `Canvas2D`, with automatic hole cutting + pointer/wheel passthrough (`AlienUnderlayExtensionSlotNode`).
+  - Remaining underlay components (such as `AudioAnalyzer` or `UnalienContainer`) mount beneath `Canvas2D` with automatic hole cutting and pointer/wheel passthrough (`AlienUnderlayExtensionSlotNode`).
 
 ---
 
@@ -237,7 +243,8 @@ class GameHostFragment : AlienFragmentHostFragment(
 ## 8. Related Extensions & Cross-References
 
 - [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Strictly isolated `style { ... }`, `bootstrap { ... }`, `important { ... }`, and hybrid layout DSL builders.
-- [`:extensions:graphics:canvas2d` & `:extensions:graphics:canvas2d:dsl` (`canvas2d.md`)](canvas2d.md) — Provides the hardware-accelerated `Canvas2D` surface used by `AlienRepaintManager`.
+- [`:extensions:ui:webview` & `:extensions:ui:webview:dsl` (`webview.md`)](webview.md) — Runs Alien + `:system` Stylesheet Engine + the 4 `:alien` companion modules (`svg:alien`, `canvas2d:alien`, `canvas3d:alien`, `media:alien`) + `:NJS` inside an isolated Desktop worker subprocess over `:extensions:system:ipc`.
+- [`:extensions:graphics:svg` (`svg.md`)](svg.md), [`:extensions:graphics:canvas2d` (`canvas2d.md`)](canvas2d.md), [`:extensions:graphics:canvas3d` (`canvas3d.md`)](canvas3d.md), & [`:extensions:media:media` (`media.md`)](media.md) — Core modules and companion `:alien` renderers.
 - [`:extensions:graphics:imageprocessing` (`imageprocessing.md`)](imageprocessing.md) — Provides `ImageBuffer` and `ImageBuffer2DContext`.
 - [`:extensions:graphics:gpu` (`gpu.md`)](gpu.md) — Underlying Vulkan 1.2+ and OpenGL ES 3.0+ GPU foundation.
 - [GenericUI Root (`../../README.md`)](../../README.md) · [Layouts & Responsive Helpers (`../../docs/layouts-and-helpers.md`)](../../docs/layouts-and-helpers.md) · [Fragments & Windows (`../../docs/fragments-and-windows.md`)](../../docs/fragments-and-windows.md) · [Resources (`../../docs/resources.md`)](../../docs/resources.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)

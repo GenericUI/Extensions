@@ -17,7 +17,7 @@ Its companion module `:extensions:media:media:dsl` (`com.nexustools.genericui.ex
 
 ## 1. Gradle Plugin Configuration
 
-Enabling `media()` in `build.gradle.kts` automatically enables [`:extensions:ui:overlay`](overlay.md) (`overlay()`) and [`:extensions:data:schema`](schema.md) (`schema()`), registers the active platform's media providers inside `GenericUiAppDescriptor`, and includes `:extensions:media:media:dsl` when `dsl()` is active:
+Enabling `media()` in `build.gradle.kts` automatically enables [`:extensions:ui:overlay`](overlay.md) (`overlay()`) and [`:extensions:data:schema`](schema.md) (`schema()`), registers the active platform's media providers inside `GenericUiAppDescriptor`, includes `:extensions:media:media:dsl` when `dsl()` is active, and auto-adds & auto-registers **`:extensions:media:media:alien`** ([`MediaAlienExtension`](../media/media/alien/src/commonMain/kotlin/com/nexustools/genericui/ext/media/alien/MediaAlienExtension.kt) $\rightarrow$ `VideoPlayerAlienImpl` offscreen frame capture into Alien's `Canvas2D` scene graph) whenever `alien()` (or Desktop `webView()`) is active:
 
 ```kotlin
 plugins {
@@ -189,5 +189,6 @@ fun createAudioBar() = buildDiv(classes = "d-flex align-items-center gap-2") {
 - [`:extensions:ui:overlay` (`overlay.md`)](overlay.md) — `YoutubePlayerOverlay`, `HybridOverlayDifferenceController`, and pure-Bezier overlay icons.
 - [`:extensions:data:schema` (`schema.md`)](schema.md) — Meta-schema UI and persistence engine backing `VlcConfigurationSchemaDescriptor`.
 - [`:extensions:ui:pip` (`pip.md`)](pip.md) — Picture-in-Picture support for `VideoOverlayHost` and `VideoPlayer`.
+- [`:extensions:ui:alien` (`alien.md`)](alien.md) — Auto-registers `:extensions:media:media:alien` (`MediaAlienExtension` / `VideoPlayerAlienImpl`) for zero-underlay-hole video compositing inside Alien and Desktop WebView workers.
 - [`:extensions:media:mediacontrols` (`mediacontrols.md`)](mediacontrols.md) — OS taskbar thumbnail buttons, SMTC / Now Playing, and hardware media key hooks.
 - [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.

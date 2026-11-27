@@ -72,6 +72,7 @@ internal class ColorSchemaFieldController(
         } else {
             row
         }
+        bindLabelTarget(hexField)
         mountStandardBody(body, compactInline, hexField, colorPicker)
     }
 

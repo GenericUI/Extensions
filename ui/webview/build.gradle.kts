@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.time.Duration
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -37,10 +38,36 @@ kotlin {
 
     desktopNativeTargets.forEach { target ->
         target.binaries {
+            if (target.name.startsWith("mingw")) {
+                all {
+                    linkerOpts(
+                        "-lole32",
+                        "-lcomdlg32",
+                        "-lgdi32",
+                        "-luser32",
+                        "-lws2_32",
+                        "-lsecur32",
+                        "-lcrypt32",
+                        "-lwinhttp",
+                        "-lshell32",
+                        "-luuid",
+                        "-lwindowscodecs",
+                        "-liphlpapi",
+                        "-lcomctl32",
+                        "-luxtheme",
+                        "-ldwmapi",
+                        "-lmsimg32"
+                    )
+                }
+            }
             executable("webviewProcess") {
                 baseName = "genericui-webview-process"
                 entryPoint = "com.nexustools.genericui.ext.webview.desktop.process.main"
             }
+        }
+        val capName = target.name.replaceFirstChar { it.uppercaseChar() }
+        tasks.matching { it.name == "${target.name}Test" }.configureEach {
+            dependsOn("linkWebviewProcessDebugExecutable$capName")
         }
     }
 
@@ -70,11 +97,21 @@ kotlin {
             }
         }
 
-        // Desktop-ONLY source sets: Chromium Blink + NJS (:common, :jvm, :native)
+        // Desktop-ONLY source sets: Alien + Companion Extensions + IPC + NJS (:common, :jvm, :native)
         val desktopCommonMain by creating {
             dependsOn(systemMain)
             dependencies {
                 api(project(":desktop"))
+                api(project(":extensions:ui:alien"))
+                api(project(":extensions:system:ipc"))
+                api(project(":extensions:graphics:svg"))
+                api(project(":extensions:graphics:svg:alien"))
+                api(project(":extensions:graphics:canvas2d"))
+                api(project(":extensions:graphics:canvas2d:alien"))
+                api(project(":extensions:graphics:canvas3d"))
+                api(project(":extensions:graphics:canvas3d:alien"))
+                api(project(":extensions:media:media"))
+                api(project(":extensions:media:media:alien"))
                 api("com.nexustools.njs:common:1.0")
             }
         }
@@ -264,4 +301,8 @@ kotlin {
             dependsOn(webTest)
         }
     }
+}
+
+tasks.withType<org.gradle.api.tasks.testing.AbstractTestTask>().configureEach {
+    timeout.set(Duration.ofMinutes(5))
 }

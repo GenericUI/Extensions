@@ -1,8 +1,8 @@
-# `:extensions:media:mediacontrols` & `:extensions:media:mediacontrols:dsl` — Standalone System Media Controls, Taskbar Thumbnail Buttons, & Hardware Media Key Hooks
+# `:extensions:media:mediacontrols` — Standalone System Media Controls, Taskbar Thumbnail Buttons, & Hardware Media Key Hooks
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Fragments & Windows (`../../docs/fragments-and-windows.md`)**](../../docs/fragments-and-windows.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:media:mediacontrols` (`com.nexustools.genericui.ext.mediacontrols`) is a standalone **Single Consolidated KMP Project** depending **exclusively on `:common`**. It initializes real OS media transport controls across all targets out of the box via [`DefaultPlatformMediaControlsFactory`](../media/mediacontrols/src/commonMain/kotlin/com/nexustools/genericui/ext/mediacontrols/DefaultPlatformMediaControlsFactory.kt) while [`MediaControlsRegistry`](../media/mediacontrols/src/commonMain/kotlin/com/nexustools/genericui/ext/mediacontrols/MediaControlsRegistry.kt) fails fast if no factory is installed.
+`:extensions:media:mediacontrols` (`com.nexustools.genericui.ext.mediacontrols`) is a standalone **Single Consolidated KMP Project** depending **exclusively on `:common`** (with zero separate `:dsl` companion module). It initializes real OS media transport controls across all targets out of the box via [`DefaultPlatformMediaControlsFactory`](../media/mediacontrols/src/commonMain/kotlin/com/nexustools/genericui/ext/mediacontrols/DefaultPlatformMediaControlsFactory.kt) while [`MediaControlsRegistry`](../media/mediacontrols/src/commonMain/kotlin/com/nexustools/genericui/ext/mediacontrols/MediaControlsRegistry.kt) fails fast if no factory is installed.
 
 > [!IMPORTANT]
 > **Zero Extension Dependencies & Out-of-the-Box Real OS Media Controls**:
@@ -13,11 +13,11 @@
 
 ## 1. Architecture & Source-Set Layout
 
-`:extensions:media:mediacontrols` consolidates all platform drivers (`commonMain`, `mingwMain`, `macosMain`, `linuxMain`, `jvmMain`, `androidMain`, `iosMain`, `webMain`, plus `:dsl`):
+`:extensions:media:mediacontrols` consolidates all platform drivers (`commonMain`, `mingwMain`, `macosMain`, `linuxMain`, `jvmMain`, `androidMain`, `iosMain`, `webMain`):
 
 ```mermaid
 flowchart TD
-    Session["MediaControlsSession (bound optionally to IWindow)<br/>(:extensions:media:mediacontrols + :dsl)"]
+    Session["MediaControlsSession (bound optionally to IWindow)<br/>(:extensions:media:mediacontrols)"]
     Win["mingwMain (WindowsMediaControlsImpl: ITaskbarList3 Thumbnail Buttons + SMTC + WM_APPCOMMAND & WH_KEYBOARD_LL)"]
     Mac["macosMain (MacosMediaControlsImpl: MPRemoteCommandCenter + MPNowPlayingInfoCenter + NSSystemDefined Keys)"]
     Linux["linuxMain (GtkMediaControlsImpl & KdeMediaControlsImpl: XF86Audio* Keys + D-Bus MPRIS2)"]
@@ -49,7 +49,7 @@ flowchart TD
 
 ## 2. Gradle Plugin Configuration
 
-Enable `mediaControls()` inside `genericui { extensions { ... } }` in `build.gradle.kts` (automatically adds `:extensions:media:mediacontrols:dsl` when `dsl()` is enabled):
+Enable `mediaControls()` inside `genericui { extensions { ... } }` in `build.gradle.kts`:
 
 ```kotlin
 plugins {
@@ -65,7 +65,6 @@ genericui {
         allExceptSwing()
     }
     extensions {
-        dsl()           // Enables :extensions:ui:dsl + :extensions:media:mediacontrols:dsl
         mediaControls() // Enables :extensions:media:mediacontrols across all active backends
     }
 }
@@ -86,11 +85,10 @@ genericui {
 | `MediaControlEvent` | `ext.mediacontrols` | Event payload delivered to listeners: `action: MediaControlAction`, `seekPositionMs: Long? = null`, `source: MediaControlEventSource`. |
 | `MediaControlListener` | `ext.mediacontrols` | Functional interface: `fun onMediaControlEvent(event: MediaControlEvent)`. |
 | `MediaControlsCapabilities` | `ext.mediacontrols` | Platform capability flags: `supportsSystemTransportControls: Boolean`, `supportsTaskbarThumbnailButtons: Boolean`, `supportsKeyboardMediaKeyHook: Boolean`. |
-| `mediaControlsSession` | `ext.mediacontrols.dsl` | Declarative DSL builders (`mediaControlsSession(...)` and `IWindow.mediaControlsSession(...)`) in `:extensions:media:mediacontrols:dsl`. |
 
 ---
 
-## 4. Imperative Kotlin Examples
+## 4. Kotlin Usage Example (`MediaControlsSession`)
 
 ### Example 1: Binding `MediaControlsSession` to a Fragment's `hostingWindow`
 
@@ -170,48 +168,7 @@ class WorkstationFragment : Fragment() {
 
 ---
 
-## 5. Declarative `:extensions:media:mediacontrols:dsl` Examples
-
-When `dsl()` and `mediaControls()` are enabled, use `mediaControlsSession { ... }` (or `hostingWindow?.mediaControlsSession { ... }`) to configure and activate system media controls declaratively:
-
-```kotlin
-import com.nexustools.genericui.component.fragment.Fragment
-import com.nexustools.genericui.component.fragment.FragmentBundle
-import com.nexustools.genericui.ext.mediacontrols.MediaControlAction
-import com.nexustools.genericui.ext.mediacontrols.MediaControlMetadata
-import com.nexustools.genericui.ext.mediacontrols.MediaPlaybackStatus
-import com.nexustools.genericui.ext.mediacontrols.dsl.mediaControlsSession
-
-fun Fragment.bindDeclarativeMediaControls() = mediaControlsSession(
-    window = hostingWindow,
-    metadata = MediaControlMetadata(
-        title = "Episode 12 — Architecture Deep Dive",
-        artist = "Kotlin Multiplatform Podcast",
-        durationMs = 1_800_000L
-    ),
-    keyboardMediaKeysEnabled = true,
-    taskbarPreviewControlsEnabled = true,
-    autoActivate = true,
-    onEvent = { event ->
-        when (event.action) {
-            MediaControlAction.PLAY_PAUSE,
-            MediaControlAction.PLAY,
-            MediaControlAction.PAUSE -> {
-                println("Toggled playback via ${event.source}")
-            }
-            MediaControlAction.NEXT -> println("Skipped to next episode via ${event.source}")
-            MediaControlAction.PREVIOUS -> println("Returned to previous episode via ${event.source}")
-            else -> Unit
-        }
-    }
-) {
-    updatePlaybackState(status = MediaPlaybackStatus.PLAYING, positionMs = 12_000L, durationMs = 1_800_000L)
-}
-```
-
----
-
-## 6. Related Extensions & Cross-References
+## 5. Related Extensions & Cross-References
 
 - **Related Extensions**:
   - [`:extensions:media:media` & `:extensions:media:media:dsl` (`media.md`)](media.md) — Hardware-accelerated `VideoPlayer`, `AudioPlayer`, `AudioAnalyzer`, `ExpandingVolumeSlider`, and `MediaExtension`.

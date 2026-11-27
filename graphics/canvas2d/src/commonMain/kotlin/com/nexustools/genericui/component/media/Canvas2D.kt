@@ -225,10 +225,11 @@ open class Canvas2D(
     }
 
     protected override fun createNativeImpl(factory: NativeFactory): Canvas2DNativeImpl<*> =
-        Canvas2DExtension.createCanvas2DNative(
-            width = (widthPx ?: 800).coerceAtLeast(1),
-            height = (heightPx ?: 600).coerceAtLeast(1)
-        )
+        (factory.createExtensionNativeImpl(this) as? Canvas2DNativeImpl<*>)
+            ?: Canvas2DExtension.createCanvas2DNative(
+                width = (widthPx ?: 800).coerceAtLeast(1),
+                height = (heightPx ?: 600).coerceAtLeast(1)
+            )
 
     override fun syncStateToNative() {
         super.syncStateToNative()
@@ -236,5 +237,25 @@ open class Canvas2D(
         impl.setOnBeforeFramePresentListener { frameIdx, tsMs ->
             notifyBeforeFramePresent(frameIdx, tsMs)
         }
+        val nativeCtx = impl.getRenderingContext()
+        val preAttachBuf = backingImageBuffer
+        if (preAttachBuf != null && preAttachBuf !== nativeCtx.imageBuffer) {
+            if (preAttachBuf.isDirty || preAttachBuf.flushCount > 0L) {
+                val targetW = (widthPx ?: preAttachBuf.width).coerceAtLeast(1)
+                val targetH = (heightPx ?: preAttachBuf.height).coerceAtLeast(1)
+                if (nativeCtx.width != targetW || nativeCtx.height != targetH) {
+                    nativeCtx.resizeSurface(targetW, targetH)
+                }
+                val rgba = preAttachBuf.directRgbaBytes()
+                if (rgba.size == preAttachBuf.width * preAttachBuf.height * 4) {
+                    nativeCtx.imageBuffer.writePixelsRgba(rgba, preAttachBuf.width, preAttachBuf.height, 0, 0)
+                    if (preAttachBuf.flushCount > 0L) {
+                        nativeCtx.imageBuffer.flush()
+                    }
+                }
+            }
+            backingImageBuffer = null
+        }
+        ensureDirtyListenerAttached(nativeCtx.imageBuffer)
     }
 }

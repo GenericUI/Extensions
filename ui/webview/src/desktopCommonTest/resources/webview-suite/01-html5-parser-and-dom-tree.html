@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>01 - HTML5 Parser &amp; Full DOM Tree</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 20px; font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      background: #0f172a; color: #e2e8f0; line-height: 1.5;
+    }
+    h1 { margin: 0 0 8px 0; font-size: 20px; color: #38bdf8; }
+    .subtitle { margin: 0 0 16px 0; font-size: 13px; color: #94a3b8; }
+    .summary-bar {
+      padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px;
+      background: #1e293b; border: 1px solid #334155;
+    }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage {
+      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+      padding: 16px; margin-bottom: 16px;
+    }
+    .dom-card {
+      padding: 10px 12px; background: #0b1220; border: 1px solid #334155; border-radius: 6px;
+      margin-bottom: 8px;
+    }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; background: #1d4ed8; color: #fff; font-size: 12px; }
+    .active-cls { border-color: #38bdf8; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+    .suite-running { border-left: 4px solid #eab308; color: #fef08a; }
+  </style>
+</head>
+<body>
+  <h1>01 &mdash; HTML5 Parser &amp; Full DOM Tree Compliance</h1>
+  <p class="subtitle">Tests tokenizer state machine, nested tags, void elements, raw text, comments, entities, custom tags, traversal, mutations, attributes, classList, and dataset.</p>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <!-- Parser fixture comment node -->
+    <div id="nested-root">
+      <div id="nested-mid">
+        <div id="nested-leaf" class="dom-card alpha beta" data-user-role="admin" data-item-id="42">
+          <span id="entity-span">A &amp; B &lt;tag&gt; &quot;ok&quot; &#65; &#x2713;</span>
+          <br id="void-br"><hr id="void-hr">
+          <input id="void-input" type="text" value="preset" readonly>
+        </div>
+      </div>
+    </div>
+    <pre id="raw-pre">Line 1 <not-an-element>&amp;</not-an-element></pre>
+    <textarea id="raw-textarea"><span>literal text in textarea</span></textarea>
+    <genericui:app id="custom-ns-host" data-mode="alien">Host</genericui:app>
+    <div id="mutation-sandbox" class="dom-card">
+      <span id="child-a">First</span>
+      <span id="child-b">Second</span>
+      <span id="child-c">Third</span>
+    </div>
+    <div id="html-injection-zone"></div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [];
+    var activeSuite = null;
+    function formatVal(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function extendMatchers(m, actual) {
+      if (typeof m.toBeLessThanOrEqual !== "function") {
+        m.toBeLessThanOrEqual = function (n) { if (!(actual <= n)) throw new Error("Expected " + actual + " <= " + n); };
+      }
+      if (typeof m.toBeCloseTo !== "function") {
+        m.toBeCloseTo = function (expected, precision) {
+          var prec = (typeof precision === "number") ? precision : 2;
+          var tol = Math.pow(10, -prec) / 2;
+          if (typeof actual !== "number" || isNaN(actual) || Math.abs(actual - expected) >= tol) {
+            throw new Error("Expected " + actual + " to be close to " + expected);
+          }
+        };
+      }
+      if (typeof m.toThrow !== "function") {
+        m.toThrow = function (substr) {
+          var threw = false, errMsg = "";
+          try { actual(); } catch (err) { threw = true; errMsg = (err && err.message) ? String(err.message) : String(err); }
+          if (!threw) throw new Error("Expected function to throw");
+          if (substr && errMsg.indexOf(String(substr)) === -1) throw new Error("Expected '" + errMsg + "' to contain '" + substr + "'");
+        };
+      }
+      return m;
+    }
+    if (typeof root.expect === "function") {
+      var origExpect = root.expect;
+      root.expect = function (actual) { return extendMatchers(origExpect(actual), actual); };
+    } else {
+      root.expect = function (actual) {
+        return extendMatchers({
+          toBe: function (e) { if (actual !== e) throw new Error("Expected " + formatVal(e) + " got " + formatVal(actual)); },
+          toEqual: function (e) { if (formatVal(actual) !== formatVal(e)) throw new Error("Expected " + formatVal(e) + " to equal " + formatVal(actual)); },
+          toBeTruthy: function () { if (!actual) throw new Error("Expected truthy got " + formatVal(actual)); },
+          toBeFalsy: function () { if (actual) throw new Error("Expected falsy got " + formatVal(actual)); },
+          toBeNull: function () { if (actual !== null && actual !== undefined) throw new Error("Expected null got " + formatVal(actual)); },
+          toBeDefined: function () { if (actual === undefined) throw new Error("Expected defined"); },
+          toContain: function (item) {
+            if (actual && typeof actual.length === "number" && typeof actual !== "string") {
+              for (var i = 0; i < actual.length; i++) if (actual[i] === item) return;
+              throw new Error("Expected collection to contain " + formatVal(item));
+            }
+            if (actual == null || String(actual).indexOf(String(item)) === -1) throw new Error("Expected " + formatVal(actual) + " to contain " + formatVal(item));
+          },
+          toBeGreaterThan: function (n) { if (!(actual > n)) throw new Error("Expected " + actual + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(actual >= n)) throw new Error("Expected " + actual + " >= " + n); },
+          toBeLessThan: function (n) { if (!(actual < n)) throw new Error("Expected " + actual + " < " + n); }
+        }, actual);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (name, fn) {
+        var prev = activeSuite;
+        var s = { name: prev ? (prev.name + " > " + name) : String(name), beforeAll: [], afterAll: [], beforeEach: [], afterEach: [], tests: [] };
+        suites.push(s); activeSuite = s;
+        if (typeof fn === "function") fn();
+        activeSuite = prev;
+      };
+      root.beforeAll = function (fn) { if (activeSuite) activeSuite.beforeAll.push(fn); };
+      root.afterAll = function (fn) { if (activeSuite) activeSuite.afterAll.push(fn); };
+      root.beforeEach = function (fn) { if (activeSuite) activeSuite.beforeEach.push(fn); };
+      root.afterEach = function (fn) { if (activeSuite) activeSuite.afterEach.push(fn); };
+      root.it = function (name, fn) {
+        if (!activeSuite) root.describe("Default Suite", function () {});
+        (activeSuite || suites[suites.length - 1]).tests.push({ name: String(name), fn: fn });
+      };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var container = document.getElementById("suite-results");
+        var summary = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        var queue = [];
+        for (var i = 0; i < suites.length; i++) {
+          (function (suite) {
+            queue.push(function () { for (var k = 0; k < suite.beforeAll.length; k++) suite.beforeAll[k](); });
+            for (var j = 0; j < suite.tests.length; j++) {
+              (function (tc) {
+                queue.push(function () {
+                  summary.total++;
+                  var row = document.createElement("div");
+                  row.className = "suite-row suite-running";
+                  row.textContent = "[RUN] " + suite.name + " > " + tc.name;
+                  if (container) container.appendChild(row);
+                  function done(ok, err) {
+                    for (var ae = 0; ae < suite.afterEach.length; ae++) { try { suite.afterEach[ae](); } catch (_e) {} }
+                    if (ok) {
+                      summary.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + suite.name + " > " + tc.name;
+                    } else {
+                      var msg = (err && err.message) ? String(err.message) : String(err);
+                      summary.failed++; summary.failures.push({ test: suite.name + " > " + tc.name, error: msg });
+                      row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + suite.name + " > " + tc.name + " — " + msg;
+                    }
+                  }
+                  try {
+                    for (var be = 0; be < suite.beforeEach.length; be++) suite.beforeEach[be]();
+                    var res = tc.fn();
+                    if (res && typeof res.then === "function") return res.then(function () { done(true); }, function (e) { done(false, e); });
+                    done(true);
+                  } catch (e) { done(false, e); }
+                });
+              })(suite.tests[j]);
+            }
+            queue.push(function () { for (var aa = 0; aa < suite.afterAll.length; aa++) { try { suite.afterAll[aa](); } catch (_e) {} } });
+          })(suites[i]);
+        }
+        (function next(idx) {
+          if (idx >= queue.length) {
+            root.__suiteSummary = summary;
+            var bar = document.getElementById("suite-summary-bar");
+            if (bar) {
+              bar.className = summary.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+              bar.textContent = summary.suite + ": " + summary.passed + "/" + summary.total + " passed (" + summary.failed + " failed)";
+            }
+            return;
+          }
+          var out = queue[idx]();
+          if (out && typeof out.then === "function") out.then(function () { next(idx + 1); }, function () { next(idx + 1); });
+          else next(idx + 1);
+        })(0);
+      });
+    }
+  })(window);
+  </script>
+
+  <script>
+  describe("01 - HTML5 Parser & Full DOM Tree", function () {
+    it("parses DOCTYPE, deeply nested same-tag divs, and custom/namespaced tags", function () {
+      expect(document.doctype).toBeTruthy();
+      expect(document.doctype.name.toLowerCase()).toBe("html");
+      expect(document.documentElement.tagName.toUpperCase()).toBe("HTML");
+      expect(document.head).toBeTruthy();
+      expect(document.body).toBeTruthy();
+
+      var root = document.getElementById("nested-root");
+      var mid = document.getElementById("nested-mid");
+      var leaf = document.getElementById("nested-leaf");
+      expect(mid.parentElement).toBe(root);
+      expect(leaf.parentElement).toBe(mid);
+      expect(root.contains(leaf)).toBe(true);
+      expect(leaf.contains(root)).toBe(false);
+
+      var nsHost = document.getElementById("custom-ns-host");
+      expect(nsHost).toBeTruthy();
+      expect(nsHost.getAttribute("data-mode")).toBe("alien");
+      expect(nsHost.textContent).toBe("Host");
+    });
+
+    it("handles void elements without swallowing siblings and decodes entities", function () {
+      var leaf = document.getElementById("nested-leaf");
+      var br = document.getElementById("void-br");
+      var hr = document.getElementById("void-hr");
+      var inp = document.getElementById("void-input");
+      expect(br.parentElement).toBe(leaf);
+      expect(hr.parentElement).toBe(leaf);
+      expect(inp.parentElement).toBe(leaf);
+      expect(br.children.length).toBe(0);
+      expect(inp.getAttribute("value")).toBe("preset");
+      expect(inp.hasAttribute("readonly")).toBe(true);
+
+      var entityText = document.getElementById("entity-span").textContent;
+      expect(entityText).toContain("A & B <tag> \"ok\" A");
+      expect(entityText.charCodeAt(entityText.length - 1)).toBe(0x2713);
+    });
+
+    it("preserves raw text in pre and textarea elements and preserves comment nodes", function () {
+      var pre = document.getElementById("raw-pre");
+      expect(pre.querySelector("not-an-element") || pre.textContent.indexOf("&") >= 0).toBeTruthy();
+      var ta = document.getElementById("raw-textarea");
+      expect(ta.value).toBe("<span>literal text in textarea</span>");
+      expect(ta.children.length).toBe(0);
+
+      var stage = document.getElementById("test-stage");
+      var foundComment = null;
+      for (var i = 0; i < stage.childNodes.length; i++) {
+        if (stage.childNodes[i].nodeType === 8) {
+          foundComment = stage.childNodes[i];
+          break;
+        }
+      }
+      expect(foundComment).toBeTruthy();
+      expect(foundComment.nodeValue).toContain("Parser fixture comment node");
+    });
+
+    it("supports full Node and Element traversal pointers and compareDocumentPosition", function () {
+      var box = document.getElementById("mutation-sandbox");
+      var a = document.getElementById("child-a");
+      var b = document.getElementById("child-b");
+      var c = document.getElementById("child-c");
+
+      expect(box.firstElementChild).toBe(a);
+      expect(box.lastElementChild).toBe(c);
+      expect(a.nextElementSibling).toBe(b);
+      expect(b.previousElementSibling).toBe(a);
+      expect(b.nextElementSibling).toBe(c);
+      expect(c.nextElementSibling).toBeNull();
+      expect(a.previousElementSibling).toBeNull();
+      expect(a.parentNode).toBe(box);
+      expect(a.ownerDocument).toBe(document);
+      expect(a.isConnected).toBe(true);
+
+      // DOCUMENT_POSITION_FOLLOWING (4) and DOCUMENT_POSITION_CONTAINED_BY (16)
+      expect((a.compareDocumentPosition(c) & 4) !== 0).toBe(true);
+      expect((box.compareDocumentPosition(b) & 16) !== 0).toBe(true);
+    });
+
+    it("creates elements, text, comments, DocumentFragments and clones shallow/deep", function () {
+      var frag = document.createDocumentFragment();
+      var p1 = document.createElement("p");
+      p1.className = "badge";
+      p1.appendChild(document.createTextNode("FragItem"));
+      var p2 = p1.cloneNode(true);
+      p2.lastChild.nodeValue = "ClonedItem";
+      var shallow = p1.cloneNode(false);
+      expect(shallow.childNodes.length).toBe(0);
+      expect(shallow.className).toBe("badge");
+
+      var cmt = document.createComment("dynamic-comment");
+      expect(cmt.nodeType).toBe(8);
+      frag.appendChild(p1);
+      frag.appendChild(cmt);
+      frag.appendChild(p2);
+
+      var host = document.getElementById("html-injection-zone");
+      host.appendChild(frag);
+      expect(frag.childNodes.length).toBe(0);
+      expect(host.children.length).toBe(2);
+      expect(host.children[0].textContent).toBe("FragItem");
+      expect(host.children[1].textContent).toBe("ClonedItem");
+      expect(host.isConnected).toBe(true);
+      host.textContent = "";
+    });
+
+    it("supports insertBefore, replaceChild, removeChild, append, prepend, before, after, replaceWith, remove", function () {
+      var host = document.getElementById("html-injection-zone");
+      host.textContent = "";
+      var mid = document.createElement("span");
+      mid.id = "m-mid";
+      mid.textContent = "M";
+      host.appendChild(mid);
+
+      var first = document.createElement("span");
+      first.textContent = "F";
+      host.insertBefore(first, mid);
+      expect(host.firstElementChild).toBe(first);
+
+      var rep = document.createElement("span");
+      rep.textContent = "R";
+      var removed = host.replaceChild(rep, mid);
+      expect(removed).toBe(mid);
+      expect(removed.isConnected).toBe(false);
+      expect(host.textContent).toBe("FR");
+
+      host.prepend("START-");
+      host.append("-END");
+      expect(host.textContent).toBe("START-FR-END");
+
+      var sibA = document.createElement("b");
+      sibA.textContent = "[BEFORE]";
+      var sibB = document.createElement("b");
+      sibB.textContent = "[AFTER]";
+      rep.before(sibA);
+      rep.after(sibB);
+      expect(host.textContent).toBe("START-F[BEFORE]R[AFTER]-END");
+
+      var newer = document.createElement("i");
+      newer.textContent = "NEW";
+      rep.replaceWith(newer);
+      expect(host.textContent).toBe("START-F[BEFORE]NEW[AFTER]-END");
+
+      newer.remove();
+      expect(newer.isConnected).toBe(false);
+      host.removeChild(first);
+      expect(host.contains(first)).toBe(false);
+      host.textContent = "";
+    });
+
+    it("parses innerHTML, outerHTML, and all four insertAdjacentHTML positions accurately", function () {
+      var host = document.getElementById("html-injection-zone");
+      host.innerHTML = "<div id='adj-parent'><span id='adj-target' data-k='1'>CORE</span></div>";
+      var target = document.getElementById("adj-target");
+      expect(target).toBeTruthy();
+      expect(target.getAttribute("data-k")).toBe("1");
+
+      target.insertAdjacentHTML("beforebegin", "<em id='pos-bb'>BB</em>");
+      target.insertAdjacentHTML("afterbegin", "<em id='pos-ab'>AB-</em>");
+      target.insertAdjacentHTML("beforeend", "<em id='pos-be'>-BE</em>");
+      target.insertAdjacentHTML("afterend", "<em id='pos-ae'>AE</em>");
+
+      var parent = document.getElementById("adj-parent");
+      expect(parent.children.length).toBe(3);
+      expect(parent.children[0].id).toBe("pos-bb");
+      expect(parent.children[1]).toBe(target);
+      expect(parent.children[2].id).toBe("pos-ae");
+      expect(target.textContent).toBe("AB-CORE-BE");
+
+      target.outerHTML = "<strong id='replaced-outer'>REPLACED</strong>";
+      expect(document.getElementById("adj-target")).toBeNull();
+      expect(document.getElementById("replaced-outer").textContent).toBe("REPLACED");
+      host.textContent = "";
+    });
+
+    it("manages attributes, classList tokens, and camelCase dataset mapping cleanly", function () {
+      var leaf = document.getElementById("nested-leaf");
+      expect(leaf.hasAttribute("data-user-role")).toBe(true);
+      expect(leaf.getAttribute("data-user-role")).toBe("admin");
+      expect(leaf.dataset.userRole).toBe("admin");
+      expect(leaf.dataset.itemId).toBe("42");
+
+      leaf.dataset.newKeyName = "hello-ds";
+      expect(leaf.getAttribute("data-new-key-name")).toBe("hello-ds");
+      leaf.removeAttribute("data-new-key-name");
+      expect(leaf.hasAttribute("data-new-key-name")).toBe(false);
+
+      leaf.setAttribute("aria-label", "Main Card");
+      expect(leaf.getAttribute("aria-label")).toBe("Main Card");
+
+      expect(leaf.classList.contains("alpha")).toBe(true);
+      expect(leaf.classList.contains("beta")).toBe(true);
+      leaf.classList.add("gamma", "delta");
+      expect(leaf.classList.contains("delta")).toBe(true);
+      leaf.classList.remove("beta");
+      expect(leaf.classList.contains("beta")).toBe(false);
+      var toggledOn = leaf.classList.toggle("active-cls");
+      expect(toggledOn).toBe(true);
+      expect(leaf.classList.contains("active-cls")).toBe(true);
+      var toggledOff = leaf.classList.toggle("active-cls");
+      expect(toggledOff).toBe(false);
+      if (typeof leaf.classList.replace === "function") {
+        leaf.classList.replace("alpha", "alpha-2");
+        expect(leaf.classList.contains("alpha-2")).toBe(true);
+        expect(leaf.classList.contains("alpha")).toBe(false);
+      }
+    });
+
+    it("supports SVG and XHTML createElementNS with localName preserving case", function () {
+      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      var rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("width", "40");
+      rect.setAttribute("height", "20");
+      svg.appendChild(rect);
+      expect(svg.namespaceURI).toBe("http://www.w3.org/2000/svg");
+      expect(rect.namespaceURI).toBe("http://www.w3.org/2000/svg");
+      expect(rect.getAttribute("width")).toBe("40");
+      expect(svg.firstElementChild).toBe(rect);
+    });
+  });
+  </script>
+</body>
+</html>

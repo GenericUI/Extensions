@@ -33,6 +33,9 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
     private var volumeLevel: Float = 1.0f
     private var mutedFlag: Boolean = false
     private var resizeMode: VideoResizeMode = VideoResizeMode.FIT
+    private var loopEnabled: Boolean = false
+    private var offscreenFrameCaptureEnabled: Boolean = false
+    private var frameVersionCounter: Long = 0L
     private var preloadMode: MediaPreloadMode = MediaPreloadMode.AUTO
     private var adaptivePreloadBufferingEnabled: Boolean = true
     private var antialiasingEnabled: Boolean = true
@@ -160,12 +163,17 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
             markMediaReady()
         }
         nativeWidget.addEventListener("loadeddata") {
+            frameVersionCounter += 1L
             markMediaReady()
         }
         nativeWidget.addEventListener("seeked") {
+            frameVersionCounter += 1L
             markMediaReady()
         }
         nativeWidget.addEventListener("timeupdate") { payload ->
+            if (playing) {
+                frameVersionCounter += 1L
+            }
             val sec = (payload as? Number)?.toDouble()
                 ?: nativeWidget.getAttribute("data-current-time")?.toDoubleOrNull()
             if (sec != null && !sec.isNaN() && sec >= 0.0) {
@@ -535,6 +543,31 @@ class WebVideoPlayerImpl : WebBaseNativeImpl("video", "video-player"), VideoPlay
     }
 
     override fun isMediaReady(): Boolean = mediaReadyFlag
+
+    override fun setLoop(loop: Boolean) {
+        loopEnabled = loop
+        if (loop) {
+            nativeWidget.setAttribute("loop", "")
+        } else {
+            nativeWidget.removeAttribute("loop")
+        }
+    }
+
+    override fun isLoop(): Boolean = loopEnabled
+
+    override fun enableOffscreenFrameCapture(enabled: Boolean) {
+        offscreenFrameCaptureEnabled = enabled
+        nativeWidget.setAttribute("data-offscreen-capture", enabled.toString())
+    }
+
+    override val videoFrameVersion: Long
+        get() = frameVersionCounter
+
+    override fun getNaturalVideoWidth(): Int =
+        nativeWidget.getAttribute("data-video-width")?.toIntOrNull() ?: 0
+
+    override fun getNaturalVideoHeight(): Int =
+        nativeWidget.getAttribute("data-video-height")?.toIntOrNull() ?: 0
 
     override fun getBufferedRanges(): List<Pair<Double, Double>> = bufferedRangesList
 

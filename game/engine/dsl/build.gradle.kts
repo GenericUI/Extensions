@@ -45,7 +45,6 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":extensions:ui:dsl"))
-            api(project(":extensions:game:gamepad:dsl"))
             api(project(":extensions:game:engine"))
         }
         commonTest.dependencies {

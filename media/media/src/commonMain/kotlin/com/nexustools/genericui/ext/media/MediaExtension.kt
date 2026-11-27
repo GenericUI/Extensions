@@ -244,11 +244,20 @@ object MediaExtension {
         return videoPlayerProvider?.invoke()
     }
 
-    fun createVideoPlayerNativeOrFallback(): VideoPlayerNativeImpl<*> =
-        createOrInstallDefaultProvider(
-            providerGetter = { videoPlayerProvider?.invoke() },
-            missingMessage = "No VideoPlayerNativeImpl provider registered in MediaExtension"
-        )
+    fun createVideoPlayerNativeOrFallback(): VideoPlayerNativeImpl<*> {
+        invalidateAutoInstalledProvidersIfFactoryChanged()
+        videoPlayerProvider?.invoke()?.let { return it }
+        if (GenericUI.activeFactory != null) {
+            isInstallingPlatformDefaults = true
+            try {
+                installPlatformDefaultMediaProvidersIfNeeded()
+            } finally {
+                isInstallingPlatformDefaults = false
+            }
+            videoPlayerProvider?.invoke()?.let { return it }
+        }
+        return MediaHeadlessBufferPlayer()
+    }
 
     fun createAudioPlayerNative(): AudioPlayerNativeImpl? {
         invalidateAutoInstalledProvidersIfFactoryChanged()

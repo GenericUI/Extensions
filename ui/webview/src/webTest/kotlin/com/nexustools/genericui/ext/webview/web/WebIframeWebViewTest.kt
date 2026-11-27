@@ -16,9 +16,8 @@ class WebIframeWebViewTest {
     @Test
     fun testWebIframeEngineTypeAndElementTag() {
         WebWebViewExtensionProvider.install()
-        assertEquals(WebViewEngineType.WEB_NATIVE_IFRAME, WebViewExtension.activeEngineType)
+        assertEquals(WebViewEngineType.WEB_IFRAME, WebViewExtension.activeEngineType)
         assertFalse(WebViewExtension.activeEngineType.usesNjsJitRuntime)
-        assertFalse(WebViewExtension.activeEngineType.usesChromium)
 
         val impl = WebNativeIframeWebViewImpl()
         assertEquals("iframe", impl.nativeWidget.tagName)
@@ -123,7 +122,7 @@ class WebIframeWebViewTest {
     fun testHighLevelWebViewComponentWithWebIframeProvider() {
         WebWebViewExtensionProvider.install()
         val webView = WebView()
-        assertEquals(WebViewEngineType.WEB_NATIVE_IFRAME, webView.engineType)
+        assertEquals(WebViewEngineType.WEB_IFRAME, webView.engineType)
 
         webView.registerCommunicationFunction("ping") { "pong:$it" }
         var evalOut: String? = null

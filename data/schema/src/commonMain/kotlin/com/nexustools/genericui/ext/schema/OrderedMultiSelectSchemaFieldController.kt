@@ -76,6 +76,7 @@ internal class OrderedMultiSelectSchemaFieldController(
             addChild(pickerRow)
             addChild(itemsContainer)
         }
+        bindLabelTarget(pickerSelect)
         mountStandardBody(bodyContainer, compactInline, pickerSelect, itemsContainer)
         if (!deferInitialOptionsLoad) {
             refreshOptions(initialContext)

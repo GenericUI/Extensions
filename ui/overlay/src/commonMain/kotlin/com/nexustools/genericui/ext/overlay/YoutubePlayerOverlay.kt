@@ -5,7 +5,7 @@ import com.nexustools.genericui.component.layout.HStack
 import com.nexustools.genericui.component.layout.LayerAlignment
 import com.nexustools.genericui.component.layout.LayerConstraint
 import com.nexustools.genericui.component.layout.Spacer
-import com.nexustools.genericui.component.layout.StyledContainer
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.layout.VStack
 import com.nexustools.genericui.component.typography.Text
 import com.nexustools.genericui.core.AbstractComponent

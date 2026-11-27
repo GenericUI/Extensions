@@ -1,5 +1,8 @@
 package com.nexustools.genericui.ext.serviceworker
 
+import com.nexustools.genericui.component.system.PreferenceElement
+import com.nexustools.genericui.ext.ipc.IpcClient
+import com.nexustools.genericui.ext.ipc.IpcConnection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -16,7 +19,7 @@ internal class DesktopServiceWorkerChannelClient {
     private var scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
-    private var connection: DesktopIpcConnection? = null
+    private var connection: IpcConnection? = null
 
     @Volatile
     private var connected: Boolean = false
@@ -48,18 +51,18 @@ internal class DesktopServiceWorkerChannelClient {
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         }
 
-        val conn = DesktopIpcClient.connect(descriptor.transport, descriptor.address, timeoutMs = 4_000) ?: return false
+        val conn = IpcClient.connect(descriptor.toChannelAddress(), timeoutMs = 4_000) ?: return false
         val authEnv = ServiceWorkerEnvelope(
             kind = ServiceWorkerEnvelope.KIND_AUTH,
             clientId = assignedClientId,
-            payloadJson = descriptor.token
+            payload = PreferenceElement.ofString(descriptor.token)
         )
-        if (!conn.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(authEnv))) {
+        if (!conn.sendPacket(DesktopIpcPacketMapper.toIpcPacket(authEnv))) {
             conn.close()
             return false
         }
-        val replyBytes = conn.receiveBody(timeoutMs = 3_000)
-        val replyEnv = replyBytes?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
+        val replyPacket = conn.receivePacket(timeoutMs = 3_000)
+        val replyEnv = replyPacket?.let { DesktopIpcPacketMapper.fromIpcPacket(it) }
         if (replyEnv == null || replyEnv.kind != ServiceWorkerEnvelope.KIND_AUTH_OK) {
             conn.close()
             return false
@@ -74,8 +77,8 @@ internal class DesktopServiceWorkerChannelClient {
         scope.launch {
             try {
                 while (connected && !conn.isClosed) {
-                    val body = conn.receiveBody(timeoutMs = 250) ?: continue
-                    val env = ServiceWorkerFrameCodec.decodeBinaryBody(body) ?: continue
+                    val packet = conn.receivePacket(timeoutMs = 250) ?: continue
+                    val env = DesktopIpcPacketMapper.fromIpcPacket(packet) ?: continue
                     onEnvelopeListener?.invoke(env)
                     if (env.kind == ServiceWorkerEnvelope.KIND_BYE) {
                         break
@@ -102,7 +105,7 @@ internal class DesktopServiceWorkerChannelClient {
         } else {
             envelope
         }
-        return conn.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(withCid))
+        return conn.sendPacket(DesktopIpcPacketMapper.toIpcPacket(withCid))
     }
 
     fun disconnect() {
@@ -112,8 +115,8 @@ internal class DesktopServiceWorkerChannelClient {
         connection = null
         activeDescriptor = null
         if (conn != null && !conn.isClosed) {
-            conn.sendBody(
-                ServiceWorkerFrameCodec.encodeBinaryBody(
+            conn.sendPacket(
+                DesktopIpcPacketMapper.toIpcPacket(
                     ServiceWorkerEnvelope(kind = ServiceWorkerEnvelope.KIND_BYE, clientId = assignedClientId)
                 )
             )

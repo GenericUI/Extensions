@@ -1,6 +1,6 @@
 package com.nexustools.genericui.ext.overlay
 
-import com.nexustools.genericui.component.action.StyledButton
+import com.nexustools.genericui.component.action.styled.StyledButton
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.style.color.RgbaColor

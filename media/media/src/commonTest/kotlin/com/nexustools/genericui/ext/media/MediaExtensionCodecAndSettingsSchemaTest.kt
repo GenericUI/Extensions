@@ -2,7 +2,7 @@ package com.nexustools.genericui.ext.media
 
 import com.nexustools.genericui.animation.Animator
 import com.nexustools.genericui.component.composite.Composite
-import com.nexustools.genericui.component.form.StyledSlider
+import com.nexustools.genericui.component.form.styled.StyledSlider
 import com.nexustools.genericui.component.media.ExpandingVolumeSlider
 import com.nexustools.genericui.component.media.MediaCapabilitiesReport
 import com.nexustools.genericui.component.media.MediaVolumeIcons

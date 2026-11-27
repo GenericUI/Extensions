@@ -4,6 +4,7 @@ import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -477,37 +478,59 @@ class DefaultCpuContext2DBackend(
         if (subpaths.isEmpty()) return
         val halfW = max(0.5f, lineWidth * 0.5f)
         val invMatrix = currentMatrix.invert() ?: ImageBufferMatrix2D.IDENTITY
+        val dash = lineDashSegments
+        var dashCycle = 0f
+        if (dash.isNotEmpty()) {
+            for (seg in dash) dashCycle += seg
+        }
+        val hasDash = dashCycle > 0f
+        fun isDashOn(distAlongPath: Float): Boolean {
+            if (!hasDash) return true
+            var pos = (distAlongPath + lineDashOffset) % dashCycle
+            if (pos < 0f) pos += dashCycle
+            var acc = 0f
+            for (idx in dash.indices) {
+                acc += dash[idx]
+                if (pos < acc) return (idx and 1) == 0
+            }
+            return true
+        }
         for (poly in subpaths) {
+            var distAlongSubpath = 0f
             var i = 0
             while (i + 3 < poly.size) {
                 val x0 = poly[i]
                 val y0 = poly[i + 1]
                 val x1 = poly[i + 2]
                 val y1 = poly[i + 3]
+                val segLen = hypot(x1 - x0, y1 - y0)
                 val steps = max(1, ceil(max(abs(x1 - x0), abs(y1 - y0))).toInt())
                 for (s in 0..steps) {
                     val t = s.toFloat() / steps.toFloat()
-                    val cx = x0 + (x1 - x0) * t
-                    val cy = y0 + (y1 - y0) * t
-                    val r = ceil(halfW).toInt()
-                    val icx = cx.roundToInt()
-                    val icy = cy.roundToInt()
-                    for (dy in -r..r) {
-                        for (dx in -r..r) {
-                            if (dx * dx + dy * dy <= halfW * halfW + 0.5f) {
-                                val px = icx + dx
-                                val py = icy + dy
-                                if (px in max(0, clipBoundsMinX) until min(width, clipBoundsMaxX) &&
-                                    py in max(0, clipBoundsMinY) until min(height, clipBoundsMaxY)
-                                ) {
-                                    val (lx, ly) = invMatrix.transformPoint(px + 0.5f, py + 0.5f)
-                                    val src = strokeStyle.sampleAt(lx, ly, imageSmoothingEnabled)
-                                    blendPixel(px, py, src)
+                    if (isDashOn(distAlongSubpath + segLen * t)) {
+                        val cx = x0 + (x1 - x0) * t
+                        val cy = y0 + (y1 - y0) * t
+                        val r = ceil(halfW).toInt()
+                        val icx = cx.roundToInt()
+                        val icy = cy.roundToInt()
+                        for (dy in -r..r) {
+                            for (dx in -r..r) {
+                                if (dx * dx + dy * dy <= halfW * halfW + 0.5f) {
+                                    val px = icx + dx
+                                    val py = icy + dy
+                                    if (px in max(0, clipBoundsMinX) until min(width, clipBoundsMaxX) &&
+                                        py in max(0, clipBoundsMinY) until min(height, clipBoundsMaxY)
+                                    ) {
+                                        val (lx, ly) = invMatrix.transformPoint(px + 0.5f, py + 0.5f)
+                                        val src = strokeStyle.sampleAt(lx, ly, imageSmoothingEnabled)
+                                        blendPixel(px, py, src)
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                distAlongSubpath += segLen
                 i += 2
             }
         }

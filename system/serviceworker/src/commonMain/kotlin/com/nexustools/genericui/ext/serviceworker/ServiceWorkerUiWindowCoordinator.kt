@@ -849,7 +849,7 @@ internal object ServiceWorkerUiWindowCoordinator {
         )
         channel.sendControlAsync(
             typeId = ServiceWorkerEnvelope.CONTROL_FRAGMENT_MOUNTED,
-            payloadJson = payload,
+            payload = payload,
             sourceFragmentId = fragmentId
         )
     }
@@ -868,7 +868,7 @@ internal object ServiceWorkerUiWindowCoordinator {
         )
         channel.sendControlAsync(
             typeId = ServiceWorkerEnvelope.CONTROL_FRAGMENT_MOUNTED,
-            payloadJson = payload,
+            payload = payload,
             sourceFragmentId = mount.fragmentId
         )
     }
@@ -889,7 +889,7 @@ internal object ServiceWorkerUiWindowCoordinator {
         )
         channel.sendControlAsync(
             typeId = ServiceWorkerEnvelope.CONTROL_FRAGMENT_UNMOUNTED,
-            payloadJson = payload,
+            payload = payload,
             sourceFragmentId = fragmentId
         )
     }

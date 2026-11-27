@@ -44,6 +44,7 @@ internal class SelectSchemaFieldController(
                 notifyValueChanged(selected)
             }
         }
+        bindLabelTarget(selectWidget)
         mountStandardBody(selectWidget, compactInline, selectWidget)
         if (!deferInitialOptionsLoad) {
             refreshOptions(initialContext)

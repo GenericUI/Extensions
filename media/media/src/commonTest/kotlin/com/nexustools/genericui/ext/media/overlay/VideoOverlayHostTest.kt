@@ -2,7 +2,7 @@ package com.nexustools.genericui.ext.media.overlay
 
 import com.nexustools.genericui.animation.Animator
 import com.nexustools.genericui.component.composite.Composite
-import com.nexustools.genericui.component.form.StyledSlider
+import com.nexustools.genericui.component.form.styled.StyledSlider
 import com.nexustools.genericui.component.media.ExpandingVolumeSlider
 import com.nexustools.genericui.component.media.MediaTrackInfo
 import com.nexustools.genericui.component.media.SeekBar

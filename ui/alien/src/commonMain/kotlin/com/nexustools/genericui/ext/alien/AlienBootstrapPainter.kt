@@ -12,6 +12,7 @@ import com.nexustools.genericui.style.gradient.Gradient.RadialGradient
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
@@ -76,13 +77,8 @@ object AlienBootstrapPainter {
         val y = bounds.y.toFloat()
         val w = bounds.width.toFloat()
         val h = bounds.height.toFloat()
-        val baseRadius = when {
-            style.borderRadiusPercent != null -> (style.borderRadiusPercent / 100f) * min(w, h)
-            style.borderRadiusPx > 0f -> style.borderRadiusPx
-            style.cornerRadii != null -> style.cornerRadii.topLeft.resolvePx(min(w, h), 16f, style.fontSizePx) ?: 0f
-            else -> 0f
-        }
-        val r = min(baseRadius.coerceAtLeast(0f), min(w, h) * 0.5f)
+        val radii = resolveCornerRadii(w, h, style)
+        val r = radii[0]
 
         ctx.save()
         ctx.setGlobalAlpha(style.opacity.coerceIn(0f, 1f))
@@ -92,13 +88,23 @@ object AlienBootstrapPainter {
         if (focusColor != null && style.focusRingSpreadPx > 0f) {
             val spread = style.focusRingSpreadPx
             ctx.setFillColor(focusColor)
-            fillRoundedRect(ctx, x - spread, y - spread, w + spread * 2f, h + spread * 2f, r + spread)
+            fillCornerRoundedRect(
+                ctx,
+                x - spread,
+                y - spread,
+                w + spread * 2f,
+                h + spread * 2f,
+                radii[0] + spread,
+                radii[1] + spread,
+                radii[2] + spread,
+                radii[3] + spread
+            )
         }
 
-        // 2. Box Shadow (`shadow-sm`, `shadow`, `shadow-lg`, or custom CSS `box-shadow`)
+        // 2. Outer Box Shadow (`shadow-sm`, `shadow`, `shadow-lg`, or custom CSS `box-shadow`)
         val shadowList = style.boxShadowList
         if (shadowList != null && !shadowList.isNone && shadowList.shadows.isNotEmpty()) {
-            paintTypedBoxShadows(ctx, x, y, w, h, r, shadowList, style.fontSizePx)
+            paintTypedBoxShadows(ctx, x, y, w, h, radii, shadowList, style.fontSizePx, insetOnly = false)
         } else if (!style.boxShadowCss.isNullOrBlank() && !style.boxShadowCss.equals("none", ignoreCase = true)) {
             paintSoftBoxShadow(ctx, x, y, w, h, r, style.boxShadowCss)
         }
@@ -119,26 +125,34 @@ object AlienBootstrapPainter {
                     val y0 = cy - sin(rad) * halfSpan
                     val x1 = cx + cos(rad) * halfSpan
                     val y1 = cy + sin(rad) * halfSpan
-                    ctx.fillLinearGradient(x0, y0, x1, y1, c0, c1, x, y, w, h)
+                    if (radii.any { it > 0.5f }) {
+                        ctx.save()
+                        beginCornerRoundedPath(ctx, x, y, w, h, radii)
+                        ctx.clip()
+                        ctx.fillLinearGradient(x0, y0, x1, y1, c0, c1, x, y, w, h)
+                        ctx.restore()
+                    } else {
+                        ctx.fillLinearGradient(x0, y0, x1, y1, c0, c1, x, y, w, h)
+                    }
                 }
                 is RadialGradient -> {
                     val stops = gradient.resolvedStops
                     val outer = stops.lastOrNull()?.second ?: style.backgroundColor
                     val inner = stops.firstOrNull()?.second ?: outer
                     ctx.setFillColor(outer)
-                    fillRoundedRect(ctx, x, y, w, h, r)
+                    fillCornerRoundedRect(ctx, x, y, w, h, radii[0], radii[1], radii[2], radii[3])
                     ctx.setFillColor(inner)
-                    fillRoundedRect(ctx, x + w * 0.15f, y + h * 0.15f, w * 0.7f, h * 0.7f, r)
+                    fillCornerRoundedRect(ctx, x + w * 0.15f, y + h * 0.15f, w * 0.7f, h * 0.7f, radii[0], radii[1], radii[2], radii[3])
                 }
                 else -> {
                     val mid = gradient.interpolateAt(0.5f)
                     ctx.setFillColor(mid)
-                    fillRoundedRect(ctx, x, y, w, h, r)
+                    fillCornerRoundedRect(ctx, x, y, w, h, radii[0], radii[1], radii[2], radii[3])
                 }
             }
         } else if (style.backgroundColor.a > 0) {
             ctx.setFillColor(style.backgroundColor)
-            fillRoundedRect(ctx, x, y, w, h, r)
+            fillCornerRoundedRect(ctx, x, y, w, h, radii[0], radii[1], radii[2], radii[3])
         }
 
         // 3b. CSS Background Image (`background-image: url(...)`, `background-size`, `background-repeat`, `background-position`)
@@ -146,14 +160,411 @@ object AlienBootstrapPainter {
             paintBackgroundImage(ctx, x, y, w, h, r, style)
         }
 
-        // 4. Rounded Border
-        if (style.borderWidthPx > 0f && style.borderColor.a > 0 && !style.borderStyle.equals("none", ignoreCase = true)) {
-            ctx.setStrokeColor(style.borderColor)
-            ctx.setLineWidth(style.borderWidthPx)
-            strokeRoundedRect(ctx, x, y, w, h, r)
+        // 3c. Inset Box Shadows (inside background, behind border)
+        if (shadowList != null && !shadowList.isNone && shadowList.shadows.any { it.inset }) {
+            paintTypedBoxShadows(ctx, x, y, w, h, radii, shadowList, style.fontSizePx, insetOnly = true)
+        }
+
+        // 4. Borders (uniform rounded rect OR per-side widths/colors/styles)
+        paintBorders(ctx, x, y, w, h, radii, style)
+
+        // 5. CSS Outline (outside border box)
+        if (style.outlineWidthPx > 0f && !style.outlineStyle.equals("none", ignoreCase = true) && style.outlineColor.a > 0) {
+            val ow = style.outlineWidthPx
+            val oo = style.outlineOffsetPx + ow * 0.5f
+            ctx.save()
+            ctx.setStrokeColor(style.outlineColor)
+            ctx.setLineWidth(ow)
+            applyBorderDashStyle(ctx, style.outlineStyle, ow)
+            strokeCornerRoundedRect(
+                ctx,
+                x - oo,
+                y - oo,
+                w + oo * 2f,
+                h + oo * 2f,
+                (radii[0] + oo).coerceAtLeast(0f),
+                (radii[1] + oo).coerceAtLeast(0f),
+                (radii[2] + oo).coerceAtLeast(0f),
+                (radii[3] + oo).coerceAtLeast(0f)
+            )
+            ctx.restore()
         }
 
         ctx.restore()
+    }
+
+    internal fun resolveCornerRadii(w: Float, h: Float, style: AlienResolvedVisualStyle): FloatArray {
+        val halfMin = min(w, h) * 0.5f
+        val cr = style.cornerRadii
+        if (cr != null) {
+            val ref = min(w, h)
+            return floatArrayOf(
+                min((cr.topLeft.resolvePx(ref, 16f, style.fontSizePx) ?: 0f).coerceAtLeast(0f), halfMin),
+                min((cr.topRight.resolvePx(ref, 16f, style.fontSizePx) ?: 0f).coerceAtLeast(0f), halfMin),
+                min((cr.bottomRight.resolvePx(ref, 16f, style.fontSizePx) ?: 0f).coerceAtLeast(0f), halfMin),
+                min((cr.bottomLeft.resolvePx(ref, 16f, style.fontSizePx) ?: 0f).coerceAtLeast(0f), halfMin)
+            )
+        }
+        val base = when {
+            style.borderRadiusPercent != null -> (style.borderRadiusPercent / 100f) * min(w, h)
+            style.borderRadiusPx > 0f -> style.borderRadiusPx
+            else -> 0f
+        }
+        val clamped = min(base.coerceAtLeast(0f), halfMin)
+        return floatArrayOf(clamped, clamped, clamped, clamped)
+    }
+
+    private fun beginCornerRoundedPath(
+        ctx: ImageBuffer2DContext,
+        x: Float,
+        y: Float,
+        w: Float,
+        h: Float,
+        radii: FloatArray
+    ) {
+        ctx.beginPath()
+        if (radii[0] == radii[1] && radii[1] == radii[2] && radii[2] == radii[3]) {
+            if (radii[0] <= 0.5f) {
+                ctx.rect(x, y, w, h)
+            } else {
+                ctx.roundRect(x, y, w, h, radii[0])
+            }
+        } else {
+            ctx.roundRect(x, y, w, h, radii[0], radii[1], radii[2], radii[3])
+        }
+    }
+
+    private fun applyBorderDashStyle(ctx: ImageBuffer2DContext, styleName: String, widthPx: Float) {
+        when (styleName.lowercase()) {
+            "dashed" -> ctx.setLineDash(floatArrayOf(max(4f, widthPx * 3f), max(3f, widthPx * 2f)))
+            "dotted" -> ctx.setLineDash(floatArrayOf(max(1.5f, widthPx), max(2f, widthPx * 1.5f)))
+            else -> ctx.setLineDash(FloatArray(0))
+        }
+    }
+
+    private fun paintBorders(
+        ctx: ImageBuffer2DContext,
+        x: Float,
+        y: Float,
+        w: Float,
+        h: Float,
+        radii: FloatArray,
+        style: AlienResolvedVisualStyle
+    ) {
+        val bt = if (style.borderTopStyle.equals("none", ignoreCase = true) || style.borderTopColor.a == 0) 0f else style.borderTopWidthPx
+        val br = if (style.borderRightStyle.equals("none", ignoreCase = true) || style.borderRightColor.a == 0) 0f else style.borderRightWidthPx
+        val bb = if (style.borderBottomStyle.equals("none", ignoreCase = true) || style.borderBottomColor.a == 0) 0f else style.borderBottomWidthPx
+        val bl = if (style.borderLeftStyle.equals("none", ignoreCase = true) || style.borderLeftColor.a == 0) 0f else style.borderLeftWidthPx
+        if (bt <= 0f && br <= 0f && bb <= 0f && bl <= 0f) return
+
+        val uniform = bt == br && br == bb && bb == bl &&
+            style.borderTopColor == style.borderRightColor &&
+            style.borderRightColor == style.borderBottomColor &&
+            style.borderBottomColor == style.borderLeftColor &&
+            style.borderTopStyle.equals(style.borderRightStyle, ignoreCase = true) &&
+            style.borderRightStyle.equals(style.borderBottomStyle, ignoreCase = true) &&
+            style.borderBottomStyle.equals(style.borderLeftStyle, ignoreCase = true)
+
+        if (uniform) {
+            ctx.save()
+            ctx.setStrokeColor(style.borderTopColor)
+            ctx.setLineWidth(bt)
+            applyBorderDashStyle(ctx, style.borderTopStyle, bt)
+            strokeCornerRoundedRect(ctx, x, y, w, h, radii[0], radii[1], radii[2], radii[3])
+            ctx.restore()
+            return
+        }
+
+        if (bt > 0f) {
+            ctx.save()
+            ctx.setStrokeColor(style.borderTopColor)
+            ctx.setLineWidth(bt)
+            applyBorderDashStyle(ctx, style.borderTopStyle, bt)
+            ctx.beginPath()
+            ctx.moveTo(x, y + bt * 0.5f)
+            ctx.lineTo(x + w, y + bt * 0.5f)
+            ctx.stroke()
+            ctx.restore()
+        }
+        if (br > 0f) {
+            ctx.save()
+            ctx.setStrokeColor(style.borderRightColor)
+            ctx.setLineWidth(br)
+            applyBorderDashStyle(ctx, style.borderRightStyle, br)
+            ctx.beginPath()
+            ctx.moveTo(x + w - br * 0.5f, y)
+            ctx.lineTo(x + w - br * 0.5f, y + h)
+            ctx.stroke()
+            ctx.restore()
+        }
+        if (bb > 0f) {
+            ctx.save()
+            ctx.setStrokeColor(style.borderBottomColor)
+            ctx.setLineWidth(bb)
+            applyBorderDashStyle(ctx, style.borderBottomStyle, bb)
+            ctx.beginPath()
+            ctx.moveTo(x, y + h - bb * 0.5f)
+            ctx.lineTo(x + w, y + h - bb * 0.5f)
+            ctx.stroke()
+            ctx.restore()
+        }
+        if (bl > 0f) {
+            ctx.save()
+            ctx.setStrokeColor(style.borderLeftColor)
+            ctx.setLineWidth(bl)
+            applyBorderDashStyle(ctx, style.borderLeftStyle, bl)
+            ctx.beginPath()
+            ctx.moveTo(x + bl * 0.5f, y)
+            ctx.lineTo(x + bl * 0.5f, y + h)
+            ctx.stroke()
+            ctx.restore()
+        }
+    }
+
+    /**
+     * Fast helper for widget `customPaint` callbacks and extension widgets (`Svg`, `Canvas2D`,
+     * `Canvas3D`, `VideoPlayer`) to blit an [com.nexustools.genericui.image.ImageBuffer] inside [bounds]
+     * respecting CSS [ObjectFit] (`CONTAIN`, `COVER`, `FILL`, `NONE`, `SCALE_DOWN`) and `borderRadius`.
+     */
+    fun paintImageBuffer(
+        ctx: ImageBuffer2DContext,
+        bounds: Rect,
+        buffer: com.nexustools.genericui.image.ImageBuffer,
+        objectFit: com.nexustools.genericui.enums.ui.ObjectFit = com.nexustools.genericui.enums.ui.ObjectFit.FILL,
+        style: AlienResolvedVisualStyle? = null
+    ) {
+        if (bounds.width <= 0 || bounds.height <= 0 || buffer.width <= 0 || buffer.height <= 0) return
+        val bw = bounds.width.toFloat()
+        val bh = bounds.height.toFloat()
+        val iw = buffer.width.toFloat()
+        val ih = buffer.height.toFloat()
+        val radii = if (style != null) resolveCornerRadii(bw, bh, style) else floatArrayOf(0f, 0f, 0f, 0f)
+        val hasRoundedClip = radii.any { it > 0.5f }
+
+        val targetCtx: ImageBuffer2DContext
+        val drawOriginX: Float
+        val drawOriginY: Float
+        val scratchBuf: com.nexustools.genericui.ext.imageprocessing.context2d.DefaultCpuImageBuffer?
+        if (hasRoundedClip) {
+            scratchBuf = com.nexustools.genericui.ext.imageprocessing.context2d.DefaultCpuImageBuffer(bounds.width, bounds.height)
+            targetCtx = com.nexustools.genericui.ext.imageprocessing.context2d.DefaultCpuContext2DBackend(scratchBuf)
+            drawOriginX = 0f
+            drawOriginY = 0f
+        } else {
+            scratchBuf = null
+            targetCtx = ctx
+            drawOriginX = bounds.x.toFloat()
+            drawOriginY = bounds.y.toFloat()
+            ctx.save()
+        }
+
+        when (objectFit) {
+            com.nexustools.genericui.enums.ui.ObjectFit.FILL ->
+                targetCtx.drawImage(buffer, drawOriginX, drawOriginY, bw, bh)
+            com.nexustools.genericui.enums.ui.ObjectFit.CONTAIN -> {
+                val scale = min(bw / iw, bh / ih)
+                val dw = iw * scale
+                val dh = ih * scale
+                val dx = drawOriginX + (bw - dw) * 0.5f
+                val dy = drawOriginY + (bh - dh) * 0.5f
+                targetCtx.drawImage(buffer, dx, dy, dw, dh)
+            }
+            com.nexustools.genericui.enums.ui.ObjectFit.COVER -> {
+                val scale = max(bw / iw, bh / ih)
+                val dw = iw * scale
+                val dh = ih * scale
+                val dx = drawOriginX + (bw - dw) * 0.5f
+                val dy = drawOriginY + (bh - dh) * 0.5f
+                if (!hasRoundedClip) {
+                    targetCtx.beginPath()
+                    targetCtx.rect(drawOriginX, drawOriginY, bw, bh)
+                    targetCtx.clip()
+                }
+                targetCtx.drawImage(buffer, dx, dy, dw, dh)
+            }
+            com.nexustools.genericui.enums.ui.ObjectFit.NONE -> {
+                val dx = drawOriginX + (bw - iw) * 0.5f
+                val dy = drawOriginY + (bh - ih) * 0.5f
+                if (!hasRoundedClip) {
+                    targetCtx.beginPath()
+                    targetCtx.rect(drawOriginX, drawOriginY, bw, bh)
+                    targetCtx.clip()
+                }
+                targetCtx.drawImage(buffer, dx, dy, iw, ih)
+            }
+            com.nexustools.genericui.enums.ui.ObjectFit.SCALE_DOWN -> {
+                val scale = min(1f, min(bw / iw, bh / ih))
+                val dw = iw * scale
+                val dh = ih * scale
+                val dx = drawOriginX + (bw - dw) * 0.5f
+                val dy = drawOriginY + (bh - dh) * 0.5f
+                targetCtx.drawImage(buffer, dx, dy, dw, dh)
+            }
+        }
+
+        if (scratchBuf != null) {
+            applyRoundedCornerAlphaMask(scratchBuf, bounds.width, bounds.height, radii)
+            ctx.drawImage(scratchBuf, bounds.x.toFloat(), bounds.y.toFloat(), bw, bh)
+        } else {
+            ctx.restore()
+        }
+    }
+
+    private fun applyRoundedCornerAlphaMask(
+        buf: com.nexustools.genericui.ext.imageprocessing.context2d.DefaultCpuImageBuffer,
+        w: Int,
+        h: Int,
+        radii: FloatArray
+    ) {
+        val pixels = buf.directRgbaBytes() ?: return
+        val rTL = radii[0]
+        val rTR = radii[1]
+        val rBR = radii[2]
+        val rBL = radii[3]
+        for (py in 0 until h) {
+            val cy = py + 0.5f
+            val rowOffset = py * w * 4
+            for (px in 0 until w) {
+                val cx = px + 0.5f
+                val outside = when {
+                    rTL > 0f && cx < rTL && cy < rTL -> {
+                        val dx = rTL - cx; val dy = rTL - cy; dx * dx + dy * dy > rTL * rTL
+                    }
+                    rTR > 0f && cx > w - rTR && cy < rTR -> {
+                        val dx = cx - (w - rTR); val dy = rTR - cy; dx * dx + dy * dy > rTR * rTR
+                    }
+                    rBR > 0f && cx > w - rBR && cy > h - rBR -> {
+                        val dx = cx - (w - rBR); val dy = cy - (h - rBR); dx * dx + dy * dy > rBR * rBR
+                    }
+                    rBL > 0f && cx < rBL && cy > h - rBL -> {
+                        val dx = rBL - cx; val dy = cy - (h - rBL); dx * dx + dy * dy > rBL * rBL
+                    }
+                    else -> false
+                }
+                if (outside) {
+                    val idx = rowOffset + px * 4
+                    pixels[idx] = 0
+                    pixels[idx + 1] = 0
+                    pixels[idx + 2] = 0
+                    pixels[idx + 3] = 0
+                }
+            }
+        }
+    }
+
+    fun paintListMarker(
+        ctx: ImageBuffer2DContext,
+        bounds: Rect,
+        style: AlienResolvedVisualStyle,
+        itemIndex: Int
+    ) {
+        val listType = style.listStyleType.lowercase()
+        if (listType == "none" || bounds.height <= 0) return
+        ctx.save()
+        ctx.setGlobalAlpha(style.opacity.coerceIn(0f, 1f))
+        ctx.setFillColor(style.textColor)
+        ctx.setStrokeColor(style.textColor)
+        val centerY = bounds.y + style.padding.top + style.fontSizePx * 0.55f
+        val markerX = bounds.x - max(10f, style.fontSizePx * 0.85f)
+        when (listType) {
+            "disc" -> {
+                ctx.beginPath()
+                ctx.arc(markerX, centerY, max(2f, style.fontSizePx * 0.16f), 0f, 6.2831855f)
+                ctx.fill()
+            }
+            "circle" -> {
+                ctx.setLineWidth(1.2f)
+                ctx.beginPath()
+                ctx.arc(markerX, centerY, max(2f, style.fontSizePx * 0.16f), 0f, 6.2831855f)
+                ctx.stroke()
+            }
+            "square" -> {
+                val sz = max(4f, style.fontSizePx * 0.28f)
+                ctx.fillRect(markerX - sz * 0.5f, centerY - sz * 0.5f, sz, sz)
+            }
+            else -> {
+                val label = when (listType) {
+                    "lower-alpha", "lower-latin" -> "${('a' + ((itemIndex - 1).coerceAtLeast(0) % 26))}."
+                    "upper-alpha", "upper-latin" -> "${('A' + ((itemIndex - 1).coerceAtLeast(0) % 26))}."
+                    else -> "${itemIndex.coerceAtLeast(1)}."
+                }
+                ctx.setFont(style.fontFamily, style.fontSizePx, style.fontWeight, style.italic)
+                val w = ctx.measureTextWidth(label)
+                ctx.fillText(label, bounds.x - w - 6f, bounds.y + style.padding.top + style.fontSizePx * 0.88f)
+            }
+        }
+        ctx.restore()
+    }
+
+    fun paintPseudoElementBox(
+        ctx: ImageBuffer2DContext,
+        hostBounds: Rect,
+        pseudoStyle: AlienResolvedVisualStyle,
+        isAfter: Boolean
+    ) {
+        val rawContent = pseudoStyle.content ?: return
+        val w = AlienCssStyleResolver.parseLengthPx(
+            pseudoStyle.widthCss,
+            pseudoStyle.fontSizePx,
+            hostBounds.width.toFloat(),
+            pseudoStyle.viewportWidthPx,
+            pseudoStyle.viewportHeightPx
+        )?.roundToInt() ?: if (rawContent.isNotEmpty()) {
+            (rawContent.length * pseudoStyle.fontSizePx * 0.6f).roundToInt() + pseudoStyle.padding.left + pseudoStyle.padding.right
+        } else 0
+        val h = AlienCssStyleResolver.parseLengthPx(
+            pseudoStyle.heightCss,
+            pseudoStyle.fontSizePx,
+            hostBounds.height.toFloat(),
+            pseudoStyle.viewportWidthPx,
+            pseudoStyle.viewportHeightPx
+        )?.roundToInt() ?: if (rawContent.isNotEmpty()) {
+            (pseudoStyle.fontSizePx * 1.25f).roundToInt() + pseudoStyle.padding.top + pseudoStyle.padding.bottom
+        } else 0
+        if (w <= 0 && h <= 0 && rawContent.isEmpty()) return
+
+        val bw = w.coerceAtLeast(1)
+        val bh = h.coerceAtLeast(1)
+        val bx = if (pseudoStyle.position == "absolute") {
+            val l = AlienCssStyleResolver.parseLengthPx(pseudoStyle.leftCss, pseudoStyle.fontSizePx, hostBounds.width.toFloat())
+            val r = AlienCssStyleResolver.parseLengthPx(pseudoStyle.rightCss, pseudoStyle.fontSizePx, hostBounds.width.toFloat())
+            when {
+                l != null -> hostBounds.x + l.roundToInt()
+                r != null -> hostBounds.right - r.roundToInt() - bw
+                isAfter -> hostBounds.right - bw
+                else -> hostBounds.x
+            }
+        } else {
+            if (isAfter) (hostBounds.right - bw - pseudoStyle.margin.right).coerceAtLeast(hostBounds.x)
+            else hostBounds.x + pseudoStyle.margin.left
+        }
+        val by = if (pseudoStyle.position == "absolute") {
+            val t = AlienCssStyleResolver.parseLengthPx(pseudoStyle.topCss, pseudoStyle.fontSizePx, hostBounds.height.toFloat())
+            val b = AlienCssStyleResolver.parseLengthPx(pseudoStyle.bottomCss, pseudoStyle.fontSizePx, hostBounds.height.toFloat())
+            when {
+                t != null -> hostBounds.y + t.roundToInt()
+                b != null -> hostBounds.bottom - b.roundToInt() - bh
+                else -> hostBounds.y + ((hostBounds.height - bh) / 2).coerceAtLeast(0)
+            }
+        } else {
+            hostBounds.y + ((hostBounds.height - bh) / 2).coerceAtLeast(0)
+        }
+        val pseudoRect = Rect(bx, by, bw, bh)
+        paintBoxSurface(ctx, pseudoRect, pseudoStyle)
+        if (rawContent.isNotEmpty()) {
+            paintText(
+                ctx = ctx,
+                text = rawContent,
+                contentBounds = Rect(
+                    bx + pseudoStyle.padding.left,
+                    by + pseudoStyle.padding.top,
+                    (bw - pseudoStyle.padding.left - pseudoStyle.padding.right).coerceAtLeast(1),
+                    (bh - pseudoStyle.padding.top - pseudoStyle.padding.bottom).coerceAtLeast(1)
+                ),
+                style = pseudoStyle,
+                verticalCenter = true
+            )
+        }
     }
 
     private fun resolveBackgroundImage(url: String): ImageBuffer? {
@@ -335,11 +746,13 @@ object AlienBootstrapPainter {
         }
 
         val maxW = contentBounds.width.toFloat().coerceAtLeast(1f)
-        val isSingleLine = maxLines == 1 || style.whiteSpace.equals("nowrap", ignoreCase = true)
+        val isSingleLine = maxLines == 1 || style.whiteSpace.equals("nowrap", ignoreCase = true) ||
+            style.whiteSpace.equals("pre", ignoreCase = true)
+        val indentOffset = if (style.textAlign == "left" || style.textAlign == "start") style.textIndentPx else 0f
 
-        if (isSingleLine) {
+        if (isSingleLine && '\n' !in transformed) {
             val displayLine = if (style.textOverflow == "ellipsis") {
-                ellipsizeToWidth(ctx, transformed, maxW)
+                ellipsizeToWidth(ctx, transformed, (maxW - indentOffset).coerceAtLeast(1f))
             } else {
                 transformed
             }
@@ -347,7 +760,7 @@ object AlienBootstrapPainter {
             val drawX = when (style.textAlign) {
                 "center" -> contentBounds.x + (contentBounds.width - measuredW) * 0.5f
                 "right", "end" -> contentBounds.right - measuredW
-                else -> contentBounds.x.toFloat()
+                else -> contentBounds.x.toFloat() + indentOffset
             }
             val drawY = if (verticalCenter) {
                 contentBounds.y + (contentBounds.height + style.fontSizePx * 0.68f) * 0.5f
@@ -357,7 +770,10 @@ object AlienBootstrapPainter {
             ctx.fillText(displayLine, drawX, drawY)
             paintTextDecorationLine(ctx, drawX, drawY, measuredW, style.fontSizePx, style.textDecoration)
         } else {
-            val lines = wrapTextLines(ctx, transformed, maxW, maxLines)
+            val preserveWhitespace = style.whiteSpace.equals("pre", ignoreCase = true) ||
+                style.whiteSpace.equals("pre-wrap", ignoreCase = true)
+            val wrapWidth = if (style.whiteSpace.equals("pre", ignoreCase = true)) Float.MAX_VALUE else maxW
+            val lines = wrapTextLines(ctx, transformed, wrapWidth, maxLines, preserveWhitespace)
             val lineHeight = style.lineHeightPx?.coerceAtLeast(style.fontSizePx)
                 ?: (style.fontSizePx * 1.35f).coerceAtLeast(style.fontSizePx + 2f)
             val totalBlockH = lines.size * lineHeight
@@ -366,12 +782,13 @@ object AlienBootstrapPainter {
             } else {
                 contentBounds.y + style.fontSizePx * 0.9f
             }
-            for (line in lines) {
+            for ((lineIdx, line) in lines.withIndex()) {
                 val measuredW = ctx.measureTextWidth(line)
+                val firstIndent = if (lineIdx == 0) indentOffset else 0f
                 val drawX = when (style.textAlign) {
                     "center" -> contentBounds.x + (contentBounds.width - measuredW) * 0.5f
                     "right", "end" -> contentBounds.right - measuredW
-                    else -> contentBounds.x.toFloat()
+                    else -> contentBounds.x.toFloat() + firstIndent
                 }
                 ctx.fillText(line, drawX, cursorY)
                 paintTextDecorationLine(ctx, drawX, cursorY, measuredW, style.fontSizePx, style.textDecoration)
@@ -397,6 +814,46 @@ object AlienBootstrapPainter {
             ctx.beginPath()
             ctx.roundRect(x, y, w, h, radius)
             ctx.fill()
+        }
+    }
+
+    fun fillCornerRoundedRect(
+        ctx: ImageBuffer2DContext,
+        x: Float,
+        y: Float,
+        w: Float,
+        h: Float,
+        tl: Float,
+        tr: Float,
+        br: Float,
+        bl: Float
+    ) {
+        if (tl == tr && tr == br && br == bl) {
+            fillRoundedRect(ctx, x, y, w, h, tl)
+        } else {
+            ctx.beginPath()
+            ctx.roundRect(x, y, w, h, tl, tr, br, bl)
+            ctx.fill()
+        }
+    }
+
+    fun strokeCornerRoundedRect(
+        ctx: ImageBuffer2DContext,
+        x: Float,
+        y: Float,
+        w: Float,
+        h: Float,
+        tl: Float,
+        tr: Float,
+        br: Float,
+        bl: Float
+    ) {
+        if (tl == tr && tr == br && br == bl) {
+            strokeRoundedRect(ctx, x, y, w, h, tl)
+        } else {
+            ctx.beginPath()
+            ctx.roundRect(x, y, w, h, tl, tr, br, bl)
+            ctx.stroke()
         }
     }
 
@@ -441,10 +898,40 @@ object AlienBootstrapPainter {
         y: Float,
         w: Float,
         h: Float,
-        r: Float,
+        radii: FloatArray,
         shadowList: CssShadowList,
-        fontSizePx: Float
+        fontSizePx: Float,
+        insetOnly: Boolean
     ) {
+        val r = radii[0]
+        if (insetOnly) {
+            ctx.save()
+            beginCornerRoundedPath(ctx, x, y, w, h, radii)
+            ctx.clip()
+            for (shadow in shadowList.shadows) {
+                if (!shadow.inset) continue
+                val ox = shadow.offsetX.resolvePx(fontSizePx, 16f, fontSizePx) ?: 0f
+                val oy = shadow.offsetY.resolvePx(fontSizePx, 16f, fontSizePx) ?: 0f
+                val blur = (shadow.blurRadius.resolvePx(fontSizePx, 16f, fontSizePx) ?: 0f).coerceAtLeast(0f)
+                val spread = shadow.spreadRadius.resolvePx(fontSizePx, 16f, fontSizePx) ?: 0f
+                val thickness = max(1f, spread + blur * 0.5f + kotlin.math.abs(ox) * 0.5f + kotlin.math.abs(oy) * 0.5f)
+                ctx.setStrokeColor(shadow.color)
+                ctx.setLineWidth(thickness)
+                strokeCornerRoundedRect(
+                    ctx,
+                    x + ox * 0.5f,
+                    y + oy * 0.5f,
+                    w,
+                    h,
+                    radii[0],
+                    radii[1],
+                    radii[2],
+                    radii[3]
+                )
+            }
+            ctx.restore()
+            return
+        }
         for (shadow in shadowList.shadows) {
             if (shadow.inset) continue
             val ox = shadow.offsetX.resolvePx(fontSizePx, 16f, fontSizePx) ?: 0f
@@ -453,13 +940,16 @@ object AlienBootstrapPainter {
             val spread = shadow.spreadRadius.resolvePx(fontSizePx, 16f, fontSizePx) ?: 0f
             val expand = spread + blur * 0.35f
             ctx.setFillColor(shadow.color)
-            fillRoundedRect(
+            fillCornerRoundedRect(
                 ctx,
                 x + ox - expand,
                 y + oy - expand,
                 (w + expand * 2f).coerceAtLeast(0f),
                 (h + expand * 2f).coerceAtLeast(0f),
-                (r + expand).coerceAtLeast(0f)
+                (radii[0] + expand).coerceAtLeast(0f),
+                (radii[1] + expand).coerceAtLeast(0f),
+                (radii[2] + expand).coerceAtLeast(0f),
+                (radii[3] + expand).coerceAtLeast(0f)
             )
         }
     }
@@ -487,11 +977,18 @@ object AlienBootstrapPainter {
         ctx: ImageBuffer2DContext,
         text: String,
         maxWidthPx: Float,
-        maxLines: Int?
+        maxLines: Int?,
+        preserveWhitespace: Boolean = false
     ): List<String> {
         val paragraphs = text.split('\n')
         val out = mutableListOf<String>()
         for (para in paragraphs) {
+            if (preserveWhitespace) {
+                if (para.isEmpty() || maxWidthPx >= Float.MAX_VALUE * 0.5f || ctx.measureTextWidth(para) <= maxWidthPx) {
+                    out.add(para)
+                    continue
+                }
+            }
             val words = para.split(Regex("\\s+")).filter { it.isNotEmpty() }
             if (words.isEmpty()) {
                 out.add("")

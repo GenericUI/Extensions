@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>18 - Observers, Storage, Cookies, URL, Encoding &amp; History</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px; }
+    #obs-mut-target, #obs-resize-target, #obs-io-target { padding: 8px; background: #0b1220; border: 1px solid #475569; border-radius: 6px; width: 80px; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+  </style>
+</head>
+<body>
+  <h1>18 &mdash; MutationObserver, ResizeObserver, IntersectionObserver, Storage, URL &amp; History</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <div id="obs-mut-target" data-state="init"><span>Initial</span></div>
+    <div id="obs-resize-target">ResizeMe</div>
+    <div id="obs-io-target">VisibleTarget</div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        var q = [];
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) (function (tc) {
+          q.push(function () {
+            sum.total++; var row = document.createElement("div"); c.appendChild(row);
+            try {
+              var r = tc.fn();
+              if (r && typeof r.then === "function") return r.then(function () { sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }, function (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; });
+              sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name;
+            } catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+          });
+        })(suites[i].tests[j]);
+        (function run(k) {
+          if (k >= q.length) {
+            root.__suiteSummary = sum;
+            var bar = document.getElementById("suite-summary-bar");
+            bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+            bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+            return;
+          }
+          var out = q[k]();
+          if (out && typeof out.then === "function") out.then(function () { run(k + 1); }, function () { run(k + 1); }); else run(k + 1);
+        })(0);
+      });
+    }
+  })(window);
+  </script>
+
+  <script>
+  describe("18 - Observers, Storage, URL, Encoding & History", function () {
+    it("captures childList, attributes (oldValue), and characterData records via MutationObserver", function () {
+      var target = document.getElementById("obs-mut-target");
+      var mo = new MutationObserver(function () {});
+      mo.observe(target, { childList: true, attributes: true, attributeOldValue: true, characterData: true, subtree: true });
+
+      target.setAttribute("data-state", "updated");
+      var extra = document.createElement("b");
+      extra.textContent = "Added";
+      target.appendChild(extra);
+      target.firstChild.firstChild.nodeValue = "ChangedText";
+
+      var recs = mo.takeRecords();
+      expect(recs.length).toBeGreaterThanOrEqual(3);
+      expect(recs[0].type).toBe("attributes");
+      expect(recs[0].oldValue).toBe("init");
+      expect(recs[1].type).toBe("childList");
+      expect(recs[2].type).toBe("characterData");
+      mo.disconnect();
+    });
+
+    it("notifies ResizeObserver on element dimension changes and IntersectionObserver on visible node", function () {
+      var rTarget = document.getElementById("obs-resize-target");
+      var ioTarget = document.getElementById("obs-io-target");
+      expect(typeof ResizeObserver).toBe("function");
+      expect(typeof IntersectionObserver).toBe("function");
+      if (typeof Promise === "undefined") return;
+
+      return new Promise(function (resolve, reject) {
+        var timer = setTimeout(function () { reject(new Error("Observer callback timeout")); }, 2500);
+        var sawResize = false, sawIo = false;
+        function maybeDone() {
+          if (sawResize && sawIo) { clearTimeout(timer); resolve(); }
+        }
+        var ro = new ResizeObserver(function (entries) {
+          for (var i = 0; i < entries.length; i++) {
+            if (entries[i].contentRect.width >= 170) {
+              sawResize = true; ro.disconnect(); maybeDone();
+            }
+          }
+        });
+        ro.observe(rTarget);
+        rTarget.style.width = "190px";
+
+        var io = new IntersectionObserver(function (entries) {
+          if (entries.length > 0 && entries[0].isIntersecting) {
+            sawIo = true; io.disconnect(); maybeDone();
+          }
+        });
+        io.observe(ioTarget);
+      });
+    });
+
+    it("persists and clears localStorage / sessionStorage keys and respects document.cookie API", function () {
+      localStorage.setItem("gui_k1", "v1");
+      localStorage.setItem("gui_k2", "v2");
+      expect(localStorage.getItem("gui_k1")).toBe("v1");
+      expect(localStorage.length).toBeGreaterThanOrEqual(2);
+      localStorage.removeItem("gui_k1");
+      expect(localStorage.getItem("gui_k1")).toBeNull();
+      localStorage.clear();
+
+      sessionStorage.setItem("gui_sk", "sv");
+      expect(sessionStorage.getItem("gui_sk")).toBe("sv");
+      sessionStorage.clear();
+
+      expect(typeof document.cookie).toBe("string");
+      if (location.protocol !== "file:") {
+        document.cookie = "gui_test_cookie=ok; path=/";
+        expect(document.cookie).toContain("gui_test_cookie=ok");
+      }
+    });
+
+    it("parses URL, URLSearchParams, TextEncoder/TextDecoder UTF-8, atob/btoa, structuredClone & crypto", function () {
+      var u = new URL("https://example.org:8443/app/view?a=1&a=2&b=hello#sec");
+      expect(u.protocol).toBe("https:");
+      expect(u.hostname).toBe("example.org");
+      expect(u.port).toBe("8443");
+      expect(u.pathname).toBe("/app/view");
+      expect(u.hash).toBe("#sec");
+      expect(u.searchParams.get("b")).toBe("hello");
+      expect(u.searchParams.getAll("a")).toEqual(["1", "2"]);
+      u.searchParams.set("c", "3");
+      expect(u.toString()).toContain("c=3");
+
+      var sample = "Hi \u4e16\u754c!";
+      var enc = new TextEncoder().encode(sample);
+      expect(enc.length).toBeGreaterThan(sample.length);
+      var dec = new TextDecoder("utf-8").decode(enc);
+      expect(dec).toBe(sample);
+
+      expect(atob(btoa("GenericUI-2026"))).toBe("GenericUI-2026");
+
+      if (typeof structuredClone === "function") {
+        var orig = { list: [1, 2], nested: { ok: true } };
+        var cloned = structuredClone(orig);
+        cloned.nested.ok = false;
+        expect(orig.nested.ok).toBe(true);
+      }
+
+      var rnd = new Uint8Array(16);
+      crypto.getRandomValues(rnd);
+      var sum = 0; for (var i = 0; i < rnd.length; i++) sum += rnd[i];
+      expect(sum).toBeGreaterThan(0);
+      if (typeof crypto.randomUUID === "function") {
+        expect(crypto.randomUUID().length).toBe(36);
+      }
+    });
+
+    it("manages window.history state and navigator/location metadata", function () {
+      expect(typeof navigator.userAgent).toBe("string");
+      expect(typeof navigator.language).toBe("string");
+      expect(typeof location.href).toBe("string");
+
+      var baseHref = location.href;
+      history.pushState({ page: 2 }, "", "#step2");
+      expect(history.state).toEqual({ page: 2 });
+      expect(location.hash).toBe("#step2");
+      history.replaceState({ page: 3 }, "", baseHref.split("#")[0]);
+      expect(history.state).toEqual({ page: 3 });
+    });
+  });
+  </script>
+</body>
+</html>

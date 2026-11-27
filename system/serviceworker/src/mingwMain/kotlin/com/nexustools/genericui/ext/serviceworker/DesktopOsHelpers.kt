@@ -46,6 +46,9 @@ import kotlin.uuid.Uuid
 
 internal actual object DesktopOsHelpers {
 
+    private const val CREATE_NEW_PROCESS_GROUP_FLAG: UInt = 0x00000200u
+    private const val CREATE_BREAKAWAY_FROM_JOB_FLAG: UInt = 0x01000000u
+
     private val heldMutexHandles = linkedMapOf<String, HANDLE>()
 
     actual fun currentExecutablePath(): String? = memScoped {
@@ -151,30 +154,38 @@ internal actual object DesktopOsHelpers {
                 }
             }
         }
-        val cmdBuf = cmdLine.wcstr.getPointer(this)
+        val winWorkingDir = workingDir?.replace('/', '\\')
         val si = alloc<STARTUPINFOW>()
-        memset(si.ptr, 0, sizeOf<STARTUPINFOW>().convert())
-        si.cb = sizeOf<STARTUPINFOW>().toUInt()
         val pi = alloc<PROCESS_INFORMATION>()
-        memset(pi.ptr, 0, sizeOf<PROCESS_INFORMATION>().convert())
-
-        val ok = CreateProcessW(
-            null,
-            cmdBuf,
-            null,
-            null,
-            0,
-            DETACHED_PROCESS.toUInt(),
-            null,
-            workingDir?.replace('/', '\\'),
-            si.ptr,
-            pi.ptr
-        ) != 0
-        if (ok) {
-            pi.hProcess?.let { CloseHandle(it) }
-            pi.hThread?.let { CloseHandle(it) }
+        val creationFlagAttempts = listOf(
+            DETACHED_PROCESS.toUInt() or CREATE_NEW_PROCESS_GROUP_FLAG or CREATE_BREAKAWAY_FROM_JOB_FLAG,
+            DETACHED_PROCESS.toUInt() or CREATE_NEW_PROCESS_GROUP_FLAG
+        )
+        for (creationFlags in creationFlagAttempts) {
+            memset(si.ptr, 0, sizeOf<STARTUPINFOW>().convert())
+            si.cb = sizeOf<STARTUPINFOW>().toUInt()
+            memset(pi.ptr, 0, sizeOf<PROCESS_INFORMATION>().convert())
+            // CreateProcessW mutates lpCommandLine in place, so allocate a fresh mutable buffer per attempt.
+            val cmdBuf = cmdLine.wcstr.getPointer(this)
+            val ok = CreateProcessW(
+                null,
+                cmdBuf,
+                null,
+                null,
+                0,
+                creationFlags,
+                null,
+                winWorkingDir,
+                si.ptr,
+                pi.ptr
+            ) != 0
+            if (ok) {
+                pi.hProcess?.let { CloseHandle(it) }
+                pi.hThread?.let { CloseHandle(it) }
+                return@memScoped true
+            }
         }
-        ok
+        false
     }
 
     actual fun isAutostartEnabled(appId: String, appName: String): Boolean = memScoped {

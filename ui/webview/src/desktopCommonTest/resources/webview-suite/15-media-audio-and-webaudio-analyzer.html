@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>15 - HTML5 Audio &amp; Web Audio API (AnalyserNode FFT)</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+  </style>
+</head>
+<body>
+  <h1>15 &mdash; HTML5 &lt;audio&gt; Element &amp; Web Audio AnalyserNode FFT</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <audio id="aud-main" controls muted preload="auto"></audio>
+    <audio id="aud-rel" src="assets/test-audio.wav" muted></audio>
+    <div id="audio-status">Synthesizing 16kHz 440Hz PCM WAV...</div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        var q = [];
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) (function (tc) {
+          q.push(function () {
+            sum.total++; var row = document.createElement("div"); c.appendChild(row);
+            try {
+              var r = tc.fn();
+              if (r && typeof r.then === "function") return r.then(function () { sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }, function (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; });
+              sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name;
+            } catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+          });
+        })(suites[i].tests[j]);
+        (function run(k) {
+          if (k >= q.length) {
+            root.__suiteSummary = sum;
+            var bar = document.getElementById("suite-summary-bar");
+            bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+            bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+            return;
+          }
+          var out = q[k]();
+          if (out && typeof out.then === "function") out.then(function () { run(k + 1); }, function () { run(k + 1); }); else run(k + 1);
+        })(0);
+      });
+    }
+  })(window);
+
+  function buildSineWavDataUri(freqHz, durationSec, sampleRate) {
+    var numSamples = Math.floor(durationSec * sampleRate);
+    var dataBytes = numSamples * 2;
+    var buf = new ArrayBuffer(44 + dataBytes);
+    var dv = new DataView(buf);
+    function wStr(off, s) { for (var i = 0; i < s.length; i++) dv.setUint8(off + i, s.charCodeAt(i)); }
+    wStr(0, "RIFF");
+    dv.setUint32(4, 36 + dataBytes, true);
+    wStr(8, "WAVE");
+    wStr(12, "fmt ");
+    dv.setUint32(16, 16, true);
+    dv.setUint16(20, 1, true);
+    dv.setUint16(22, 1, true);
+    dv.setUint32(24, sampleRate, true);
+    dv.setUint32(28, sampleRate * 2, true);
+    dv.setUint16(32, 2, true);
+    dv.setUint16(34, 16, true);
+    wStr(36, "data");
+    dv.setUint32(40, dataBytes, true);
+    for (var i = 0; i < numSamples; i++) {
+      var sample = Math.sin((2 * Math.PI * freqHz * i) / sampleRate);
+      dv.setInt16(44 + i * 2, Math.floor(sample * 28000), true);
+    }
+    var bytes = new Uint8Array(buf);
+    var bin = "";
+    for (var k = 0; k < bytes.length; k++) bin += String.fromCharCode(bytes[k]);
+    return "data:audio/wav;base64," + btoa(bin);
+  }
+  </script>
+
+  <script>
+  describe("15 - HTML5 Audio & Web Audio API (AnalyserNode FFT)", function () {
+    var wavUri = buildSineWavDataUri(440, 1.0, 16000);
+
+    it("builds a valid 16kHz 440Hz WAV data URI and validates <audio> element API", function () {
+      var aud = document.getElementById("aud-main");
+      aud.src = wavUri;
+      expect(aud.canPlayType("audio/wav") !== "").toBe(true);
+      aud.volume = 0.5;
+      aud.playbackRate = 1.25;
+      aud.loop = true;
+      expect(aud.volume).toBeCloseTo(0.5, 2);
+      expect(aud.playbackRate).toBeCloseTo(1.25, 2);
+      expect(aud.loop).toBe(true);
+      aud.playbackRate = 1.0;
+      document.getElementById("audio-status").textContent = "WAV loaded (" + wavUri.length + " chars)";
+    });
+
+    it("loads WAV metadata (~1.0s duration), seeks, plays, and pauses cleanly", function () {
+      var aud = document.getElementById("aud-main");
+      if (typeof Promise === "undefined") {
+        expect(aud.tagName.toUpperCase()).toBe("AUDIO");
+        return;
+      }
+      return new Promise(function (resolve, reject) {
+        var timer = setTimeout(function () {
+          reject(new Error("Audio metadata timeout (readyState=" + aud.readyState + ")"));
+        }, 3000);
+        function finishCheck() {
+          try {
+            expect(aud.duration).toBeGreaterThan(0.8);
+            expect(aud.duration).toBeLessThan(1.3);
+            aud.currentTime = 0.25;
+            expect(aud.currentTime).toBeGreaterThanOrEqual(0.0);
+            var p = aud.play();
+            var done = function () {
+              aud.pause();
+              expect(aud.paused).toBe(true);
+              clearTimeout(timer);
+              resolve();
+            };
+            if (p && typeof p.then === "function") p.then(done, done); else done();
+          } catch (e) { clearTimeout(timer); reject(e); }
+        }
+        if (aud.readyState >= 1 && aud.duration > 0) finishCheck();
+        else aud.addEventListener("loadedmetadata", finishCheck, { once: true });
+      });
+    });
+
+    it("constructs AudioContext with OscillatorNode, GainNode, and AnalyserNode FFT buffers", function () {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      expect(typeof AC).toBe("function");
+      var ctx = new AC();
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      var analyser = ctx.createAnalyser();
+
+      osc.type = "sine";
+      osc.frequency.value = 440;
+      gain.gain.value = 0.2;
+      analyser.fftSize = 256;
+      expect(analyser.frequencyBinCount).toBe(128);
+
+      osc.connect(gain);
+      gain.connect(analyser);
+
+      var freqData = new Uint8Array(analyser.frequencyBinCount);
+      var timeData = new Float32Array(analyser.fftSize);
+      analyser.getByteFrequencyData(freqData);
+      analyser.getFloatTimeDomainData(timeData);
+      expect(freqData.length).toBe(128);
+      expect(timeData.length).toBe(256);
+
+      if (typeof ctx.close === "function") ctx.close();
+    });
+  });
+  </script>
+</body>
+</html>

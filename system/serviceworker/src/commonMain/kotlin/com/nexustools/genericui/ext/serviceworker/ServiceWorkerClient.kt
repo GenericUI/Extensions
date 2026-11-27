@@ -67,13 +67,13 @@ class ServiceWorkerClient internal constructor(
         if (!isConnected) {
             throw ServiceWorkerIpcException("ServiceWorkerClient '$clientId' is disconnected.")
         }
-        val (typeId, payloadJson) = ServiceWorkerCodecRegistry.encodePayload(message)
+        val (typeId, payload) = ServiceWorkerCodecRegistry.encodePayload(message)
         val env = ServiceWorkerEnvelope(
             kind = ServiceWorkerEnvelope.KIND_MESSAGE,
             correlationId = 0L,
             clientId = clientId,
             typeId = typeId,
-            payloadJson = payloadJson,
+            payload = payload,
             targetFragmentId = targetFragmentId,
             sourceFragmentId = sourceFragmentId
         )
@@ -92,7 +92,7 @@ class ServiceWorkerClient internal constructor(
         if (!isConnected) {
             throw ServiceWorkerIpcException("ServiceWorkerClient '$clientId' is disconnected.")
         }
-        val (typeId, payloadJson) = ServiceWorkerCodecRegistry.encodePayload(payload)
+        val (typeId, encodedPayload) = ServiceWorkerCodecRegistry.encodePayload(payload)
         val corrId = allocateCorrelationId()
         val deferred = CompletableDeferred<ServiceWorkerEnvelope>()
         if (!registerPendingDeferred(corrId, deferred)) {
@@ -104,7 +104,7 @@ class ServiceWorkerClient internal constructor(
                 correlationId = corrId,
                 clientId = clientId,
                 typeId = typeId,
-                payloadJson = payloadJson,
+                payload = encodedPayload,
                 targetFragmentId = targetFragmentId,
                 sourceFragmentId = sourceFragmentId
             )
@@ -115,7 +115,7 @@ class ServiceWorkerClient internal constructor(
             if (reply.kind == ServiceWorkerEnvelope.KIND_RESPONSE_ERR) {
                 throw ServiceWorkerIpcException(reply.error.ifEmpty { "Client request failed." })
             }
-            return ServiceWorkerCodecRegistry.decodeAs(reply.typeId, reply.payloadJson, responseType)
+            return ServiceWorkerCodecRegistry.decodeAs(reply.typeId, reply.payload, responseType)
         } catch (t: TimeoutCancellationException) {
             throw ServiceWorkerIpcException("Timed out waiting for response from client '$clientId'.", t)
         } catch (ce: CancellationException) {
@@ -132,7 +132,7 @@ class ServiceWorkerClient internal constructor(
             correlationId = 0L,
             clientId = clientId,
             typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_FRAGMENT,
-            payloadJson = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
+            payload = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
             targetFragmentId = fragmentId
         )
         return host.sendToClient(clientId, env)

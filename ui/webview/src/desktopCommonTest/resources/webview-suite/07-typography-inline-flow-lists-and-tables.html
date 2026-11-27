@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>07 - Typography, Inline Flow, Lists &amp; Tables</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+
+    #ws-nowrap { width: 90px; white-space: nowrap; background: #0b1220; }
+    #ws-normal { width: 90px; white-space: normal; background: #0b1220; }
+    #ws-pre { white-space: pre; background: #0b1220; }
+    #text-styled { text-align: center; text-transform: uppercase; text-decoration: underline; line-height: 28px; }
+
+    #data-table { width: 320px; border-collapse: collapse; margin-top: 10px; background: #0b1220; }
+    #data-table th, #data-table td { border: 1px solid #475569; padding: 6px; text-align: left; }
+    #css-table { display: table; width: 240px; margin-top: 10px; }
+    .css-tr { display: table-row; }
+    .css-td { display: table-cell; border: 1px solid #38bdf8; height: 28px; }
+  </style>
+</head>
+<body>
+  <h1 id="ua-h1">Heading H1</h1>
+  <h2 id="ua-h2">Heading H2</h2>
+  <h3 id="ua-h3">Heading H3</h3>
+  <h4 id="ua-h4">Heading H4</h4>
+  <h5 id="ua-h5">Heading H5</h5>
+  <h6 id="ua-h6">Heading H6</h6>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <p id="para-el">Normal <strong>bold</strong>, <b>b</b>, <em>em</em>, <i>i</i>, <u id="u-el">u</u>, <s id="s-el">s</s>, <code>code()</code>, <mark>mark</mark>, H<sub>2</sub>O, x<sup>2</sup>.</p>
+    <blockquote id="bq-el">Quoted text block</blockquote>
+    <div id="inline-flow"><span id="br-before">One</span><br><span id="br-after">Two</span><hr id="hr-el"></div>
+    <div id="ws-nowrap">Word1 Word2 Word3 Word4 Word5</div>
+    <div id="ws-normal">Word1 Word2 Word3 Word4 Word5</div>
+    <div id="ws-pre">A   B
+C   D</div>
+    <div id="text-styled">hello genericui</div>
+    <a id="nav-link" href="#section-target">Interactive Link</a>
+
+    <ul id="ul-el"><li>Bullet A</li><li>Bullet B</li></ul>
+    <ol id="ol-el"><li>Step 1</li><li>Step 2</li></ol>
+    <dl id="dl-el"><dt>Term</dt><dd>Definition</dd></dl>
+
+    <table id="data-table">
+      <caption id="tbl-cap">Metrics</caption>
+      <thead><tr><th>Key</th><th>V1</th><th>V2</th></tr></thead>
+      <tbody>
+        <tr><td id="td-span-row" rowspan="2">Span2R</td><td id="td-1b">A1</td><td>A2</td></tr>
+        <tr><td id="td-2a" colspan="2">Span2Cols</td></tr>
+      </tbody>
+      <tfoot><tr><td colspan="3">Summary</td></tr></tfoot>
+    </table>
+
+    <div id="css-table">
+      <div class="css-tr"><div id="ctd-1" class="css-td">C1</div><div id="ctd-2" class="css-td">C2</div></div>
+    </div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) {
+          var tc = suites[i].tests[j]; sum.total++; var row = document.createElement("div"); c.appendChild(row);
+          try { tc.fn(); sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }
+          catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+        }
+        root.__suiteSummary = sum;
+        var bar = document.getElementById("suite-summary-bar");
+        bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+        bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+      });
+    }
+  })(window);
+  </script>
+
+  <script>
+  describe("07 - Typography, Inline Flow, Lists & Tables", function () {
+    it("applies User-Agent heading scale (h1..h6 descending font sizes) and bold weight", function () {
+      var sizes = [];
+      for (var i = 1; i <= 6; i++) {
+        var el = document.getElementById("ua-h" + i);
+        var cs = getComputedStyle(el);
+        sizes.push(parseFloat(cs.fontSize));
+        expect(parseInt(cs.fontWeight, 10)).toBeGreaterThanOrEqual(600);
+      }
+      expect(sizes[0]).toBeGreaterThan(sizes[1]);
+      expect(sizes[1]).toBeGreaterThan(sizes[2]);
+      expect(sizes[2]).toBeGreaterThanOrEqual(sizes[3]);
+      expect(sizes[3]).toBeGreaterThanOrEqual(sizes[4]);
+      expect(sizes[4]).toBeGreaterThanOrEqual(sizes[5]);
+    });
+
+    it("breaks lines on <br> and differentiates white-space: nowrap vs normal vs pre", function () {
+      var b1 = document.getElementById("br-before").getBoundingClientRect();
+      var b2 = document.getElementById("br-after").getBoundingClientRect();
+      expect(b2.top).toBeGreaterThan(b1.top);
+
+      var nw = document.getElementById("ws-nowrap").getBoundingClientRect();
+      var nm = document.getElementById("ws-normal").getBoundingClientRect();
+      expect(nm.height).toBeGreaterThan(nw.height);
+      expect(document.getElementById("ws-pre").getBoundingClientRect().height).toBeGreaterThan(30);
+    });
+
+    it("computes text-align, text-transform, text-decoration, and line-height styles", function () {
+      var cs = getComputedStyle(document.getElementById("text-styled"));
+      expect(cs.textAlign).toBe("center");
+      expect(cs.textTransform).toBe("uppercase");
+      expect(cs.textDecorationLine || cs.textDecoration).toContain("underline");
+      expect(parseFloat(cs.lineHeight)).toBeCloseTo(28, 0);
+    });
+
+    it("exposes structured ul/ol/dl lists and interactive anchor preventDefault", function () {
+      expect(document.querySelectorAll("#ul-el > li").length).toBe(2);
+      expect(document.querySelectorAll("#ol-el > li").length).toBe(2);
+      expect(document.querySelector("#dl-el > dt").textContent).toBe("Term");
+      expect(document.querySelector("#dl-el > dd").textContent).toBe("Definition");
+
+      var link = document.getElementById("nav-link");
+      var prevented = false;
+      link.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        prevented = ev.defaultPrevented;
+      });
+      link.click();
+      expect(prevented).toBe(true);
+    });
+
+    it("renders semantic <table> with thead/tbody/tfoot, colspan, rowspan, and CSS display: table geometry", function () {
+      var tbl = document.getElementById("data-table");
+      expect(tbl.tHead.rows.length).toBe(1);
+      expect(tbl.tBodies[0].rows.length).toBe(2);
+      expect(tbl.tFoot.rows.length).toBe(1);
+      expect(document.getElementById("tbl-cap").textContent).toBe("Metrics");
+
+      var rowSpanCell = document.getElementById("td-span-row").getBoundingClientRect();
+      var col1Cell = document.getElementById("td-1b").getBoundingClientRect();
+      var colSpanCell = document.getElementById("td-2a").getBoundingClientRect();
+      expect(rowSpanCell.height).toBeGreaterThan(col1Cell.height + 8);
+      expect(colSpanCell.width).toBeGreaterThan(col1Cell.width + 20);
+
+      var c1 = document.getElementById("ctd-1").getBoundingClientRect();
+      var c2 = document.getElementById("ctd-2").getBoundingClientRect();
+      expect(Math.round(c1.top)).toBe(Math.round(c2.top));
+      expect(c2.left).toBeGreaterThanOrEqual(c1.right - 2);
+      expect(Math.round(c1.width + c2.width)).toBe(240);
+    });
+  });
+  </script>
+</body>
+</html>

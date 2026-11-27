@@ -1,8 +1,10 @@
 package com.nexustools.genericui.ext.serviceworker
 
 import com.nexustools.genericui.component.fragment.FragmentBundle
+import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.ext.ipc.IpcClient
 
 /**
  * Shared Desktop [ServiceWorkerPlatformRuntime] across Windows, macOS, GTK, KDE, and Swing.
@@ -162,7 +164,7 @@ internal class DesktopServiceWorkerRuntime(
             DesktopOsHelpers.deleteFileIfExists(endpointFile)
         }
         if (options.hasWorker) {
-            ensureWorkerProcessRunning(options, "serviceworker")
+            ensureWorkerProcessRunning(options, options.resolvedWorkerBinaryBaseName())
             descriptor = DesktopEndpointDescriptor.parse(DesktopOsHelpers.readTextFileOrNull(endpointFile))
             if (descriptor != null && channelClient.connectToEndpoint(descriptor, onIncomingEnvelope, onConnectionChanged)) {
                 return true
@@ -185,7 +187,7 @@ internal class DesktopServiceWorkerRuntime(
     ): Boolean {
         currentOptions = options
         if (activeHost != null) return true
-        return ensureWorkerProcessRunning(options, "serviceworker")
+        return ensureWorkerProcessRunning(options, options.resolvedWorkerBinaryBaseName())
     }
 
     override fun isAutostartEnabled(options: ServiceWorkerOptions): Boolean =
@@ -193,7 +195,7 @@ internal class DesktopServiceWorkerRuntime(
 
     override fun setAutostartEnabled(options: ServiceWorkerOptions, enabled: Boolean): Boolean {
         val cmd = DesktopOsHelpers.resolveSiblingBinaryCommand(
-            siblingBaseName = "serviceworker",
+            siblingBaseName = options.resolvedWorkerBinaryBaseName(),
             jvmMainClassFqn = options.swingWorkerMainClass
         )
         val exePath = cmd?.first ?: DesktopOsHelpers.currentExecutablePath() ?: return false
@@ -237,19 +239,19 @@ internal class DesktopServiceWorkerRuntime(
     }
 
     private fun queryShouldOpenMainWindowControl(descriptor: DesktopEndpointDescriptor): Boolean? {
-        val conn = DesktopIpcClient.connect(descriptor.transport, descriptor.address, timeoutMs = 1_500) ?: return null
+        val conn = IpcClient.connect(descriptor.toChannelAddress(), timeoutMs = 1_500) ?: return null
         return try {
             val clientId = "${DESKTOP_CONTROL_CLIENT_PREFIX}query-${DesktopOsHelpers.currentProcessId()}"
             val authEnv = ServiceWorkerEnvelope(
                 kind = ServiceWorkerEnvelope.KIND_AUTH,
                 clientId = clientId,
-                payloadJson = descriptor.token
+                payload = PreferenceElement.ofString(descriptor.token)
             )
-            if (!conn.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(authEnv))) {
+            if (!conn.sendPacket(DesktopIpcPacketMapper.toIpcPacket(authEnv))) {
                 return null
             }
-            val authReplyBytes = conn.receiveBody(timeoutMs = 1_500)
-            val authReply = authReplyBytes?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
+            val authReplyPacket = conn.receivePacket(timeoutMs = 1_500)
+            val authReply = authReplyPacket?.let { DesktopIpcPacketMapper.fromIpcPacket(it) }
             if (authReply == null || authReply.kind != ServiceWorkerEnvelope.KIND_AUTH_OK) {
                 return null
             }
@@ -257,15 +259,15 @@ internal class DesktopServiceWorkerRuntime(
                 kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                 clientId = clientId,
                 typeId = ServiceWorkerEnvelope.CONTROL_QUERY_SHOULD_OPEN_MAIN_WINDOW,
-                payloadJson = "null"
+                payload = PreferenceElement.Null
             )
-            if (!conn.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(queryEnv))) {
+            if (!conn.sendPacket(DesktopIpcPacketMapper.toIpcPacket(queryEnv))) {
                 return null
             }
-            val replyBytes = conn.receiveBody(timeoutMs = 1_500)
-            val replyEnv = replyBytes?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
-            conn.sendBody(
-                ServiceWorkerFrameCodec.encodeBinaryBody(
+            val replyPacket = conn.receivePacket(timeoutMs = 1_500)
+            val replyEnv = replyPacket?.let { DesktopIpcPacketMapper.fromIpcPacket(it) }
+            conn.sendPacket(
+                DesktopIpcPacketMapper.toIpcPacket(
                     ServiceWorkerEnvelope(
                         kind = ServiceWorkerEnvelope.KIND_BYE,
                         clientId = clientId
@@ -278,7 +280,7 @@ internal class DesktopServiceWorkerRuntime(
             ) {
                 return null
             }
-            replyEnv.payloadJson.trim().removeSurrounding("\"").equals("true", ignoreCase = true)
+            replyEnv.payload.asBoolean(false)
         } finally {
             conn.close()
         }
@@ -288,7 +290,7 @@ internal class DesktopServiceWorkerRuntime(
         sendControlFrame(
             appId = appId,
             typeId = ServiceWorkerEnvelope.CONTROL_REQUEST_ACTIVATE_MAIN_WINDOW,
-            payloadJson = route
+            payload = PreferenceElement.ofString(route)
         )
 
     private fun sendLaunchFragmentControl(
@@ -297,26 +299,26 @@ internal class DesktopServiceWorkerRuntime(
     ): Boolean = sendControlFrame(
         appId = appId,
         typeId = ServiceWorkerEnvelope.CONTROL_REQUEST_LAUNCH_FRAGMENT,
-        payloadJson = request.toControlPayloadJson()
+        payload = request.toControlPayloadElement()
     )
 
-    private fun sendControlFrame(appId: String, typeId: String, payloadJson: String): Boolean {
+    private fun sendControlFrame(appId: String, typeId: String, payload: PreferenceElement): Boolean {
         val endpointPath = resolveEndpointFilePath(appId)
         val descriptor = DesktopEndpointDescriptor.parse(DesktopOsHelpers.readTextFileOrNull(endpointPath))
             ?: return false
-        val conn = DesktopIpcClient.connect(descriptor.transport, descriptor.address, timeoutMs = 4_000) ?: return false
+        val conn = IpcClient.connect(descriptor.toChannelAddress(), timeoutMs = 4_000) ?: return false
         return try {
             val clientId = "$DESKTOP_CONTROL_CLIENT_PREFIX${DesktopOsHelpers.currentProcessId()}"
             val authEnv = ServiceWorkerEnvelope(
                 kind = ServiceWorkerEnvelope.KIND_AUTH,
                 clientId = clientId,
-                payloadJson = descriptor.token
+                payload = PreferenceElement.ofString(descriptor.token)
             )
-            if (!conn.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(authEnv))) {
+            if (!conn.sendPacket(DesktopIpcPacketMapper.toIpcPacket(authEnv))) {
                 return false
             }
-            val authReplyBytes = conn.receiveBody(timeoutMs = 3_000)
-            val authReply = authReplyBytes?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
+            val authReplyPacket = conn.receivePacket(timeoutMs = 3_000)
+            val authReply = authReplyPacket?.let { DesktopIpcPacketMapper.fromIpcPacket(it) }
             if (authReply == null || authReply.kind != ServiceWorkerEnvelope.KIND_AUTH_OK) {
                 return false
             }
@@ -324,12 +326,12 @@ internal class DesktopServiceWorkerRuntime(
                 kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                 clientId = clientId,
                 typeId = typeId,
-                payloadJson = payloadJson
+                payload = payload
             )
-            val sent = conn.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(controlEnv))
+            val sent = conn.sendPacket(DesktopIpcPacketMapper.toIpcPacket(controlEnv))
             if (sent) {
-                conn.sendBody(
-                    ServiceWorkerFrameCodec.encodeBinaryBody(
+                conn.sendPacket(
+                    DesktopIpcPacketMapper.toIpcPacket(
                         ServiceWorkerEnvelope(
                             kind = ServiceWorkerEnvelope.KIND_BYE,
                             clientId = clientId
@@ -412,23 +414,23 @@ internal class DesktopServiceWorkerRuntime(
     }
 
     private fun probeEndpointAlive(descriptor: DesktopEndpointDescriptor): Boolean {
-        val probe = DesktopIpcClient.connect(descriptor.transport, descriptor.address, timeoutMs = 400) ?: return false
+        val probe = IpcClient.connect(descriptor.toChannelAddress(), timeoutMs = 400) ?: return false
         return try {
             val clientId = "${DESKTOP_CONTROL_CLIENT_PREFIX}probe-${DesktopOsHelpers.currentProcessId()}"
             val authEnv = ServiceWorkerEnvelope(
                 kind = ServiceWorkerEnvelope.KIND_AUTH,
                 clientId = clientId,
-                payloadJson = descriptor.token
+                payload = PreferenceElement.ofString(descriptor.token)
             )
-            if (!probe.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(authEnv))) {
+            if (!probe.sendPacket(DesktopIpcPacketMapper.toIpcPacket(authEnv))) {
                 return false
             }
-            val replyBytes = probe.receiveBody(timeoutMs = 400)
-            val replyEnv = replyBytes?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
+            val replyPacket = probe.receivePacket(timeoutMs = 400)
+            val replyEnv = replyPacket?.let { DesktopIpcPacketMapper.fromIpcPacket(it) }
             val authOk = replyEnv != null && replyEnv.kind == ServiceWorkerEnvelope.KIND_AUTH_OK
             if (authOk) {
-                probe.sendBody(
-                    ServiceWorkerFrameCodec.encodeBinaryBody(
+                probe.sendPacket(
+                    DesktopIpcPacketMapper.toIpcPacket(
                         ServiceWorkerEnvelope(
                             kind = ServiceWorkerEnvelope.KIND_BYE,
                             clientId = clientId

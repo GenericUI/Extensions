@@ -6,6 +6,7 @@ import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.shell.ContextMenu
+import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.exception.FragmentMultipleWindowsUnsupportedException
@@ -618,13 +619,13 @@ open class ServiceWorker {
         launchArgs: FragmentBundle? = null
     ) {
         val fragmentId = FragmentRegistry.resolveFragmentId(fragmentClass)
-        val (typeId, payloadJson) = ServiceWorkerCodecRegistry.encodePayload(message)
+        val (typeId, payload) = ServiceWorkerCodecRegistry.encodePayload(message)
         val env = ServiceWorkerEnvelope(
             kind = ServiceWorkerEnvelope.KIND_MESSAGE,
             correlationId = 0L,
             clientId = "",
             typeId = typeId,
-            payloadJson = payloadJson,
+            payload = payload,
             targetFragmentId = fragmentId
         )
 
@@ -687,14 +688,14 @@ open class ServiceWorker {
         launchArgs: FragmentBundle? = null
     ): Res {
         val fragmentId = FragmentRegistry.resolveFragmentId(fragmentClass)
-        val (typeId, payloadJson) = ServiceWorkerCodecRegistry.encodePayload(payload)
+        val (typeId, payload) = ServiceWorkerCodecRegistry.encodePayload(payload)
         val corrId = nextFragmentCorrSeq.fetchAndAdd(1L)
         val env = ServiceWorkerEnvelope(
             kind = ServiceWorkerEnvelope.KIND_REQUEST,
             correlationId = corrId,
             clientId = "",
             typeId = typeId,
-            payloadJson = payloadJson,
+            payload = payload,
             targetFragmentId = fragmentId
         )
         val deferred = CompletableDeferred<ServiceWorkerEnvelope>()
@@ -766,7 +767,7 @@ open class ServiceWorker {
             if (reply.kind == ServiceWorkerEnvelope.KIND_RESPONSE_ERR) {
                 throw ServiceWorkerIpcException(reply.error.ifEmpty { "Fragment request '$typeId' failed." })
             }
-            return ServiceWorkerCodecRegistry.decodeAs(reply.typeId, reply.payloadJson, responseClass)
+            return ServiceWorkerCodecRegistry.decodeAs(reply.typeId, reply.payload, responseClass)
         } catch (t: TimeoutCancellationException) {
             throw ServiceWorkerIpcException("Timed out waiting for response from fragment '$fragmentId'.", t)
         } catch (ce: CancellationException) {
@@ -982,14 +983,14 @@ open class ServiceWorker {
     suspend fun broadcast(message: Any): Int {
         val currentHost = host
             ?: throw ServiceWorkerIpcException("ServiceWorker host is not attached; cannot broadcast message.")
-        val (typeId, payloadJson) = ServiceWorkerCodecRegistry.encodePayload(message)
+        val (typeId, payload) = ServiceWorkerCodecRegistry.encodePayload(message)
         return currentHost.broadcastEnvelope(
             ServiceWorkerEnvelope(
                 kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                 correlationId = 0L,
                 clientId = "",
                 typeId = typeId,
-                payloadJson = payloadJson
+                payload = payload
             )
         )
     }
@@ -1108,11 +1109,11 @@ open class ServiceWorker {
         when (envelope.kind) {
             ServiceWorkerEnvelope.KIND_MESSAGE -> {
                 if (envelope.typeId == ServiceWorkerEnvelope.CONTROL_FRAGMENT_MOUNTED) {
-                    handleFragmentMountedControl(client, envelope.payloadJson)
+                    handleFragmentMountedControl(client, envelope.payload)
                     return
                 }
                 if (envelope.typeId == ServiceWorkerEnvelope.CONTROL_FRAGMENT_UNMOUNTED) {
-                    handleFragmentUnmountedControl(client, envelope.payloadJson)
+                    handleFragmentUnmountedControl(client, envelope.payload)
                     return
                 }
                 val sourceFragId = envelope.sourceFragmentId?.takeIf { it.isNotBlank() }
@@ -1144,7 +1145,7 @@ open class ServiceWorker {
                             for (entry in matchingFragHandlers) {
                                 val decoded = ServiceWorkerCodecRegistry.decodeAs(
                                     envelope.typeId,
-                                    envelope.payloadJson,
+                                    envelope.payload,
                                     entry.payloadClass
                                 )
                                 entry.handler(fragHandle, decoded)
@@ -1153,7 +1154,7 @@ open class ServiceWorker {
                         for (entry in matchingGlobalHandlers) {
                             val decoded = ServiceWorkerCodecRegistry.decodeAs(
                                 envelope.typeId,
-                                envelope.payloadJson,
+                                envelope.payload,
                                 entry.payloadClass
                             )
                             entry.handler(client, decoded)
@@ -1187,7 +1188,7 @@ open class ServiceWorker {
                 val reply = ServiceWorkerReply(
                     sendSuccess = { responsePayload ->
                         workerScope.launch {
-                            val (respType, respJson) = ServiceWorkerCodecRegistry.encodePayload(responsePayload)
+                            val (respType, respPayload) = ServiceWorkerCodecRegistry.encodePayload(responsePayload)
                             currentHost.sendToClient(
                                 clientId,
                                 ServiceWorkerEnvelope(
@@ -1195,7 +1196,7 @@ open class ServiceWorker {
                                     correlationId = envelope.correlationId,
                                     clientId = clientId,
                                     typeId = respType,
-                                    payloadJson = respJson,
+                                    payload = respPayload,
                                     targetFragmentId = envelope.sourceFragmentId,
                                     sourceFragmentId = envelope.targetFragmentId
                                 )
@@ -1232,14 +1233,14 @@ open class ServiceWorker {
                         if (fragEntry != null && fragHandle != null) {
                             val decoded = ServiceWorkerCodecRegistry.decodeAs(
                                 envelope.typeId,
-                                envelope.payloadJson,
+                                envelope.payload,
                                 fragEntry.payloadClass
                             )
                             fragEntry.handler(fragHandle, decoded, reply)
                         } else if (globalEntry != null) {
                             val decoded = ServiceWorkerCodecRegistry.decodeAs(
                                 envelope.typeId,
-                                envelope.payloadJson,
+                                envelope.payload,
                                 globalEntry.payloadClass
                             )
                             globalEntry.handler(client, decoded, reply)
@@ -1273,8 +1274,8 @@ open class ServiceWorker {
         return true
     }
 
-    private fun handleFragmentMountedControl(client: ServiceWorkerClient, payloadJson: String) {
-        val (fragmentId, rawInstanceId, route) = ServiceWorkerFragmentLaunchRequest.decodeMountControlPayload(payloadJson)
+    private fun handleFragmentMountedControl(client: ServiceWorkerClient, payload: PreferenceElement) {
+        val (fragmentId, rawInstanceId, route) = ServiceWorkerFragmentLaunchRequest.decodeMountControlPayload(payload)
             ?: return
         val instanceId = rawInstanceId.ifEmpty { "default" }
         val key = FragmentHandleKey(client.clientId, fragmentId, instanceId)
@@ -1323,8 +1324,8 @@ open class ServiceWorker {
         }
     }
 
-    private fun handleFragmentUnmountedControl(client: ServiceWorkerClient, payloadJson: String) {
-        val (fragmentId, rawInstanceId, _) = ServiceWorkerFragmentLaunchRequest.decodeMountControlPayload(payloadJson)
+    private fun handleFragmentUnmountedControl(client: ServiceWorkerClient, payload: PreferenceElement) {
+        val (fragmentId, rawInstanceId, _) = ServiceWorkerFragmentLaunchRequest.decodeMountControlPayload(payload)
             ?: return
         val instanceId = rawInstanceId.takeIf { it.isNotEmpty() }
         val targetClass = FragmentRegistry.resolveFragmentClass(fragmentId)

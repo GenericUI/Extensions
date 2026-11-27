@@ -57,35 +57,34 @@ object ServiceWorkerCodecRegistry {
     }
 
     @Suppress("UNCHECKED_CAST")
-    fun encodePayload(value: Any?): Pair<String, String> {
-        if (value == null) return TYPE_NULL to "null"
-        if (value === Unit) return TYPE_UNIT to "null"
+    fun encodePayload(value: Any?): Pair<String, PreferenceElement> {
+        if (value == null) return TYPE_NULL to PreferenceElement.Null
+        if (value === Unit) return TYPE_UNIT to PreferenceElement.Null
 
         val registered = codecsByClass[value::class] as? ServiceWorkerMessageCodec<Any>
         if (registered != null) {
-            val elem = registered.encode(value)
-            return registered.typeId to PreferenceObjectCodec.elementToJson(elem)
+            return registered.typeId to registered.encode(value)
         }
 
         return when (value) {
-            is String -> TYPE_STRING to PreferenceObjectCodec.elementToJson(PreferenceElement.ofString(value))
-            is Long -> TYPE_LONG to PreferenceObjectCodec.elementToJson(PreferenceElement.ofLong(value))
+            is String -> TYPE_STRING to PreferenceElement.ofString(value)
+            is Long -> TYPE_LONG to PreferenceElement.ofLong(value)
             is Number -> {
                 val asDouble = value.toDouble()
                 val asInt = asDouble.toInt()
                 val isWholeInt = asDouble.isFinite() && asInt.toDouble() == asDouble
                 when {
-                    value is Int && isWholeInt -> TYPE_INT to PreferenceObjectCodec.elementToJson(PreferenceElement.ofInt(asInt))
-                    value is Double -> TYPE_DOUBLE to PreferenceObjectCodec.elementToJson(PreferenceElement.ofDouble(asDouble))
-                    value is Float -> TYPE_FLOAT to PreferenceObjectCodec.elementToJson(PreferenceElement.ofFloat(value))
-                    else -> TYPE_DOUBLE to PreferenceObjectCodec.elementToJson(PreferenceElement.ofDouble(asDouble))
+                    value is Int && isWholeInt -> TYPE_INT to PreferenceElement.ofInt(asInt)
+                    value is Double -> TYPE_DOUBLE to PreferenceElement.ofDouble(asDouble)
+                    value is Float -> TYPE_FLOAT to PreferenceElement.ofFloat(value)
+                    else -> TYPE_DOUBLE to PreferenceElement.ofDouble(asDouble)
                 }
             }
-            is Boolean -> TYPE_BOOLEAN to PreferenceObjectCodec.elementToJson(PreferenceElement.ofBoolean(value))
-            is PreferenceElement -> TYPE_PREFERENCE_ELEMENT to PreferenceObjectCodec.elementToJson(value)
-            is ByteArray -> TYPE_BYTE_ARRAY to PreferenceObjectCodec.elementToJson(PreferenceObjectCodec.toElement(value))
-            is List<*> -> TYPE_LIST to PreferenceObjectCodec.elementToJson(PreferenceObjectCodec.toElement(value))
-            is Map<*, *> -> TYPE_MAP to PreferenceObjectCodec.elementToJson(PreferenceObjectCodec.toElement(value))
+            is Boolean -> TYPE_BOOLEAN to PreferenceElement.ofBoolean(value)
+            is PreferenceElement -> TYPE_PREFERENCE_ELEMENT to value
+            is ByteArray -> TYPE_BYTE_ARRAY to PreferenceElement.ofBytes(value)
+            is List<*> -> TYPE_LIST to PreferenceObjectCodec.toElement(value)
+            is Map<*, *> -> TYPE_MAP to PreferenceObjectCodec.toElement(value)
             else -> throw IllegalArgumentException(
                 "No ServiceWorkerMessageCodec registered for ${value::class.simpleName ?: "Unknown"}. " +
                     "Annotate the payload data class with @ServiceWorkerMessage or register a codec explicitly."
@@ -93,39 +92,33 @@ object ServiceWorkerCodecRegistry {
         }
     }
 
-    fun decodePayload(typeId: String, payloadJson: String): Any? {
+    fun decodePayload(typeId: String, payload: PreferenceElement): Any? {
         if (typeId == TYPE_UNIT) return Unit
         if (typeId == TYPE_NULL) return null
 
-        val element = if (payloadJson.isBlank() || payloadJson == "null") {
-            PreferenceElement.Null
-        } else {
-            PreferenceObjectCodec.fromJsonElement(payloadJson)
-        }
-
         val codec = codecsByTypeId[typeId]
         if (codec != null) {
-            return codec.decode(element)
+            return codec.decode(payload)
         }
 
         return when (typeId) {
-            TYPE_STRING -> element.asString("") ?: ""
-            TYPE_INT -> element.asInt(0)
-            TYPE_LONG -> element.asLong(0L)
-            TYPE_FLOAT -> element.asFloat(0f)
-            TYPE_DOUBLE -> element.asDouble(0.0)
-            TYPE_BOOLEAN -> element.asBoolean(false)
-            TYPE_PREFERENCE_ELEMENT -> element
-            TYPE_BYTE_ARRAY -> ByteArray(element.arrayElements.size) { idx -> element.arrayElements[idx].asByte() }
-            TYPE_LIST -> element.toPlainValue()
-            TYPE_MAP -> element.toPlainValue()
-            else -> element.toPlainValue()
+            TYPE_STRING -> payload.asString("") ?: ""
+            TYPE_INT -> payload.asInt(0)
+            TYPE_LONG -> payload.asLong(0L)
+            TYPE_FLOAT -> payload.asFloat(0f)
+            TYPE_DOUBLE -> payload.asDouble(0.0)
+            TYPE_BOOLEAN -> payload.asBoolean(false)
+            TYPE_PREFERENCE_ELEMENT -> payload
+            TYPE_BYTE_ARRAY -> payload.asBytes()
+            TYPE_LIST -> payload.toPlainValue()
+            TYPE_MAP -> payload.toPlainValue()
+            else -> payload.toPlainValue()
         }
     }
 
     @Suppress("UNCHECKED_CAST")
-    fun <T : Any> decodeAs(typeId: String, payloadJson: String, expectedClass: KClass<T>): T {
-        val raw = decodePayload(typeId, payloadJson)
+    fun <T : Any> decodeAs(typeId: String, payload: PreferenceElement, expectedClass: KClass<T>): T {
+        val raw = decodePayload(typeId, payload)
         if (expectedClass == Unit::class) {
             return Unit as T
         }
@@ -134,8 +127,7 @@ object ServiceWorkerCodecRegistry {
             if (registered.messageClass.isInstance(raw)) {
                 return raw as T
             }
-            val element = PreferenceObjectCodec.fromJsonElement(payloadJson)
-            return registered.decode(element)
+            return registered.decode(payload)
         }
         return when (expectedClass) {
             String::class -> ((raw as? String) ?: raw?.toString().orEmpty()) as T
@@ -144,7 +136,8 @@ object ServiceWorkerCodecRegistry {
             Float::class -> ((raw as? Number)?.toFloat() ?: raw.toString().toFloat()) as T
             Double::class -> ((raw as? Number)?.toDouble() ?: raw.toString().toDouble()) as T
             Boolean::class -> ((raw as? Boolean) ?: raw.toString().toBoolean()) as T
-            PreferenceElement::class -> (raw as? PreferenceElement ?: PreferenceObjectCodec.fromJsonElement(payloadJson)) as T
+            ByteArray::class -> (raw as? ByteArray ?: payload.asBytes()) as T
+            PreferenceElement::class -> (raw as? PreferenceElement ?: payload) as T
             else -> raw as? T ?: throw IllegalStateException(
                 "Decoded ServiceWorker payload of wire type '$typeId' is incompatible with expected class ${expectedClass.simpleName ?: "Unknown"}."
             )

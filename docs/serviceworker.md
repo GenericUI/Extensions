@@ -1,10 +1,8 @@
-# `:extensions:system:serviceworker` & `:extensions:system:serviceworker:dsl` — Cross-Platform Background Service Worker, Tray Daemon, Android Foreground Service, & Typed IPC
+# `:extensions:system:serviceworker` — Cross-Platform Background Service Worker, Tray Daemon, Android Foreground Service, & Typed IPC
 
 > **Navigation**: [**GenericUI Root (`../../README.md`)**](../../README.md) · [**Extensions Index (`../README.md`)**](../README.md) · [**Root Extensions Guide (`../../docs/extensions.md`)**](../../docs/extensions.md) · [**Application & Targets (`../../docs/application.md`)**](../../docs/application.md) · [**Source Sets (`../../docs/sourcesets.md`)**](../../docs/sourcesets.md) · [**Backends (`../../docs/backends.md`)**](../../docs/backends.md) · [**Gradle Plugin (`../../docs/gradle-plugin.md`)**](../../docs/gradle-plugin.md)
 
-`:extensions:system:serviceworker` (`com.nexustools.genericui.ext.serviceworker`) is a **Single Consolidated KMP Project** providing persistent background execution (`ServiceWorker`, `@MainServiceWorker`), reflection-free typed IPC (`ServiceWorkerChannel`, `@ServiceWorkerMessage`, `ServiceWorkerCodecRegistry`), Desktop system tray / login autostart integration, Android ongoing foreground notifications (`ServiceCompat.startForeground(...)`), and Web progressive Service Worker execution (`./serviceworker.js` + `${baseName}.sw.js` / `${baseName}.sw.wasm`).
-
-Its companion module `:extensions:system:serviceworker:dsl` (`com.nexustools.genericui.ext.serviceworker.dsl`) provides `kotlinx.html`-style DSL helpers (`onMessage`, `onRequest`, `trayMenu { ... }`, `notificationActions { ... }`).
+`:extensions:system:serviceworker` (`com.nexustools.genericui.ext.serviceworker`) is a **Single Consolidated KMP Project** providing persistent background execution (`ServiceWorker`, `@MainServiceWorker`), reflection-free typed IPC (`ServiceWorkerChannel`, `ServiceWorkerFragmentBinding`, `@ServiceWorkerMessage`, `ServiceWorkerCodecRegistry`), Desktop system tray / login autostart integration, Android ongoing foreground notifications (`ServiceCompat.startForeground(...)`), and Web progressive Service Worker execution (`./serviceworker.js` + `${baseName}.sw.js` / `${baseName}.sw.wasm`). All messaging, lifecycle binding, tray menu, and foreground notification APIs live cleanly on `:extensions:system:serviceworker` itself (zero separate `:dsl` companion module required).
 
 > [!IMPORTANT]
 > **Honest Platform Support — `ServiceWorkerExtension.isSupported == false` on iOS & iPadOS**:
@@ -28,7 +26,7 @@ Its companion module `:extensions:system:serviceworker:dsl` (`com.nexustools.gen
 
 ## 2. Gradle Plugin Configuration (`serviceWorker { ... }`)
 
-Enabling `serviceWorker()` in `build.gradle.kts` adds `:extensions:system:serviceworker` (and `:extensions:system:serviceworker:dsl` when `dsl()` is enabled). If a project defines **zero** `@MainServiceWorker` classes, the contributor produces zero-default footprint (no secondary binaries, no Android service/manifest entries, and no `.sw.wasm` web worker bundle):
+Enabling `serviceWorker()` in `build.gradle.kts` adds `:extensions:system:serviceworker` (and wires target-scoped `:extensions:system:ipc` on Desktop + Android). If a project defines **zero** `@MainServiceWorker` classes, the contributor produces zero-default footprint (no secondary binaries, no Android service/manifest entries, and no `.sw.wasm` web worker bundle):
 
 ```kotlin
 plugins {
@@ -45,7 +43,6 @@ genericui {
         allExceptSwing()
     }
     extensions {
-        dsl() // Auto-wires :extensions:system:serviceworker:dsl
         serviceWorker {
             autostart = true
             trayIcon = "src/commonMain/resources/tray.png"
@@ -84,17 +81,19 @@ genericui {
 | [`ServiceWorker`](../system/serviceworker/src/commonMain/kotlin/com/nexustools/genericui/ext/serviceworker/ServiceWorker.kt) | Lifecycle hooks `onStart()`, `onStop()`, `onClientConnected(client)`, `onClientDisconnected(client)`; coroutine launcher `launch { ... }`; messaging `onMessage<T>`, `onRequest<T>`, `broadcast(msg)`; tray APIs `setTrayIcon(...)`, `setTrayTooltip(...)`, `setTrayBadgeText(...)`, `setTrayMenu(ContextMenu?)`, `setTrayClickListener(...)`; window control `openMainWindow(route)`, `closeMainWindow()`, `stopSelf()`, `exitApplication()`; runtime autostart `isAutostartEnabled()`, `setAutostartEnabled(Boolean)`; Android notification APIs below. |
 | **Android Foreground Notification APIs** | Automatic ongoing foreground notification started via `ServiceCompat.startForeground(...)` with default `"Stop"` button (`ServiceWorkerNotificationAction.createDefaultStopAction()`). Customize via `notificationTitle`, `notificationText`, `notificationSubText`, `notificationIcon`, `setNotificationTitle(...)`, `setNotificationText(...)`, `setNotificationSubText(...)`, `setNotificationIcon(...)`, `extendNotificationActions(...)`, `replaceNotificationActions(...)`, `getEffectiveNotificationActions()`. |
 | [`ServiceWorkerChannel`](../system/serviceworker/src/commonMain/kotlin/com/nexustools/genericui/ext/serviceworker/ServiceWorkerChannel.kt) | Client-side IPC handle (`ServiceWorkerExtension.channel`): `isSupported`, `isConnected`, `suspend connect(): Boolean`, `suspend disconnect()`, `suspend send(message)`, `suspend request<R>(payload, timeoutMs): R`, `suspend tryRequest<R>(payload, timeoutMs): Result<R>`, `onMessage<T> { ... }`, `onRequest<T> { req, reply -> ... }`, `onConnectionStateChanged { ... }`. |
+| [`ServiceWorkerFragmentBinding`](../system/serviceworker/src/commonMain/kotlin/com/nexustools/genericui/ext/serviceworker/ServiceWorkerFragmentBinding.kt) | Lifecycle-scoped `Fragment` IPC coordinator (`ServiceWorkerFragmentBinding.getOrCreate(fragment)`): auto-stamps `sourceFragmentId`, notifies `__genericui.sw.control.fragmentMounted`/`fragmentUnmounted`, cleans up handlers on destroy/dispose, and exposes `onMessage<T>`, `onRequest<Req, Res>`, `send(message)`, `request<Res>(payload)`, `start()`, `connect()`, `dispose()`. |
 | [`ServiceWorkerClient`](../system/serviceworker/src/commonMain/kotlin/com/nexustools/genericui/ext/serviceworker/ServiceWorkerClient.kt) & [`ServiceWorkerReply`](../system/serviceworker/src/commonMain/kotlin/com/nexustools/genericui/ext/serviceworker/ServiceWorkerReply.kt) | Per-connected UI window/Activity/tab handle inside `ServiceWorker` (`clientId`, `isConnected`, `send(msg)`, `request<R>(payload)`) and typed reply handle (`reply.send(response)`, `reply.fail(error)`). |
 | `@ServiceWorkerMessage` & [`ServiceWorkerCodecRegistry`](../system/serviceworker/src/commonMain/kotlin/com/nexustools/genericui/ext/serviceworker/ServiceWorkerCodecRegistry.kt) | Annotate any Kotlin `data class` with `@ServiceWorkerMessage`; [`ServiceWorkerMessageCodegen`](../../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/spi/ServiceWorkerMessageCodegen.kt) generates reflection-free `PreferenceElement` codecs (`<Msg>ServiceWorkerCodec.kt`) and `GeneratedServiceWorkerCodecRegistrar.registerAll()` supporting primitives, enums, nullable types, `ByteArray`, nested `@ServiceWorkerMessage` types, `List`, and `Map`. |
 
 ---
 
-## 4. End-to-End Usage Example (`@MainServiceWorker`, `@ServiceWorkerMessage`, & `:dsl`)
+## 4. End-to-End Usage Example (`@MainServiceWorker`, `@ServiceWorkerMessage`, & `ServiceWorkerFragmentBinding`)
 
 ```kotlin
 import com.nexustools.genericui.component.fragment.AppFragment
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
+import com.nexustools.genericui.component.shell.ContextMenu
 import com.nexustools.genericui.enums.system.AppTarget
 import com.nexustools.genericui.ext.dsl.build
 import com.nexustools.genericui.ext.dsl.button
@@ -104,14 +103,9 @@ import com.nexustools.genericui.ext.serviceworker.MainServiceWorker
 import com.nexustools.genericui.ext.serviceworker.ServiceWorker
 import com.nexustools.genericui.ext.serviceworker.ServiceWorkerClient
 import com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension
+import com.nexustools.genericui.ext.serviceworker.ServiceWorkerFragmentBinding
 import com.nexustools.genericui.ext.serviceworker.ServiceWorkerMessage
-import com.nexustools.genericui.ext.serviceworker.dsl.action
-import com.nexustools.genericui.ext.serviceworker.dsl.item
-import com.nexustools.genericui.ext.serviceworker.dsl.notificationActions
-import com.nexustools.genericui.ext.serviceworker.dsl.onMessage
-import com.nexustools.genericui.ext.serviceworker.dsl.onRequest
-import com.nexustools.genericui.ext.serviceworker.dsl.separator
-import com.nexustools.genericui.ext.serviceworker.dsl.trayMenu
+import com.nexustools.genericui.ext.serviceworker.ServiceWorkerNotificationAction
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -141,19 +135,23 @@ class BackgroundSyncWorker : ServiceWorker() {
         setNotificationText("Monitoring workspace changes")
         setTrayTooltip("Sync Daemon — Idle")
 
-        // Extends Android foreground notification buttons while keeping default "Stop"
-        notificationActions(replaceDefaultStop = false) {
-            action(id = "sync-now", label = "Sync Now") {
-                setNotificationText("Manual sync requested")
-            }
-        }
+        // Extends Android foreground notification buttons while preserving default "Stop"
+        extendNotificationActions(
+            ServiceWorkerNotificationAction(
+                id = "sync-now",
+                label = "Sync Now",
+                onClick = { setNotificationText("Manual sync requested") }
+            )
+        )
 
-        // Builds desktop system tray context menu
-        trayMenu {
-            item("Open Dashboard") { openMainWindow(route = "dashboard") }
-            separator()
-            item("Exit Sync Daemon") { exitApplication() }
-        }
+        // Builds desktop system tray context menu directly via ContextMenu
+        setTrayMenu(
+            ContextMenu().apply {
+                addItem("Open Dashboard") { openMainWindow(route = "dashboard") }
+                addSeparator()
+                addItem("Exit Sync Daemon") { exitApplication() }
+            }
+        )
 
         onMessage<SyncTriggerCommand> { _, cmd ->
             pendingItems = if (cmd.forceFullSync) 12 else pendingItems + 1
@@ -177,6 +175,8 @@ class BackgroundSyncWorker : ServiceWorker() {
 
 @AppFragment(label = "Sync Dashboard", route = "dashboard")
 class SyncDashboardFragment : Fragment() {
+    private lateinit var swBinding: ServiceWorkerFragmentBinding
+
     override fun onCreate(savedState: FragmentBundle?) {
         super.onCreate(savedState)
 
@@ -188,24 +188,29 @@ class SyncDashboardFragment : Fragment() {
                 )
 
                 if (ServiceWorkerExtension.isSupported) {
-                    val channel = ServiceWorkerExtension.channel
-                    channel.onMessage<SyncStatusReply> { status ->
+                    swBinding = ServiceWorkerFragmentBinding.getOrCreate(this@SyncDashboardFragment)
+                    swBinding.onMessage<SyncStatusReply> { status ->
                         statusLabel.text = "Syncing=${status.isSyncing} • Pending=${status.pendingItems}"
                     }
+                    swBinding.start()
+
                     button("Query & Sync") {
                         onClick = {
                             lifecycleScope.launch {
-                                val res = channel.tryRequest<SyncStatusReply>(SyncStatusQuery())
-                                res.onSuccess { status ->
-                                    statusLabel.text = "Pending=${status.pendingItems}"
-                                }
-                                channel.send(SyncTriggerCommand(forceFullSync = true))
+                                val status = swBinding.request<SyncStatusReply>(SyncStatusQuery())
+                                statusLabel.text = "Pending=${status.pendingItems}"
+                                swBinding.send(SyncTriggerCommand(forceFullSync = true))
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        if (::swBinding.isInitialized) swBinding.dispose()
+        super.onDestroy()
     }
 }
 ```
@@ -214,6 +219,7 @@ class SyncDashboardFragment : Fragment() {
 
 ## 5. Related Documentation
 
+- [`:extensions:system:ipc` (`ipc.md`)](ipc.md) — Target-scoped Desktop + Android cross-process IPC transport.
 - [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.
 - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Application & Targets (`../../docs/application.md`)](../../docs/application.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)
 - [Desktop Backends (`../../desktop/README.md`)](../../desktop/README.md) · [Mobile Backends (`../../mobile/README.md`)](../../mobile/README.md) · [Web Backend (`../../web/README.md`)](../../web/README.md)

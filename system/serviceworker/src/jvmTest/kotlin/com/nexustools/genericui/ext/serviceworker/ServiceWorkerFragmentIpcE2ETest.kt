@@ -7,6 +7,7 @@ import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.ext.ipc.IpcChannelAddress
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -277,10 +278,16 @@ class ServiceWorkerFragmentIpcE2ETest {
                 }
             )
             assertTrue(host.start())
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, host.boundTransport)
+            val expectedTransport = IpcChannelAddress.resolveDesktopEndpoint(options.appId, tempDir.absolutePath).transportKind
+            assertEquals(expectedTransport, host.boundTransport)
             assertTrue(host.boundAddress.isNotBlank())
             val socketAddress = host.boundAddress
-            assertTrue(File(socketAddress).exists())
+            if (expectedTransport == IpcChannelAddress.TRANSPORT_UNIX_SOCKET) {
+                assertTrue(File(socketAddress).exists())
+            } else {
+                assertEquals(IpcChannelAddress.TRANSPORT_WINDOWS_NAMED_PIPE, expectedTransport)
+                assertTrue(socketAddress.startsWith("\\\\.\\pipe\\genericui."))
+            }
             worker.attachAndStart(host, options)
             try {
                 worker.startFragment<SettingsIpcFragment>(
@@ -307,9 +314,9 @@ class ServiceWorkerFragmentIpcE2ETest {
                 assertEquals("network", parsedCli.getString("tab"))
                 assertEquals(5, parsedCli.getInt("limit"))
 
-                // Once UI process connects over AF_UNIX IPC, the coalesced mid-boot fragment launch arrives.
+                // Once UI process connects over native IPC, the coalesced mid-boot fragment launch arrives.
                 val descriptor = DesktopEndpointDescriptor.parse(endpointFile.readText(Charsets.UTF_8))!!
-                assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, descriptor.transport)
+                assertEquals(expectedTransport, descriptor.transport)
                 val ipcClient = DesktopServiceWorkerChannelClient()
                 val arrivedControlPayloads = mutableListOf<ServiceWorkerFragmentLaunchRequest>()
                 val arrivedDeferred = CompletableDeferred<Unit>()
@@ -318,7 +325,7 @@ class ServiceWorkerFragmentIpcE2ETest {
                         descriptor = descriptor,
                         onIncomingEnvelope = { env ->
                             if (env.typeId == ServiceWorkerEnvelope.CONTROL_LAUNCH_FRAGMENT) {
-                                ServiceWorkerFragmentLaunchRequest.fromControlPayloadJson(env.payloadJson)?.let {
+                                ServiceWorkerFragmentLaunchRequest.fromControlPayloadElement(env.payload)?.let {
                                     arrivedControlPayloads.add(it)
                                     arrivedDeferred.complete(Unit)
                                 }
@@ -336,7 +343,9 @@ class ServiceWorkerFragmentIpcE2ETest {
                 worker.performStop()
                 host.shutdown()
             }
-            assertFalse(File(socketAddress).exists(), "Unix domain socket file must be removed on host shutdown")
+            if (expectedTransport == IpcChannelAddress.TRANSPORT_UNIX_SOCKET) {
+                assertFalse(File(socketAddress).exists(), "Unix domain socket file must be removed on host shutdown")
+            }
         } finally {
             tempDir.deleteRecursively()
         }
@@ -363,14 +372,20 @@ class ServiceWorkerFragmentIpcE2ETest {
                 lockRelease = {}
             )
             assertTrue(host.start())
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, host.boundTransport)
+            val expectedTransport = IpcChannelAddress.resolveDesktopEndpoint(options.appId, tempDir.absolutePath).transportKind
+            assertEquals(expectedTransport, host.boundTransport)
             assertTrue(host.boundAddress.isNotBlank())
             val socketAddress = host.boundAddress
-            assertTrue(File(socketAddress).exists())
+            if (expectedTransport == IpcChannelAddress.TRANSPORT_UNIX_SOCKET) {
+                assertTrue(File(socketAddress).exists())
+            } else {
+                assertEquals(IpcChannelAddress.TRANSPORT_WINDOWS_NAMED_PIPE, expectedTransport)
+                assertTrue(socketAddress.startsWith("\\\\.\\pipe\\genericui."))
+            }
             worker.attachAndStart(host, options)
             try {
                 val descriptor = DesktopEndpointDescriptor.parse(endpointFile.readText(Charsets.UTF_8))!!
-                assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, descriptor.transport)
+                assertEquals(expectedTransport, descriptor.transport)
                 assertEquals(socketAddress, descriptor.address)
                 val runtime = IpcClientBackedRuntime(descriptor, worker)
                 ServiceWorkerExtension.install(options)

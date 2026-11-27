@@ -1,7 +1,7 @@
 package com.nexustools.genericui.ios
 
 import com.nexustools.genericui.component.composite.Composite
-import com.nexustools.genericui.component.form.StyledSlider
+import com.nexustools.genericui.component.form.styled.StyledSlider
 import com.nexustools.genericui.component.media.AudioPlayer
 import com.nexustools.genericui.component.media.SeekBar
 import com.nexustools.genericui.component.media.VideoPlayer

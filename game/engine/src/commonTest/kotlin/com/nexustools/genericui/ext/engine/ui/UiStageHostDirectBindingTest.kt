@@ -1,7 +1,7 @@
 package com.nexustools.genericui.ext.engine.ui
 
 import com.nexustools.genericui.component.content.VectorGraphicView
-import com.nexustools.genericui.component.layout.StyledContainer
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.ext.engine.animation.EasingFunction
 import com.nexustools.genericui.ext.engine.math.Vec2f

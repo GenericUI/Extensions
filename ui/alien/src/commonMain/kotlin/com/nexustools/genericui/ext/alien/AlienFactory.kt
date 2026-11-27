@@ -1,7 +1,9 @@
 package com.nexustools.genericui.ext.alien
 
+import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.ext.alien.impl.*
 import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
 import com.nexustools.genericui.nativeimpl.action.DropdownNativeImpl
@@ -18,6 +20,7 @@ import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
 import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
 import com.nexustools.genericui.nativeimpl.form.RangeSliderNativeImpl
 import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
+import com.nexustools.genericui.nativeimpl.form.StyledTextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.DividerNativeImpl
@@ -55,6 +58,9 @@ class AlienFactory(
         get() = "alien(${hostFactory.backendName})"
 
     override val ignoresAestheticStylesOnStandardComponents: Boolean
+        get() = false
+
+    override val supportsNativeHtmlLabelFor: Boolean
         get() = false
 
     override fun supportsTcp(): Boolean = hostFactory.supportsTcp()
@@ -117,6 +123,8 @@ class AlienFactory(
     override fun createDropdown(): DropdownNativeImpl<*> = DropdownAlienImpl(session)
     override fun createTextInput(multiline: Boolean): TextInputNativeImpl<*> =
         TextInputAlienImpl(multiline = multiline, session = session)
+    override fun createStyledTextInput(multiline: Boolean, classPrefix: String): StyledTextInputNativeImpl<*> =
+        StyledTextInputAlienImpl(multiline = multiline, componentClassPrefix = classPrefix, session = session)
 
     override fun createSelect(): SelectNativeImpl<*> = SelectAlienImpl(session)
     override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean): CheckboxNativeImpl<*> =
@@ -158,6 +166,9 @@ class AlienFactory(
         hostFactory.createConfigDirectory(appName, subdirectory)
     override fun createCacheDirectory(appName: String, subdirectory: String): UserDirectoryNativeImpl =
         hostFactory.createCacheDirectory(appName, subdirectory)
+
+    override fun createExtensionNativeImpl(component: AbstractComponent): NativeImpl<*>? =
+        AlienExtension.createExtensionNativeImpl(component, session, hostFactory)
 
     companion object {
         /**

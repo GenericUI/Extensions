@@ -381,13 +381,14 @@ open class ScrollCanvas3D(
     }
 
     protected override fun createNativeImpl(factory: NativeFactory): NativeImpl<*> =
-        Canvas3DExtension.createScrollCanvas3DNativeOrNull(
-            viewportWidth = currentViewportWidth,
-            viewportHeight = currentViewportHeight,
-            contentWidth = currentContentWidth,
-            contentHeight = currentContentHeight,
-            backend = backend
-        ) ?: factory.createContainer(componentClassPrefix, htmlTag)
+        factory.createExtensionNativeImpl(this)
+            ?: Canvas3DExtension.createScrollCanvas3DNativeOrNull(
+                viewportWidth = currentViewportWidth,
+                viewportHeight = currentViewportHeight,
+                contentWidth = currentContentWidth,
+                contentHeight = currentContentHeight,
+                backend = backend
+            ) ?: factory.createContainer(componentClassPrefix, htmlTag)
 
     override fun syncStateToNative() {
         super.syncStateToNative()

@@ -13,9 +13,9 @@ object MobileWebViewExtensionProvider {
     fun install(target: BackendTarget) {
         val isIosFamily = target.isIosFamily
         val engine = if (isIosFamily) {
-            WebViewEngineType.IOS_NATIVE_WKWEBVIEW
+            WebViewEngineType.APPLE_WKWEBVIEW
         } else {
-            WebViewEngineType.ANDROID_NATIVE_WEBKIT
+            WebViewEngineType.ANDROID_WEBVIEW
         }
         WebViewExtension.registerProvider(engine) { config ->
             MobileNativeWebViewImpl(config)
@@ -24,9 +24,9 @@ object MobileWebViewExtensionProvider {
 
     fun install(isIos: Boolean = GenericUI.activeFactory?.backendTarget?.isIosFamily == true) {
         val engine = if (isIos) {
-            WebViewEngineType.IOS_NATIVE_WKWEBVIEW
+            WebViewEngineType.APPLE_WKWEBVIEW
         } else {
-            WebViewEngineType.ANDROID_NATIVE_WEBKIT
+            WebViewEngineType.ANDROID_WEBVIEW
         }
         WebViewExtension.registerProvider(engine) { config ->
             MobileNativeWebViewImpl(config)

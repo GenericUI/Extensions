@@ -9,6 +9,7 @@ import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.component.shell.ContextMenu
 import com.nexustools.genericui.component.shell.FragmentApplication
+import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.GenericUiAppDescriptor
 import com.nexustools.genericui.core.GenericUiExtensionRegistry
@@ -69,6 +70,7 @@ import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
 import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
 import com.nexustools.genericui.nativeimpl.form.RangeSliderNativeImpl
 import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
+import com.nexustools.genericui.nativeimpl.form.StyledTextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.DividerNativeImpl
@@ -330,7 +332,7 @@ class ServiceWorkerStartFragmentAndExceptionsTest {
                     correlationId = 0L,
                     clientId = "ui-main",
                     typeId = ServiceWorkerEnvelope.CONTROL_OPEN_MAIN_WINDOW,
-                    payloadJson = route?.let { "\"$it\"" } ?: "null"
+                    payload = route?.let { PreferenceElement.ofString(it) } ?: PreferenceElement.Null
                 )
             )
         }
@@ -342,7 +344,7 @@ class ServiceWorkerStartFragmentAndExceptionsTest {
                     correlationId = 0L,
                     clientId = "ui-main",
                     typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_MAIN_WINDOW,
-                    payloadJson = "null"
+                    payload = PreferenceElement.Null
                 )
             )
         }
@@ -354,7 +356,7 @@ class ServiceWorkerStartFragmentAndExceptionsTest {
                     correlationId = 0L,
                     clientId = "ui-main",
                     typeId = ServiceWorkerEnvelope.CONTROL_LAUNCH_FRAGMENT,
-                    payloadJson = request.toControlPayloadJson(),
+                    payload = request.toControlPayloadElement(),
                     targetFragmentId = request.fragmentId
                 )
             )
@@ -367,7 +369,7 @@ class ServiceWorkerStartFragmentAndExceptionsTest {
                     correlationId = 0L,
                     clientId = "ui-main",
                     typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_FRAGMENT,
-                    payloadJson = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
+                    payload = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
                     targetFragmentId = fragmentId
                 )
             )
@@ -640,6 +642,7 @@ class ServiceWorkerStartFragmentAndExceptionsTest {
         override fun createStyledButton(classPrefix: String): StyledButtonNativeImpl<*> = unsupported()
         override fun createDropdown(): DropdownNativeImpl<*> = unsupported()
         override fun createTextInput(multiline: Boolean): TextInputNativeImpl<*> = unsupported()
+        override fun createStyledTextInput(multiline: Boolean, classPrefix: String): StyledTextInputNativeImpl<*> = unsupported()
         override fun createSelect(): SelectNativeImpl<*> = unsupported()
         override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean): CheckboxNativeImpl<*> = unsupported()
         override fun createRangeSlider(): RangeSliderNativeImpl<*> = unsupported()

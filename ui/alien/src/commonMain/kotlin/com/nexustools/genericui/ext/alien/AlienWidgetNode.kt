@@ -13,6 +13,7 @@ import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.style.css.ComponentStyle
 import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssCursorValue
+import com.nexustools.genericui.style.css.CssSelectorNode
 import com.nexustools.genericui.style.gradient.Gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
 import com.nexustools.genericui.style.transition.ContainerAnimationFrameState
@@ -29,7 +30,7 @@ class AlienWidgetNode(
     val componentClassPrefix: String = "",
     var tagName: String = "div",
     var session: AlienRenderSession? = null
-) {
+) : CssSelectorNode {
     var ownerImpl: AlienImpl? = null
     var parent: AlienWidgetNode? = null
 
@@ -77,7 +78,86 @@ class AlienWidgetNode(
         get() = bounds.height.toFloat()
     var scrollOffsetX: Int = 0
     var scrollOffsetY: Int = 0
+    var scrollWidth: Int = 0
+    var scrollHeight: Int = 0
+    var listItemIndex: Int = 0
     var layoutDirty: Boolean = true
+    var textContentForSelector: Boolean = false
+    internal var resolvedCustomProperties: Map<String, String> = emptyMap()
+    internal var lastResolvedVisualStyle: AlienResolvedVisualStyle? = null
+    private var cachedStylePassId: Long = -1L
+    private var cachedStylePassValue: AlienResolvedVisualStyle? = null
+    private var cachedSelectorClassesPassId: Long = -1L
+    private var cachedSelectorClassesValue: Set<String>? = null
+
+    override val selectorTagName: String
+        get() = tagName.ifEmpty { "div" }
+
+    override val selectorId: String?
+        get() = attributes["id"]?.takeIf { it.isNotEmpty() }
+
+    override val selectorClasses: Set<String>
+        get() {
+            val passId = session?.activeStylePassId ?: -1L
+            if (passId >= 0L && cachedSelectorClassesPassId == passId) {
+                cachedSelectorClassesValue?.let { return it }
+            }
+            val classes = AlienPrecompiledBootstrapStyleSheet.collectBootstrapClassesForNode(this)
+            if (passId >= 0L) {
+                cachedSelectorClassesPassId = passId
+                cachedSelectorClassesValue = classes
+            }
+            return classes
+        }
+
+    override val selectorAttributes: Map<String, String>
+        get() = attributes
+
+    override val selectorParent: CssSelectorNode?
+        get() = parent
+
+    override val selectorChildren: List<CssSelectorNode>
+        get() = _children
+
+    override val selectorHasTextContent: Boolean
+        get() = textContentForSelector || attributes["text"]?.isNotEmpty() == true
+
+    override val selectorIsHovered: Boolean
+        get() = hoveredState && enabled
+
+    override val selectorIsFocused: Boolean
+        get() = focusedState && enabled
+
+    override val selectorIsActive: Boolean
+        get() = activePressedState && enabled
+
+    override val selectorIsEnabled: Boolean
+        get() = enabled
+
+    override val selectorIsChecked: Boolean
+        get() = checkedState
+
+    override val selectorIsValid: Boolean
+        get() = attributes["aria-invalid"] != "true" && "is-invalid" !in styleSnapshot.customClasses
+
+    override val selectorIsPlaceholderShown: Boolean
+        get() = attributes["placeholder"]?.isNotEmpty() == true &&
+            attributes["value"].isNullOrEmpty()
+
+    override val selectorInheritedCustomProperties: Map<String, String>
+        get() = parent?.resolvedCustomProperties ?: emptyMap()
+
+    fun scrollTo(x: Int, y: Int) {
+        val maxX = (scrollWidth - bounds.width).coerceAtLeast(0)
+        val maxY = (scrollHeight - bounds.height).coerceAtLeast(0)
+        val clampedX = x.coerceIn(0, maxX)
+        val clampedY = y.coerceIn(0, maxY)
+        if (scrollOffsetX != clampedX || scrollOffsetY != clampedY) {
+            scrollOffsetX = clampedX
+            scrollOffsetY = clampedY
+            invalidateBounds()
+        }
+    }
 
     // Transitions, Animations & Offscreen Container Cache
     val transitionAnimator: AlienTransitionAnimator = AlienTransitionAnimator()
@@ -119,13 +199,22 @@ class AlienWidgetNode(
         }
 
     fun resolveVisualStyle(): AlienResolvedVisualStyle {
+        val activePassId = session?.activeStylePassId ?: -1L
+        if (activePassId >= 0L && cachedStylePassId == activePassId) {
+            cachedStylePassValue?.let { return it }
+        }
+        val target = AlienCssStyleResolver.resolve(this)
+        resolvedCustomProperties = target.customProperties
         val inlineSpecs = inlineComponentStyle?.getTransitions().orEmpty()
-        val computedSpecs = computedStyle?.transition?.takeIf { it.isNotBlank() }?.let { CssTransitionSpec.parseList(it) }
-            ?: emptyList()
+        val computedSpecs = computedStyle?.resolveEffectiveTransitions().orEmpty()
         if (inlineSpecs.isNotEmpty()) {
             transitionAnimator.configureTransitions(inlineSpecs)
         } else if (computedSpecs.isNotEmpty() && !transitionAnimator.hasConfiguredTransitions) {
             transitionAnimator.configureTransitions(computedSpecs)
+        }
+        val activeAnims = target.animations
+        if (activeAnims.isNotEmpty()) {
+            transitionAnimator.configureKeyframeAnimations(activeAnims, session?.styleSheets.orEmpty())
         }
         val interactiveChanged = lastResolvedHovered != hoveredState ||
             lastResolvedFocused != focusedState ||
@@ -133,11 +222,16 @@ class AlienWidgetNode(
         lastResolvedHovered = hoveredState
         lastResolvedFocused = focusedState
         lastResolvedActive = activePressedState
-        val target = AlienCssStyleResolver.resolve(this)
-        return transitionAnimator.resolveVisualStyleForFrame(
+        val resolved = transitionAnimator.resolveVisualStyleForFrame(
             targetStyle = target,
             enableDefaultBootstrapHoverTransition = interactiveChanged
         )
+        lastResolvedVisualStyle = resolved
+        if (activePassId >= 0L) {
+            cachedStylePassId = activePassId
+            cachedStylePassValue = resolved
+        }
+        return resolved
     }
 
     fun addChild(child: AlienWidgetNode, index: Int = -1) {

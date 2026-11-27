@@ -206,6 +206,6 @@ fun createAdaptiveYoutubePlayer() = buildDiv {
 ## 7. Related Extensions & Cross-References
 
 - [`:extensions:media:media` & `:extensions:media:media:dsl` (`media.md`)](media.md) — `VideoOverlayHost`, `VideoPlayerOverlayBinder`, `YoutubeMediaOverlayHelper`, and 3-wave `ExpandingVolumeSlider`.
-- [`:extensions:ui:pip` & `:extensions:ui:pip:dsl` (`pip.md`)](pip.md) — `PipControlOverlay` floating Picture-in-Picture HUD and PiP suppression (`setPictureInPictureMode`).
+- [`:extensions:ui:pip` (`pip.md`)](pip.md) — `PipControlOverlay` floating Picture-in-Picture HUD and PiP suppression (`setPictureInPictureMode`).
 - [`:extensions:graphics:canvas2d` (`canvas2d.md`)](canvas2d.md) & [`:extensions:graphics:canvas3d` (`canvas3d.md`)](canvas3d.md) — Viewport-scoped `Canvas2DOverlayHost` and `Canvas3DOverlayHost`.
 - [`:extensions:ui:dsl` (`dsl.md`)](dsl.md) — Base declarative Kotlin UI & Style DSL.

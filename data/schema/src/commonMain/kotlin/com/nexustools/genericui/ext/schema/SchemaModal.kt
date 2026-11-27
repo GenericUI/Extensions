@@ -68,7 +68,7 @@ open class SchemaModal(
             presetSelect = select
             val presetBar = HStack(SpacingScale.S2).apply {
                 alignItems = AlignItems.CENTER
-                addChild(Label("Preset"))
+                addChild(Label("Preset", target = select))
                 addChild(select, weight = 1f)
             }
             addChild(presetBar)

@@ -5,18 +5,24 @@ import com.nexustools.genericui.nativeimpl.media.WebViewNativeImpl
 /**
  * Registry and platform provider bridge for the `:extensions:webview` extension.
  *
- * - `:extensions:webview:desktop` and `:extensions:webview:swing` register a Chromium + `NJS`
- *   JIT provider (`WebViewEngineType.CHROMIUM_NJS_JIT_DESKTOP`).
+ * - `:extensions:webview:desktop` and `:extensions:webview:swing` register an isolated Alien + `NJS`
+ *   worker provider (`WebViewEngineType.ALIEN_NJS`).
  * - `:extensions:webview:mobile` registers native `android.webkit.WebView` / `WKWebView`
  *   providers (no NJS).
  * - `:extensions:webview:web` registers a native HTML5 `<iframe>` provider (no NJS).
  */
 object WebViewExtension {
-    var activeEngineType: WebViewEngineType = WebViewEngineType.CHROMIUM_NJS_JIT_DESKTOP
+    var activeEngineType: WebViewEngineType = WebViewEngineType.ALIEN_NJS
         private set
 
     internal var nativeImplFactory: ((WebViewConfig) -> WebViewNativeImpl<*>)? = null
         private set
+
+    internal fun ensureProviderInstalled(): ((WebViewConfig) -> WebViewNativeImpl<*>)? {
+        nativeImplFactory?.let { return it }
+        installDefaultPlatformWebViewProvider()
+        return nativeImplFactory
+    }
 
     fun registerProvider(
         engineType: WebViewEngineType,

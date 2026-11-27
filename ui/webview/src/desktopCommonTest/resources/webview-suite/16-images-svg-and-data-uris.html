@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>16 - Images, Inline SVG Primitives &amp; Data URIs</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    #img-png { width: 64px; height: 64px; object-fit: contain; object-position: center; border: 1px solid #38bdf8; image-rendering: pixelated; }
+    #img-svg-data { width: 64px; height: 64px; object-fit: cover; border: 1px solid #22c55e; }
+    #svg-stage { width: 240px; height: 120px; background: #0b1220; border: 1px solid #475569; border-radius: 6px; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+  </style>
+</head>
+<body>
+  <h1>16 &mdash; Images, Data URIs &amp; Inline SVG Primitives</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <img id="img-png" alt="4x4 PNG" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAHElEQVR4nGP4z8DwH4SRIJoAlP///38GMMYQAABmFiPdcWvxdAAAAABJRU5ErkJggg==">
+    <img id="img-svg-data" alt="SVG Data URI" src="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2748%27%20height%3D%2732%27%3E%3Crect%20width%3D%2748%27%20height%3D%2732%27%20fill%3D%27%2322c55e%27%2F%3E%3C%2Fsvg%3E">
+
+    <svg id="svg-stage" viewBox="0 0 240 120" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="svg-grad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#38bdf8"/>
+          <stop offset="100%" stop-color="#a855f7"/>
+        </linearGradient>
+      </defs>
+      <g id="svg-group" transform="translate(10, 10)">
+        <rect id="svg-rect" x="0" y="0" width="50" height="30" rx="6" fill="url(#svg-grad)"/>
+        <circle id="svg-circle" cx="85" cy="20" r="16" fill="#22c55e"/>
+        <ellipse cx="130" cy="20" rx="18" ry="10" fill="#eab308"/>
+        <line x1="0" y1="48" x2="150" y2="48" stroke="#94a3b8" stroke-width="2"/>
+        <polyline points="0,65 25,55 50,75 75,60" fill="none" stroke="#f43f5e" stroke-width="2"/>
+        <polygon points="100,55 125,80 85,80" fill="#06b6d4"/>
+        <path id="svg-path" d="M 140 60 Q 170 40 200 75 Z" fill="#f97316"/>
+        <text id="svg-txt" x="0" y="98" fill="#e2e8f0" font-size="12">SVG Primitives</text>
+      </g>
+    </svg>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        var q = [];
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) (function (tc) {
+          q.push(function () {
+            sum.total++; var row = document.createElement("div"); c.appendChild(row);
+            try {
+              var r = tc.fn();
+              if (r && typeof r.then === "function") return r.then(function () { sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }, function (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; });
+              sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name;
+            } catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+          });
+        })(suites[i].tests[j]);
+        (function run(k) {
+          if (k >= q.length) {
+            root.__suiteSummary = sum;
+            var bar = document.getElementById("suite-summary-bar");
+            bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+            bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+            return;
+          }
+          var out = q[k]();
+          if (out && typeof out.then === "function") out.then(function () { run(k + 1); }, function () { run(k + 1); }); else run(k + 1);
+        })(0);
+      });
+    }
+  })(window);
+  </script>
+
+  <script>
+  describe("16 - Images, Data URIs & Inline SVG Primitives", function () {
+    it("decodes PNG and SVG data-URI images cleanly with exact naturalWidth/naturalHeight", function () {
+      var png = document.getElementById("img-png");
+      var svgImg = document.getElementById("img-svg-data");
+      expect(png.alt).toBe("4x4 PNG");
+      expect(getComputedStyle(png).objectFit).toBe("contain");
+      expect(getComputedStyle(svgImg).objectFit).toBe("cover");
+
+      if (png.complete && png.naturalWidth > 0) {
+        expect(png.naturalWidth).toBe(4);
+        expect(png.naturalHeight).toBe(4);
+      }
+      if (svgImg.complete && svgImg.naturalWidth > 0) {
+        expect(svgImg.naturalWidth).toBe(48);
+        expect(svgImg.naturalHeight).toBe(32);
+      }
+    });
+
+    it("constructs new Image() dynamically and triggers onload on data URI or onerror on invalid URI", function () {
+      if (typeof Promise === "undefined") {
+        var imgSync = new Image();
+        expect(imgSync.tagName.toUpperCase()).toBe("IMG");
+        return;
+      }
+      return new Promise(function (resolve, reject) {
+        var loader = new Image();
+        var timer = setTimeout(function () { reject(new Error("Image onload timeout")); }, 2500);
+        loader.onload = function () {
+          try {
+            expect(loader.complete).toBe(true);
+            expect(loader.naturalWidth).toBe(4);
+            expect(loader.naturalHeight).toBe(4);
+            clearTimeout(timer);
+            resolve();
+          } catch (e) { clearTimeout(timer); reject(e); }
+        };
+        loader.onerror = function () { clearTimeout(timer); reject(new Error("Unexpected image error")); };
+        loader.src = document.getElementById("img-png").src;
+      });
+    });
+
+    it("parses all SVG primitives and mutates dynamic SVG elements via createElementNS", function () {
+      var svg = document.getElementById("svg-stage");
+      expect(svg.namespaceURI).toBe("http://www.w3.org/2000/svg");
+      expect(svg.getAttribute("viewBox")).toBe("0 0 240 120");
+      expect(svg.querySelector("#svg-rect").getAttribute("rx")).toBe("6");
+      expect(svg.querySelector("#svg-circle").getAttribute("r")).toBe("16");
+      expect(svg.querySelector("#svg-path").getAttribute("d")).toContain("Q 170 40");
+      expect(svg.querySelector("#svg-txt").textContent).toBe("SVG Primitives");
+
+      var grp = document.getElementById("svg-group");
+      var dynCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dynCircle.setAttribute("id", "dyn-svg-circle");
+      dynCircle.setAttribute("cx", "210");
+      dynCircle.setAttribute("cy", "25");
+      dynCircle.setAttribute("r", "12");
+      dynCircle.setAttribute("fill", "#ef4444");
+      grp.appendChild(dynCircle);
+
+      expect(document.getElementById("dyn-svg-circle").getAttribute("r")).toBe("12");
+      expect(document.getElementById("dyn-svg-circle").getBoundingClientRect().width).toBeGreaterThan(0);
+    });
+  });
+  </script>
+</body>
+</html>

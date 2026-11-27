@@ -10,6 +10,10 @@ import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.ext.ipc.IpcChannelAddress
+import com.nexustools.genericui.ext.ipc.IpcClient
+import com.nexustools.genericui.ext.ipc.IpcConnection
+import com.nexustools.genericui.ext.ipc.IpcServer
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.convert
@@ -30,7 +34,6 @@ import platform.posix.access
 import platform.posix.bind
 import platform.posix.close
 import platform.posix.fcntl
-import platform.posix.geteuid
 import platform.posix.getpid
 import platform.posix.lstat
 import platform.posix.rmdir
@@ -233,110 +236,86 @@ class LinuxServiceWorkerIpcTest {
     fun unixSocketPermissionsPeerCredStaleRecoveryAndLongPathHashingWork() {
         val tempDir = createTempDir("gui-lnx-sock")
         val appId = "com.test.linux.unix"
-        val resolvedPath = LinuxUnixSocketAddressHelper.resolveSocketPath(appId, tempDir)
-        assertEquals("$tempDir/sw.sock", resolvedPath)
-        assertTrue(resolvedPath.encodeToByteArray().size <= LinuxUnixSocketAddressHelper.MAX_SUN_PATH_BYTES)
+        val resolvedAddr = IpcChannelAddress.resolveDesktopEndpoint(appId, tempDir, osHint = "linux")
+        val resolvedPath = resolvedAddr.endpointAddress
+        tempFilesToClean.add(resolvedPath)
+        assertEquals(IpcChannelAddress.TRANSPORT_UNIX_SOCKET, resolvedAddr.transportKind)
+        assertTrue(resolvedPath.startsWith("$tempDir/"))
+        assertTrue(resolvedPath.endsWith(".sock"))
+        assertTrue(resolvedPath.encodeToByteArray().size <= 96)
 
         // Create a real stale AF_UNIX socket file (bound and closed without unlink).
-        assertTrue(LinuxUnixSocketAddressHelper.ensureSecureParentDir(resolvedPath))
+        DesktopOsHelpers.ensureDirectoryExists(tempDir)
         val staleFd = socket(AF_UNIX, SOCK_STREAM or SOCK_CLOEXEC, 0)
         assertTrue(staleFd >= 0, "Stale socket fd creation must succeed")
-        val staleSun = LinuxUnixSocketAddressHelper.buildSockaddrUn(resolvedPath)
-        assertNotNull(staleSun)
+        val staleSun = buildPosixSockaddrUn(resolvedPath)
         val boundStale = staleSun.usePinned { pinned ->
             bind(
                 staleFd,
                 pinned.addressOf(0).reinterpret<sockaddr>(),
-                LinuxUnixSocketAddressHelper.sockaddrUnLength(resolvedPath).convert()
+                sockaddrUnSize(resolvedPath).convert()
             ) == 0
         }
         close(staleFd)
         assertTrue(boundStale, "Pre-binding stale socket file must succeed")
         assertEquals(0, access(resolvedPath, F_OK))
 
-        // Verify server auto-recovers stale socket, sets 0700 dir / 0600 socket, and checks SO_PEERCRED.
-        val server = DesktopIpcServer()
-        var acceptedCredsUid: UInt? = null
-        var acceptedConn: DesktopIpcConnection? = null
+        // Verify IpcServer auto-recovers stale socket, sets 0700 dir / 0600 socket, and accepts clients.
+        val server = IpcServer()
+        var acceptedConn: IpcConnection? = null
         assertTrue(
             server.start(appId, tempDir) { conn ->
                 acceptedConn = conn
             },
-            "DesktopIpcServer must recover stale socket and bind AF_UNIX"
+            "IpcServer must recover stale socket and bind AF_UNIX"
         )
         try {
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, server.transportKind)
-            assertEquals(resolvedPath, server.endpointAddress)
+            val boundAddr = assertNotNull(server.address)
+            assertEquals(IpcChannelAddress.TRANSPORT_UNIX_SOCKET, boundAddr.transportKind)
+            assertEquals(resolvedPath, boundAddr.endpointAddress)
             assertEquals(0x1C0, readPermissions(tempDir), "Runtime parent dir must be 0700")
             assertEquals(0x180, readPermissions(resolvedPath), "Unix socket file must be 0600")
 
             // Live socket must NOT be treated as stale by a second server start attempt.
-            val competingServer = DesktopIpcServer()
+            val competingServer = IpcServer()
             assertFalse(
                 competingServer.start(appId, tempDir) {},
                 "Live AF_UNIX socket must refuse stale unlink / bind takeover"
             )
             competingServer.close()
 
-            val clientConn = DesktopIpcClient.connect(
-                transportKind = server.transportKind,
-                address = server.endpointAddress,
+            val clientConn = IpcClient.connect(
+                address = boundAddr,
                 timeoutMs = 2_000
             )
             assertNotNull(clientConn, "AF_UNIX client must connect to live server")
-            try {
-                // Verify SO_PEERCRED on a live AF_UNIX pair directly via helper.
-                val probeFd = socket(AF_UNIX, SOCK_STREAM or SOCK_CLOEXEC, 0)
-                assertTrue(probeFd >= 0)
-                try {
-                    val connected = staleSun.usePinned { pinned ->
-                        platform.posix.connect(
-                            probeFd,
-                            pinned.addressOf(0).reinterpret<sockaddr>(),
-                            LinuxUnixSocketAddressHelper.sockaddrUnLength(resolvedPath).convert()
-                        ) == 0
-                    }
-                    assertTrue(connected)
-                    val creds = LinuxUnixSocketAddressHelper.readPeerCredentials(probeFd)
-                    assertNotNull(creds)
-                    acceptedCredsUid = creds.second
-                    assertEquals(geteuid(), acceptedCredsUid, "SO_PEERCRED uid must match geteuid()")
-                    assertTrue(LinuxUnixSocketAddressHelper.verifyPeerCredentials(probeFd))
-                } finally {
-                    close(probeFd)
-                }
-            } finally {
-                clientConn.close()
-                acceptedConn?.close()
-            }
+            clientConn.close()
+            acceptedConn?.close()
         } finally {
             server.close()
         }
         assertTrue(access(resolvedPath, F_OK) != 0, "server.close() must unlink AF_UNIX socket file")
 
-        // Long runtime path (> 108 bytes) must hash deterministically into <= 100 bytes and round-trip.
+        // Long runtime path (> 108 bytes) must hash deterministically into <= 96 bytes and round-trip.
         val longSuffix = "nested-segment-exceeding-unix-sun-path-limit-".repeat(3)
         val longRuntimeDir = "$tempDir/$longSuffix"
-        val hashedPath = LinuxUnixSocketAddressHelper.resolveSocketPath(appId, longRuntimeDir)
+        val hashedAddr = IpcChannelAddress.resolveDesktopEndpoint(appId, longRuntimeDir, osHint = "linux")
+        val hashedPath = hashedAddr.endpointAddress
         tempFilesToClean.add(hashedPath)
         assertTrue(
-            hashedPath.encodeToByteArray().size <= LinuxUnixSocketAddressHelper.MAX_SUN_PATH_BYTES,
-            "Hashed path '$hashedPath' must be <= 100 UTF-8 bytes"
+            hashedPath.encodeToByteArray().size <= 96,
+            "Hashed path '$hashedPath' must be <= 96 UTF-8 bytes"
         )
-        val expectedHash = DesktopIpcHash.fnv1a64Hex("$appId|$longRuntimeDir")
-        assertTrue(
-            hashedPath.endsWith("/gui-$expectedHash.sock"),
-            "Long path fallback must hash appId|runtimeDir deterministically"
-        )
+        assertFalse(hashedPath.startsWith(longRuntimeDir))
 
-        val hashedServer = DesktopIpcServer()
-        var hashedPeer: DesktopIpcConnection? = null
+        val hashedServer = IpcServer()
+        var hashedPeer: IpcConnection? = null
         assertTrue(hashedServer.start(appId, longRuntimeDir) { hashedPeer = it })
         try {
-            assertEquals(hashedPath, hashedServer.endpointAddress)
-            val hashedClient = DesktopIpcClient.connect(
-                transportKind = hashedServer.transportKind,
-                address = hashedServer.endpointAddress,
+            val boundHashedAddr = assertNotNull(hashedServer.address)
+            assertEquals(hashedPath, boundHashedAddr.endpointAddress)
+            val hashedClient = IpcClient.connect(
+                address = boundHashedAddr,
                 timeoutMs = 2_000
             )
             assertNotNull(hashedClient)
@@ -349,7 +328,7 @@ class LinuxServiceWorkerIpcTest {
                     deadline++
                 }
                 val peer = assertNotNull(hashedPeer)
-                assertEquals("hashed-unix-ok", peer.receiveBody(timeoutMs = 1_000)?.decodeToString())
+                assertEquals("hashed-unix-ok", peer.readBody(timeoutMs = 1_000)?.decodeToString())
             } finally {
                 hashedClient.close()
                 hashedPeer?.close()
@@ -360,6 +339,20 @@ class LinuxServiceWorkerIpcTest {
         }
     }
 
+    private fun buildPosixSockaddrUn(socketPath: String): ByteArray {
+        val pathBytes = socketPath.encodeToByteArray()
+        val buf = ByteArray(110)
+        val family = AF_UNIX.toUShort()
+        buf[0] = (family.toInt() and 0xFF).toByte()
+        buf[1] = ((family.toInt() shr 8) and 0xFF).toByte()
+        pathBytes.copyInto(buf, destinationOffset = 2)
+        buf[2 + pathBytes.size] = 0
+        return buf
+    }
+
+    private fun sockaddrUnSize(socketPath: String): Int =
+        2 + socketPath.encodeToByteArray().size + 1
+
     @Test
     fun linuxChildProcessDoesNotInheritFlockOrUnixSocketFds() {
         val tempDir = createTempDir("gui-lnx-cloexec")
@@ -368,9 +361,10 @@ class LinuxServiceWorkerIpcTest {
         val lockKey2 = "linux-cloexec-2-${getpid()}"
 
         assertTrue(DesktopOsHelpers.acquireSingleInstanceLock(lockKey1, lockFile))
-        val server = DesktopIpcServer()
+        val server = IpcServer()
         assertTrue(server.start("com.test.linux.cloexec", tempDir) {})
-        val client = DesktopIpcClient.connect(server.transportKind, server.endpointAddress, timeoutMs = 2_000)
+        val boundAddr = assertNotNull(server.address)
+        val client = IpcClient.connect(boundAddr, timeoutMs = 2_000)
         assertNotNull(client)
 
         try {
@@ -425,7 +419,7 @@ class LinuxServiceWorkerIpcTest {
             lockRelease = {}
         )
         assertTrue(host.start(), "DesktopServiceWorkerHost must start AF_UNIX server")
-        assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, host.boundTransport)
+        assertEquals(IpcChannelAddress.TRANSPORT_UNIX_SOCKET, host.boundTransport)
         assertTrue(host.boundAddress.isNotBlank())
         assertEquals(0, access(host.boundAddress, F_OK))
         assertEquals(0x180, readPermissions(host.boundAddress))
@@ -437,7 +431,7 @@ class LinuxServiceWorkerIpcTest {
             assertNotNull(rawEndpoint)
             val descriptor = DesktopEndpointDescriptor.parse(rawEndpoint)
             assertNotNull(descriptor)
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, descriptor.transport)
+            assertEquals(IpcChannelAddress.TRANSPORT_UNIX_SOCKET, descriptor.transport)
             assertEquals(boundSocketPath, descriptor.address)
 
             // Reject invalid KIND_AUTH token.

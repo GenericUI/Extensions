@@ -4,12 +4,18 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.os.IBinder
 import com.nexustools.genericui.android.AndroidExtensionRuntimeBridge
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.exception.SystemTrayUnsupportedException
+import com.nexustools.genericui.ext.ipc.AndroidServiceIpcBinder
+import com.nexustools.genericui.ext.ipc.AndroidServiceIpcBundleCodec
+import com.nexustools.genericui.ext.ipc.AndroidServiceIpcClient
+import com.nexustools.genericui.ext.ipc.AndroidServiceIpcProtocol
+import com.nexustools.genericui.ext.ipc.IpcPacket
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -176,9 +182,11 @@ class AndroidServiceWorkerRobolectricTest {
             // Binder IPC round-trip via ServiceWorkerExtension.channel
             val binder = service.onBind(Intent(app, TestAndroidSwService::class.java))
             assertIs<AndroidServiceWorkerBinder>(binder)
+            assertIs<AndroidServiceIpcBinder>(binder)
             assertTrue(ServiceWorkerExtension.channel.connect())
             val resp = ServiceWorkerExtension.channel.request<EchoResp>(EchoReq("hello android"), timeoutMs = 5_000)
             assertEquals("HELLO ANDROID", resp.echoed)
+            assertTrue(binder.callbackCount() >= 1)
 
             // Notification button intent dispatches custom worker action
             val customActionIntent = Intent(app, TestAndroidSwService::class.java).apply {
@@ -254,6 +262,47 @@ class AndroidServiceWorkerRobolectricTest {
             }
         } finally {
             worker.performStop()
+        }
+    }
+
+    @Test
+    fun androidBinderChunkedLargePacketAndBundleCodecRoundTripCleanly() {
+        val app = RuntimeEnvironment.getApplication()
+        val binder = AndroidServiceWorkerBinder(controller = AndroidServiceWorkerController) { incoming ->
+            IpcPacket(
+                id = incoming.id,
+                type = incoming.type,
+                channel = incoming.channel,
+                payload = incoming.payload,
+                replyToId = incoming.id
+            )
+        }
+        val ipcClient = AndroidServiceIpcClient(app)
+        try {
+            assertTrue(ipcClient.attachBinder(binder))
+            assertTrue(ipcClient.ping())
+
+            val largeString = "B".repeat(AndroidServiceIpcProtocol.MAX_DIRECT_PARCEL_BYTES + 64 * 1024)
+            val largePacket = IpcPacket(
+                id = 77L,
+                type = "androidtest.LargeChunk",
+                channel = "android-test",
+                payload = PreferenceElement.ofString(largeString)
+            )
+            val replyPacket = ipcClient.requestPacket(largePacket)
+            assertNotNull(replyPacket)
+            assertEquals(77L, replyPacket.replyToId)
+            assertEquals(largeString, replyPacket.payload.asString())
+
+            val bundle = Bundle()
+            AndroidServiceIpcBundleCodec.writeToBundle(bundle, largePacket)
+            val decodedFromBundle = AndroidServiceIpcBundleCodec.readFromBundle(bundle)
+            assertNotNull(decodedFromBundle)
+            assertEquals(largePacket.id, decodedFromBundle.id)
+            assertEquals(largePacket.type, decodedFromBundle.type)
+            assertEquals(largeString, decodedFromBundle.payload.asString())
+        } finally {
+            ipcClient.unbind()
         }
     }
 }

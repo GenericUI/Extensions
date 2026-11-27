@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>10 - Canvas 2D Drawing, Paths, Line Styles &amp; Transforms</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; gap: 16px; flex-wrap: wrap; }
+    canvas { background: #000; border: 1px solid #475569; border-radius: 6px; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+  </style>
+</head>
+<body>
+  <h1>10 &mdash; Canvas 2D Drawing, Paths, Dashed Lines &amp; Transform Stack (RGBA Pixel Verified)</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <canvas id="c2d-main" width="320" height="180"></canvas>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) {
+          var tc = suites[i].tests[j]; sum.total++; var row = document.createElement("div"); c.appendChild(row);
+          try { tc.fn(); sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }
+          catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+        }
+        root.__suiteSummary = sum;
+        var bar = document.getElementById("suite-summary-bar");
+        bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+        bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+      });
+    }
+  })(window);
+
+  function readPixel(ctx, x, y) {
+    var d = ctx.getImageData(x, y, 1, 1).data;
+    return [d[0], d[1], d[2], d[3]];
+  }
+  </script>
+
+  <script>
+  describe("10 - Canvas 2D Drawing, Paths & Transform Stack", function () {
+    it("acquires CanvasRenderingContext2D and paints/clears exact RGBA rectangles", function () {
+      var cv = document.getElementById("c2d-main");
+      var ctx = cv.getContext("2d");
+      expect(ctx).toBeTruthy();
+      ctx.clearRect(0, 0, cv.width, cv.height);
+
+      ctx.fillStyle = "rgba(255, 0, 0, 1)";
+      ctx.fillRect(10, 10, 40, 40);
+      expect(readPixel(ctx, 25, 25)).toEqual([255, 0, 0, 255]);
+
+      ctx.clearRect(20, 20, 10, 10);
+      expect(readPixel(ctx, 25, 25)).toEqual([0, 0, 0, 0]);
+      expect(readPixel(ctx, 12, 12)).toEqual([255, 0, 0, 255]);
+
+      ctx.strokeStyle = "#00ff00";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(60, 12, 30, 30);
+      var strokePx = readPixel(ctx, 60, 27);
+      expect(strokePx[1]).toBe(255);
+      expect(strokePx[3]).toBe(255);
+    });
+
+    it("supports nonzero vs evenodd winding rules and isPointInPath hit testing", function () {
+      var ctx = document.getElementById("c2d-main").getContext("2d");
+      ctx.beginPath();
+      ctx.rect(100, 10, 40, 40);
+      ctx.rect(110, 20, 20, 20);
+      ctx.fillStyle = "#0000ff";
+      ctx.fill("evenodd");
+
+      expect(readPixel(ctx, 104, 14)).toEqual([0, 0, 255, 255]);
+      expect(readPixel(ctx, 120, 30)).toEqual([0, 0, 0, 0]);
+      expect(ctx.isPointInPath(104, 14, "evenodd")).toBe(true);
+      expect(ctx.isPointInPath(120, 30, "evenodd")).toBe(false);
+    });
+
+    it("renders arc, ellipse, roundRect, quadraticCurveTo, and bezierCurveTo geometry", function () {
+      var ctx = document.getElementById("c2d-main").getContext("2d");
+      ctx.beginPath();
+      ctx.arc(175, 30, 18, 0, Math.PI * 2);
+      ctx.fillStyle = "#ff00ff";
+      ctx.fill();
+      expect(readPixel(ctx, 175, 30)).toEqual([255, 0, 255, 255]);
+      expect(readPixel(ctx, 155, 10)).toEqual([0, 0, 0, 0]);
+
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(210, 10, 40, 40, 8);
+      } else {
+        ctx.rect(210, 10, 40, 40);
+      }
+      ctx.fillStyle = "#ffff00";
+      ctx.fill();
+      expect(readPixel(ctx, 230, 30)).toEqual([255, 255, 0, 255]);
+
+      ctx.beginPath();
+      ctx.moveTo(260, 10);
+      ctx.bezierCurveTo(280, 10, 290, 50, 310, 50);
+      ctx.quadraticCurveTo(285, 50, 260, 10);
+      ctx.ellipse(285, 30, 12, 8, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#00ffff";
+      ctx.fill();
+      expect(readPixel(ctx, 285, 30)[1]).toBe(255);
+    });
+
+    it("applies lineDash patterns and save/restore clip() boundaries accurately", function () {
+      var ctx = document.getElementById("c2d-main").getContext("2d");
+      ctx.save();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 4;
+      ctx.setLineDash([10, 10]);
+      ctx.lineDashOffset = 0;
+      expect(ctx.getLineDash()).toEqual([10, 10]);
+      ctx.beginPath();
+      ctx.moveTo(10, 80);
+      ctx.lineTo(70, 80);
+      ctx.stroke();
+      ctx.restore();
+      expect(readPixel(ctx, 15, 80)).toEqual([255, 255, 255, 255]);
+      expect(readPixel(ctx, 25, 80)).toEqual([0, 0, 0, 0]);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(80, 70, 30, 30);
+      ctx.clip();
+      ctx.fillStyle = "#22c55e";
+      ctx.fillRect(60, 60, 80, 80);
+      ctx.restore();
+      expect(readPixel(ctx, 95, 85)[1]).toBe(197);
+      expect(readPixel(ctx, 120, 85)).toEqual([0, 0, 0, 0]);
+    });
+
+    it("maintains matrix transform stack (save, restore, translate, rotate, scale, setTransform, getTransform)", function () {
+      var ctx = document.getElementById("c2d-main").getContext("2d");
+      ctx.save();
+      ctx.translate(150, 100);
+      ctx.scale(2, 2);
+      var m = ctx.getTransform();
+      expect(Math.round(m.a)).toBe(2);
+      expect(Math.round(m.d)).toBe(2);
+      expect(Math.round(m.e)).toBe(150);
+      expect(Math.round(m.f)).toBe(100);
+
+      ctx.fillStyle = "#ef4444";
+      ctx.fillRect(0, 0, 15, 15);
+      // Scaled 2x from (150, 100) covers [150..180, 100..130]
+      expect(readPixel(ctx, 175, 125)).toEqual([239, 68, 68, 255]);
+      ctx.restore();
+
+      var restored = ctx.getTransform();
+      expect(Math.round(restored.a)).toBe(1);
+      expect(Math.round(restored.e)).toBe(0);
+
+      // 90-degree rotation mapping (10, 0) -> (0, 10) around (230, 110)
+      ctx.save();
+      ctx.translate(230, 110);
+      ctx.rotate(Math.PI / 2);
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(0, -10, 30, 10);
+      ctx.restore();
+      expect(readPixel(ctx, 235, 125)).toEqual([56, 189, 248, 255]);
+
+      ctx.resetTransform();
+      expect(Math.round(ctx.getTransform().a)).toBe(1);
+    });
+  });
+  </script>
+</body>
+</html>

@@ -73,6 +73,8 @@ class AlienFullCssAndTransitionTest {
         override fun createStyledButton(classPrefix: String) = delegate.createStyledButton(classPrefix)
         override fun createDropdown() = delegate.createDropdown()
         override fun createTextInput(multiline: Boolean) = delegate.createTextInput(multiline)
+        override fun createStyledTextInput(multiline: Boolean, classPrefix: String) =
+            delegate.createStyledTextInput(multiline, classPrefix)
         override fun createSelect() = delegate.createSelect()
         override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean) = delegate.createCheckbox(switchStyle, radioStyle)
         override fun createRangeSlider() = delegate.createRangeSlider()

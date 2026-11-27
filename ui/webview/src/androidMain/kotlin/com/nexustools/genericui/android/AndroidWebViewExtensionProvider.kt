@@ -8,7 +8,7 @@ import com.nexustools.genericui.ext.webview.WebViewExtension
  */
 object AndroidWebViewExtensionProvider {
     fun install() {
-        WebViewExtension.registerProvider(WebViewEngineType.ANDROID_NATIVE_WEBKIT) { config ->
+        WebViewExtension.registerProvider(WebViewEngineType.ANDROID_WEBVIEW) { config ->
             AndroidNativeWebViewImpl(config)
         }
     }

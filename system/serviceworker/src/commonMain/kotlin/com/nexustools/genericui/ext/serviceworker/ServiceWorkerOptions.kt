@@ -15,5 +15,14 @@ data class ServiceWorkerOptions(
     val androidSpecialUseFgsSubtype: String = "GenericUI background ServiceWorker execution",
     val hasWorker: Boolean = false,
     val swingWorkerMainClass: String = "",
-    val macosTrayIcon: String? = null
-)
+    val macosTrayIcon: String? = null,
+    val workerBinaryBaseName: String = ""
+) {
+    fun resolvedWorkerBinaryBaseName(): String =
+        workerBinaryBaseName.trim().ifEmpty { defaultWorkerBinaryBaseName(baseName) }
+
+    companion object {
+        fun defaultWorkerBinaryBaseName(baseName: String): String =
+            "${baseName.trim().ifEmpty { "app" }}-sw"
+    }
+}

@@ -2,12 +2,18 @@ package com.nexustools.genericui.ext.dsl
 
 import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.action.DropdownButton
+import com.nexustools.genericui.component.action.styled.StyledButton
 import com.nexustools.genericui.component.feedback.Alert
 import com.nexustools.genericui.component.feedback.Banner
 import com.nexustools.genericui.component.feedback.ProgressBar
 import com.nexustools.genericui.component.feedback.Spinner
 import com.nexustools.genericui.component.feedback.Toast
 import com.nexustools.genericui.component.form.Select
+import com.nexustools.genericui.component.form.Slider
+import com.nexustools.genericui.component.form.TextField
+import com.nexustools.genericui.component.form.styled.StyledSlider
+import com.nexustools.genericui.component.form.styled.StyledTextArea
+import com.nexustools.genericui.component.form.styled.StyledTextField
 import com.nexustools.genericui.component.htmlcompat.Div
 import com.nexustools.genericui.component.htmlcompat.H1
 import com.nexustools.genericui.component.htmlcompat.H2
@@ -30,13 +36,64 @@ import com.nexustools.genericui.component.surface.ListGroupItem
 import com.nexustools.genericui.component.surface.Well
 import com.nexustools.genericui.component.typography.Badge
 import com.nexustools.genericui.component.typography.Heading
+import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.component.typography.Text
+import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.bootstrap.BootstrapWidth
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.enums.css.CssCursor
+import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
+import com.nexustools.genericui.nativeimpl.action.DropdownNativeImpl
+import com.nexustools.genericui.nativeimpl.action.StyledButtonNativeImpl
+import com.nexustools.genericui.nativeimpl.content.ImageNativeImpl
+import com.nexustools.genericui.nativeimpl.content.TableNativeImpl
+import com.nexustools.genericui.nativeimpl.dialog.DialogWindowNativeImpl
+import com.nexustools.genericui.nativeimpl.dialog.FileBrowserDialogNativeImpl
+import com.nexustools.genericui.nativeimpl.dialog.StandardDialogsNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockAreaNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockGroupNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockPanelNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockWindowNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockWorkspaceNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.ToolPaletteNativeImpl
+import com.nexustools.genericui.nativeimpl.document.BookContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.feedback.ProgressBarNativeImpl
+import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
+import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
+import com.nexustools.genericui.nativeimpl.form.RangeSliderNativeImpl
+import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
+import com.nexustools.genericui.nativeimpl.form.StyledTextInputNativeImpl
+import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.DividerNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.ScrollViewNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.StyledContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.lazy.LazyGridNativeImpl
+import com.nexustools.genericui.nativeimpl.lazy.LazyListNativeImpl
+import com.nexustools.genericui.nativeimpl.lazy.TreeViewNativeImpl
+import com.nexustools.genericui.nativeimpl.navigation.BottomNavigationBarNativeImpl
+import com.nexustools.genericui.nativeimpl.navigation.NavbarNativeImpl
+import com.nexustools.genericui.nativeimpl.overlay.PopoverNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.ContextMenuNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.MenuBarNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.MenuItemNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.MenuNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
+import com.nexustools.genericui.nativeimpl.surface.StyledComponentNativeImpl
+import com.nexustools.genericui.nativeimpl.system.NetworkMonitorNativeImpl
+import com.nexustools.genericui.nativeimpl.system.NotificationManagerNativeImpl
+import com.nexustools.genericui.nativeimpl.system.PermissionManagerNativeImpl
+import com.nexustools.genericui.nativeimpl.system.SystemTrayNativeImpl
+import com.nexustools.genericui.nativeimpl.tabs.TabContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
+import com.nexustools.genericui.nativeimpl.typography.MarkdownViewNativeImpl
+import com.nexustools.genericui.nativeimpl.typography.TextNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssCornerRadii
 import com.nexustools.genericui.style.css.CssLength
@@ -44,6 +101,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class GenericUiDslTest {
@@ -333,5 +392,179 @@ class GenericUiDslTest {
 
         val wellComp = assertIs<Well>(root.children[10])
         assertEquals(BootstrapType.LIGHT, wellComp.type)
+    }
+
+    private class DslLabelModeFactory(
+        override val backendTarget: BackendTarget
+    ) : NativeFactory {
+        override val backendName: String = "dsl-label-mode-${backendTarget.name.lowercase()}"
+        override fun supportsTcp(): Boolean = true
+        override fun supportsUdp(): Boolean = true
+        private fun unsupported(): Nothing = throw UnsupportedOperationException("Headless DSL label test factory")
+        override fun createApplication(): ApplicationNativeImpl<*> = unsupported()
+        override fun createWindow(): WindowNativeImpl<*> = unsupported()
+        override fun createMenuBar(): MenuBarNativeImpl<*> = unsupported()
+        override fun createMenu(): MenuNativeImpl<*> = unsupported()
+        override fun createMenuItem(checkable: Boolean, radio: Boolean): MenuItemNativeImpl<*> = unsupported()
+        override fun createContextMenu(): ContextMenuNativeImpl<*> = unsupported()
+        override fun createDockWorkspace(): DockWorkspaceNativeImpl<*> = unsupported()
+        override fun createDockArea(): DockAreaNativeImpl<*> = unsupported()
+        override fun createDockGroup(): DockGroupNativeImpl<*> = unsupported()
+        override fun createDockPanel(): DockPanelNativeImpl<*> = unsupported()
+        override fun createDockWindow(): DockWindowNativeImpl<*> = unsupported()
+        override fun createToolPalette(): ToolPaletteNativeImpl<*> = unsupported()
+        override fun createContainer(classPrefix: String): ContainerNativeImpl<*> = unsupported()
+        override fun createStyledContainer(classPrefix: String, tagName: String): StyledContainerNativeImpl<*> = unsupported()
+        override fun createStyledComponent(classPrefix: String, tagName: String): StyledComponentNativeImpl<*> = unsupported()
+        override fun createBookContainer(): BookContainerNativeImpl<*> = unsupported()
+        override fun createScrollView(): ScrollViewNativeImpl<*> = unsupported()
+        override fun createDivider(): DividerNativeImpl<*> = unsupported()
+        override fun createText(tagName: String, classPrefix: String): TextNativeImpl<*> = unsupported()
+        override fun createMarkdownView(): MarkdownViewNativeImpl<*> = unsupported()
+        override fun createImage(): ImageNativeImpl<*> = unsupported()
+        override fun createTable(): TableNativeImpl<*> = unsupported()
+        override fun createButton(classPrefix: String): ButtonNativeImpl<*> = unsupported()
+        override fun createStyledButton(classPrefix: String): StyledButtonNativeImpl<*> = unsupported()
+        override fun createDropdown(): DropdownNativeImpl<*> = unsupported()
+        override fun createTextInput(multiline: Boolean): TextInputNativeImpl<*> = unsupported()
+        override fun createStyledTextInput(multiline: Boolean, classPrefix: String): StyledTextInputNativeImpl<*> = unsupported()
+        override fun createSelect(): SelectNativeImpl<*> = unsupported()
+        override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean): CheckboxNativeImpl<*> = unsupported()
+        override fun createRangeSlider(): RangeSliderNativeImpl<*> = unsupported()
+        override fun createTab(closable: Boolean): TabNativeImpl<*> = unsupported()
+        override fun createTabContainer(): TabContainerNativeImpl<*> = unsupported()
+        override fun createNavbar(): NavbarNativeImpl<*> = unsupported()
+        override fun createBottomNavigationBar(): BottomNavigationBarNativeImpl<*> = unsupported()
+        override fun createProgressBar(): ProgressBarNativeImpl<*> = unsupported()
+        override fun createSpinner(): SpinnerNativeImpl<*> = unsupported()
+        override fun createPopover(): PopoverNativeImpl<*> = unsupported()
+        override fun createDialogWindow(): DialogWindowNativeImpl<*> = unsupported()
+        override fun createFileBrowserDialog(): FileBrowserDialogNativeImpl = unsupported()
+        override fun createStandardDialogs(): StandardDialogsNativeImpl = unsupported()
+        override fun createLazyList(): LazyListNativeImpl<*> = unsupported()
+        override fun createLazyGrid(): LazyGridNativeImpl<*> = unsupported()
+        override fun createTreeView(): TreeViewNativeImpl<*> = unsupported()
+        override fun createPermissionManager(): PermissionManagerNativeImpl = unsupported()
+        override fun createSystemTray(): SystemTrayNativeImpl = unsupported()
+        override fun createNotificationManager(): NotificationManagerNativeImpl = unsupported()
+        override fun createNetworkMonitor(): NetworkMonitorNativeImpl = object : NetworkMonitorNativeImpl {
+            override var isDisposed: Boolean = false
+            override fun dispose() { isDisposed = true }
+            override fun isOnline(): Boolean = true
+            override fun setOnConnectivityChanged(listener: ((Boolean) -> Unit)?) {}
+        }
+    }
+
+    @Test
+    fun testStyledFormBuildersAndLabelTargetDslParameter() {
+        val prevFactory = GenericUI.activeFactory
+        try {
+            GenericUI.activeFactory = DslLabelModeFactory(BackendTarget.Windows)
+            var styledBtnClicks = 0
+            var fieldChangedTo: String? = null
+            var areaChangedTo: String? = null
+            var sliderChangedTo = 0.0
+            var styledSliderChangedTo = 0.0
+
+            lateinit var fieldRef: StyledTextField
+            lateinit var areaRef: StyledTextArea
+            lateinit var sliderRef: Slider
+            lateinit var styledSliderRef: StyledSlider
+            lateinit var styledBtnRef: StyledButton
+            lateinit var fieldLabel: Label
+            lateinit var areaLabel: Label
+            lateinit var styledSliderLabel: Label
+
+            val root = buildDiv {
+                styledBtnRef = styledButton("Run Action", onClick = { styledBtnClicks++ }) {
+                    backgroundColor = RgbaColor(12, 24, 36)
+                }
+                fieldRef = styledTextField(
+                    value = "alpha",
+                    placeholder = "Token",
+                    onValueChanged = { fieldChangedTo = it }
+                ) {
+                    focusBorderColor = RgbaColor(80, 140, 255)
+                }
+                areaRef = styledTextArea(
+                    value = "line1",
+                    placeholder = "Body",
+                    rows = 5,
+                    onValueChanged = { areaChangedTo = it }
+                ) {
+                    borderRadiusPx = 6f
+                }
+                sliderRef = slider(value = 25.0, min = 0.0, max = 100.0, step = 5.0, onValueChanged = { sliderChangedTo = it })
+                styledSliderRef = styledSlider(min = 0.0, max = 1.0, value = 0.4, step = 0.1, onValueChanged = { styledSliderChangedTo = it })
+
+                fieldLabel = label("Token", target = fieldRef)
+                areaLabel = label("Body", target = areaRef)
+                styledSliderLabel = label("Intensity", target = styledSliderRef)
+            }
+
+            assertEquals(8, root.children.size)
+            assertEquals("Run Action", styledBtnRef.text)
+            assertEquals(RgbaColor(12, 24, 36), styledBtnRef.backgroundColor)
+            styledBtnRef.triggerClick()
+            assertEquals(1, styledBtnClicks)
+
+            assertEquals("alpha", fieldRef.value)
+            assertEquals("Token", fieldRef.placeholder)
+            fieldRef.value = "beta"
+            fieldRef.onValueChanged?.invoke("beta")
+            assertEquals("beta", fieldChangedTo)
+
+            assertEquals(5, areaRef.rows)
+            areaRef.value = "line2"
+            areaRef.onValueChanged?.invoke("line2")
+            assertEquals("line2", areaChangedTo)
+
+            assertEquals(25.0, sliderRef.value)
+            sliderRef.dispatchUserValueChange(40.0)
+            assertEquals(40.0, sliderChangedTo)
+
+            assertEquals(0.4, styledSliderRef.value, 0.001)
+            styledSliderRef.value = 0.7
+            styledSliderRef.onValueChanged?.invoke(0.7)
+            assertEquals(0.7, styledSliderChangedTo, 0.001)
+
+            // Non-Web label(target = ...) focuses targets on click without setting HTML "for"
+            assertSame(fieldRef, fieldLabel.target)
+            assertNull(fieldLabel.getAttribute("for"))
+            fieldRef.isFocused = false
+            fieldLabel.triggerClick()
+            assertTrue(fieldRef.isFocused)
+
+            assertSame(areaRef, areaLabel.target)
+            assertNull(areaLabel.getAttribute("for"))
+            areaRef.isFocused = false
+            areaLabel.triggerClick()
+            assertTrue(areaRef.isFocused)
+
+            assertSame(styledSliderRef, styledSliderLabel.target)
+            assertNull(styledSliderLabel.getAttribute("for"))
+            styledSliderRef.isFocused = false
+            styledSliderLabel.triggerClick()
+            assertTrue(styledSliderRef.isFocused)
+
+            // Web backend: label(target = ...) assigns DOM id & HTML "for"
+            GenericUI.activeFactory = DslLabelModeFactory(BackendTarget.Web)
+            val webRoot = buildDiv {
+                val plainField = textField(value = "hi")
+                val styledInput = styledTextField(placeholder = "Styled")
+                label("Plain", target = plainField)
+                label("Styled", target = styledInput)
+            }
+            val plainCtrl = assertIs<TextField>(webRoot.children[0])
+            val styledCtrl = assertIs<StyledTextField>(webRoot.children[1])
+            val webPlainLbl = assertIs<Label>(webRoot.children[2])
+            val webStyledLbl = assertIs<Label>(webRoot.children[3])
+            assertFalse(plainCtrl.id.isNullOrBlank())
+            assertFalse(styledCtrl.id.isNullOrBlank())
+            assertEquals(plainCtrl.id, webPlainLbl.getAttribute("for"))
+            assertEquals(styledCtrl.id, webStyledLbl.getAttribute("for"))
+        } finally {
+            GenericUI.activeFactory = prevFactory
+        }
     }
 }

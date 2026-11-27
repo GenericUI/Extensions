@@ -3,6 +3,7 @@
 package com.nexustools.genericui.ext.serviceworker
 
 import com.nexustools.genericui.component.shell.Application
+import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.enums.window.WindowState
 import com.nexustools.genericui.threading.GenericUiThreading
@@ -153,13 +154,13 @@ class ServiceWorkerChannel internal constructor(
                 throw ServiceWorkerIpcException("Unable to connect ServiceWorkerChannel to background ServiceWorker.")
             }
         }
-        val (typeId, payloadJson) = ServiceWorkerCodecRegistry.encodePayload(message)
+        val (typeId, payload) = ServiceWorkerCodecRegistry.encodePayload(message)
         val env = ServiceWorkerEnvelope(
             kind = ServiceWorkerEnvelope.KIND_MESSAGE,
             correlationId = 0L,
             clientId = lastClientId,
             typeId = typeId,
-            payloadJson = payloadJson,
+            payload = payload,
             targetFragmentId = targetFragmentId,
             sourceFragmentId = sourceFragmentId
         )
@@ -170,7 +171,7 @@ class ServiceWorkerChannel internal constructor(
 
     internal suspend fun sendControl(
         typeId: String,
-        payloadJson: String,
+        payload: PreferenceElement,
         targetFragmentId: String? = null,
         sourceFragmentId: String? = null
     ): Boolean {
@@ -186,7 +187,7 @@ class ServiceWorkerChannel internal constructor(
             correlationId = 0L,
             clientId = lastClientId,
             typeId = typeId,
-            payloadJson = payloadJson,
+            payload = payload,
             targetFragmentId = targetFragmentId,
             sourceFragmentId = sourceFragmentId
         )
@@ -195,7 +196,7 @@ class ServiceWorkerChannel internal constructor(
 
     internal fun sendControlAsync(
         typeId: String,
-        payloadJson: String,
+        payload: PreferenceElement,
         targetFragmentId: String? = null,
         sourceFragmentId: String? = null
     ) {
@@ -208,7 +209,7 @@ class ServiceWorkerChannel internal constructor(
                     correlationId = 0L,
                     clientId = lastClientId,
                     typeId = typeId,
-                    payloadJson = payloadJson,
+                    payload = payload,
                     targetFragmentId = targetFragmentId,
                     sourceFragmentId = sourceFragmentId
                 )
@@ -248,7 +249,7 @@ class ServiceWorkerChannel internal constructor(
                 throw ServiceWorkerIpcException("Unable to connect ServiceWorkerChannel to background ServiceWorker.")
             }
         }
-        val (typeId, payloadJson) = ServiceWorkerCodecRegistry.encodePayload(payload)
+        val (typeId, payload) = ServiceWorkerCodecRegistry.encodePayload(payload)
         val deferred = CompletableDeferred<ServiceWorkerEnvelope>()
         val entry = withChannelLock {
             val corrId = nextCorrelationId++
@@ -260,7 +261,7 @@ class ServiceWorkerChannel internal constructor(
                 correlationId = entry.correlationId,
                 clientId = lastClientId,
                 typeId = typeId,
-                payloadJson = payloadJson,
+                payload = payload,
                 targetFragmentId = targetFragmentId,
                 sourceFragmentId = sourceFragmentId
             )
@@ -273,7 +274,7 @@ class ServiceWorkerChannel internal constructor(
                     response.error.ifEmpty { "ServiceWorker rejected request '$typeId'." }
                 )
             }
-            return ServiceWorkerCodecRegistry.decodeAs(response.typeId, response.payloadJson, responseType)
+            return ServiceWorkerCodecRegistry.decodeAs(response.typeId, response.payload, responseType)
         } catch (t: TimeoutCancellationException) {
             throw ServiceWorkerIpcException("Timed out waiting for ServiceWorker response for '$typeId'.", t)
         } catch (ce: CancellationException) {
@@ -457,9 +458,8 @@ class ServiceWorkerChannel internal constructor(
             }
             ServiceWorkerEnvelope.KIND_MESSAGE -> {
                 if (envelope.typeId == ServiceWorkerEnvelope.CONTROL_OPEN_MAIN_WINDOW) {
-                    val route = envelope.payloadJson.trim()
-                        .removeSurrounding("\"")
-                        .takeIf { it.isNotEmpty() && it != "null" }
+                    val route = envelope.payload.asString()?.trim()
+                        ?.takeIf { it.isNotEmpty() && it != "null" }
                     GenericUiThreading.runOnUi {
                         val window = Application.current?.mainWindow
                         if (window != null) {
@@ -489,7 +489,7 @@ class ServiceWorkerChannel internal constructor(
                     return
                 }
                 if (envelope.typeId == ServiceWorkerEnvelope.CONTROL_LAUNCH_FRAGMENT) {
-                    val req = ServiceWorkerFragmentLaunchRequest.fromControlPayloadJson(envelope.payloadJson)
+                    val req = ServiceWorkerFragmentLaunchRequest.fromControlPayloadElement(envelope.payload)
                     if (req != null) {
                         GenericUiThreading.runOnUi {
                             ServiceWorkerUiWindowCoordinator.handleLaunchFragment(req)
@@ -498,7 +498,7 @@ class ServiceWorkerChannel internal constructor(
                     return
                 }
                 if (envelope.typeId == ServiceWorkerEnvelope.CONTROL_CLOSE_FRAGMENT) {
-                    val closeTarget = ServiceWorkerFragmentLaunchRequest.decodeCloseControlPayload(envelope.payloadJson)
+                    val closeTarget = ServiceWorkerFragmentLaunchRequest.decodeCloseControlPayload(envelope.payload)
                     if (closeTarget != null) {
                         GenericUiThreading.runOnUi {
                             ServiceWorkerUiWindowCoordinator.handleCloseFragment(
@@ -524,7 +524,7 @@ class ServiceWorkerChannel internal constructor(
                         for (entry in matching) {
                             val decoded = ServiceWorkerCodecRegistry.decodeAs(
                                 envelope.typeId,
-                                envelope.payloadJson,
+                                envelope.payload,
                                 entry.payloadClass
                             )
                             entry.handler(decoded)
@@ -549,14 +549,14 @@ class ServiceWorkerChannel internal constructor(
                 val reply = ServiceWorkerReply(
                     sendSuccess = { responsePayload ->
                         scope.launch {
-                            val (respType, respJson) = ServiceWorkerCodecRegistry.encodePayload(responsePayload)
+                            val (respType, respPayload) = ServiceWorkerCodecRegistry.encodePayload(responsePayload)
                             runtime.sendClientEnvelope(
                                 ServiceWorkerEnvelope(
                                     kind = ServiceWorkerEnvelope.KIND_RESPONSE,
                                     correlationId = envelope.correlationId,
                                     clientId = envelope.clientId,
                                     typeId = respType,
-                                    payloadJson = respJson,
+                                    payload = respPayload,
                                     targetFragmentId = envelope.sourceFragmentId,
                                     sourceFragmentId = envelope.targetFragmentId
                                 )
@@ -586,7 +586,7 @@ class ServiceWorkerChannel internal constructor(
                     try {
                         val decoded = ServiceWorkerCodecRegistry.decodeAs(
                             envelope.typeId,
-                            envelope.payloadJson,
+                            envelope.payload,
                             entry.payloadClass
                         )
                         entry.handler(decoded, reply)

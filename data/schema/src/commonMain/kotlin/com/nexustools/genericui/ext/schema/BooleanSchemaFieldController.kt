@@ -4,6 +4,7 @@ import com.nexustools.genericui.component.form.CheckBox
 import com.nexustools.genericui.component.form.Select
 import com.nexustools.genericui.component.form.SelectOption
 import com.nexustools.genericui.component.form.Switch
+import com.nexustools.genericui.component.typography.ILabelTarget
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.enums.bootstrap.AlignSelf
 
@@ -75,6 +76,7 @@ internal class BooleanSchemaFieldController(
         if (!compactInline && (switchWidget != null || checkWidget != null)) {
             control.style.setAlignSelf(AlignSelf.START)
         }
+        bindLabelTarget(control as? ILabelTarget)
         mountStandardBody(control, compactInline, control)
     }
 

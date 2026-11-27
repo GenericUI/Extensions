@@ -47,6 +47,7 @@ internal class CompoundNumberSchemaFieldController(
                 rowContainer.addChild(Label(unitLbl, "span", "input-group-text"))
             }
         }
+        bindLabelTarget(slotFields.firstOrNull())
         mountStandardBody(rowContainer, compactInline, *slotFields.toTypedArray())
     }
 

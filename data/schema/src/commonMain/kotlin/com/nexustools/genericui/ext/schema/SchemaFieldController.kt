@@ -1,6 +1,7 @@
 package com.nexustools.genericui.ext.schema
 
 import com.nexustools.genericui.component.layout.HStack
+import com.nexustools.genericui.component.typography.ILabelTarget
 import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.component.typography.Text
 import com.nexustools.genericui.core.AbstractComponent
@@ -15,6 +16,8 @@ abstract class SchemaFieldController {
     abstract val rootComponent: AbstractComponent
     abstract val labelHeaderContainer: HStack
     abstract val labelComponent: Label?
+    open val primaryLabelTarget: ILabelTarget?
+        get() = labelComponent?.target
     abstract val errorLabel: Label?
     open val descriptionLabel: Text? = null
 

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>20 - Template, Shadow DOM, Iframe, Dynamic Stylesheets, ES6+ Stress &amp; Capabilities</title>
+  <style id="base-sheet">
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .outer-leak-check { color: rgb(255, 0, 0); }
+    #sandbox-iframe { width: 280px; height: 72px; border: 1px solid #38bdf8; border-radius: 6px; background: #0b1220; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+  </style>
+</head>
+<body>
+  <h1>20 &mdash; Template, Shadow DOM, Iframe, CSSOM, ES6+ Stress &amp; Capability Probe</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <template id="card-tpl">
+      <div class="tpl-card" data-from="template"><strong class="tpl-title">Default</strong></div>
+    </template>
+    <div id="tpl-mount"></div>
+
+    <div id="shadow-open-host"><span id="slotted-heading" slot="title">Projected Slot Title</span></div>
+    <div id="shadow-closed-host"></div>
+
+    <div id="cssom-target">CSSOM Rule Target</div>
+    <iframe id="sandbox-iframe" srcdoc="<!DOCTYPE html><html><body style='margin:8px;color:#86efac;background:#0b1220;font-family:sans-serif;'><div id='inner-frame-box'>Inside Iframe srcdoc</div></body></html>"></iframe>
+    <div id="cap-json" style="font-family:monospace;font-size:12px;color:#94a3b8;"></div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        var q = [];
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) (function (tc) {
+          q.push(function () {
+            sum.total++; var row = document.createElement("div"); c.appendChild(row);
+            try {
+              var r = tc.fn();
+              if (r && typeof r.then === "function") return r.then(function () { sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }, function (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; });
+              sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name;
+            } catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+          });
+        })(suites[i].tests[j]);
+        (function run(k) {
+          if (k >= q.length) {
+            root.__suiteSummary = sum;
+            var bar = document.getElementById("suite-summary-bar");
+            bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+            bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+            return;
+          }
+          var out = q[k]();
+          if (out && typeof out.then === "function") out.then(function () { run(k + 1); }, function () { run(k + 1); }); else run(k + 1);
+        })(0);
+      });
+    }
+  })(window);
+
+  window.__probeWebViewCapabilities = function () {
+    var cv2 = document.createElement("canvas");
+    var cv3 = document.createElement("canvas");
+    var vid = document.createElement("video");
+    var aud = document.createElement("audio");
+    return {
+      dom: typeof document.createElement === "function" && typeof document.querySelector === "function",
+      cssGrid: typeof getComputedStyle === "function",
+      canvas2d: !!(cv2.getContext && cv2.getContext("2d")),
+      webgl: !!(cv3.getContext && (cv3.getContext("webgl2") || cv3.getContext("webgl"))),
+      video: typeof vid.canPlayType === "function",
+      audio: typeof aud.canPlayType === "function",
+      webAudio: typeof (window.AudioContext || window.webkitAudioContext) === "function",
+      svg: typeof document.createElementNS === "function",
+      shadowDom: typeof Element !== "undefined" && typeof Element.prototype.attachShadow === "function",
+      iframe: "contentDocument" in document.createElement("iframe"),
+      fetch: typeof fetch === "function",
+      xhr: typeof XMLHttpRequest === "function",
+      webSocket: typeof WebSocket === "function",
+      storage: typeof localStorage === "object",
+      history: typeof history === "object" && typeof history.pushState === "function",
+      observers: typeof MutationObserver === "function" && typeof ResizeObserver === "function" && typeof IntersectionObserver === "function",
+      hostBridge: !!(window.genericUi && typeof window.genericUi.callCommunicationFunction === "function")
+    };
+  };
+  </script>
+
+  <script>
+  describe("20 - Template, Shadow DOM, Iframe, CSSOM, ES6+ & Capabilities", function () {
+    it("clones <template>.content cleanly without premature rendering", function () {
+      var tpl = document.getElementById("card-tpl");
+      expect(document.querySelector(".tpl-card")).toBeNull();
+      var clone = tpl.content.cloneNode(true);
+      clone.querySelector(".tpl-title").textContent = "Instantiated";
+      document.getElementById("tpl-mount").appendChild(clone);
+      var mounted = document.querySelector("#tpl-mount .tpl-card");
+      expect(mounted.getAttribute("data-from")).toBe("template");
+      expect(mounted.querySelector(".tpl-title").textContent).toBe("Instantiated");
+    });
+
+    it("encapsulates open and closed Shadow DOM trees with scoped styles and <slot> projection", function () {
+      var openHost = document.getElementById("shadow-open-host");
+      var sr = openHost.attachShadow({ mode: "open" });
+      sr.innerHTML = "<style>.inner { color: rgb(34, 197, 94); }</style><div id='sr-box' class='inner outer-leak-check'><slot name='title'></slot></div>";
+      expect(openHost.shadowRoot).toBe(sr);
+      expect(document.getElementById("sr-box")).toBeNull();
+
+      var inner = sr.getElementById("sr-box");
+      expect(getComputedStyle(inner).color).toContain("34, 197, 94");
+      var slot = sr.querySelector("slot");
+      var assigned = slot.assignedNodes();
+      expect(assigned.length).toBe(1);
+      expect(assigned[0].id).toBe("slotted-heading");
+
+      var closedHost = document.getElementById("shadow-closed-host");
+      closedHost.attachShadow({ mode: "closed" });
+      expect(closedHost.shadowRoot).toBeNull();
+    });
+
+    it("supports dynamic <script>, dynamic <style>, and CSSStyleSheet insertRule/deleteRule", function () {
+      var sheetEl = document.getElementById("base-sheet");
+      var sheet = sheetEl.sheet;
+      expect(sheet).toBeTruthy();
+      var idx = sheet.insertRule("#cssom-target { z-index: 42; }", sheet.cssRules.length);
+      expect(getComputedStyle(document.getElementById("cssom-target")).zIndex).toBe("42");
+      sheet.deleteRule(idx);
+
+      var dyn = document.createElement("script");
+      dyn.textContent = "window.__dynamicScriptMarker20 = 777;";
+      document.head.appendChild(dyn);
+      expect(window.__dynamicScriptMarker20).toBe(777);
+    });
+
+    it("loads <iframe> srcdoc with accessible contentDocument and contentWindow", function () {
+      var frame = document.getElementById("sandbox-iframe");
+      if (typeof Promise === "undefined") return;
+      return new Promise(function (resolve, reject) {
+        var timer = setTimeout(function () { reject(new Error("Iframe load timeout")); }, 2000);
+        function inspect() {
+          try {
+            var doc = frame.contentDocument;
+            if (!doc || !doc.getElementById("inner-frame-box")) return false;
+            expect(doc.getElementById("inner-frame-box").textContent).toBe("Inside Iframe srcdoc");
+            expect(frame.contentWindow).toBeTruthy();
+            clearTimeout(timer);
+            resolve();
+            return true;
+          } catch (e) { clearTimeout(timer); reject(e); return true; }
+        }
+        if (!inspect()) frame.addEventListener("load", inspect, { once: true });
+      });
+    });
+
+    it("executes ES6+ classes, inheritance, collections, TypedArrays, Symbols, RegExp & JSON hooks in NJS", async function () {
+      class Entity {
+        constructor(name) { this.name = name; }
+        label() { return `Entity:${this.name}`; }
+      }
+      class Widget extends Entity {
+        constructor(name, id) { super(name); this.id = id; }
+        label() { return `${super.label()}#${this.id}`; }
+      }
+      const w = new Widget("Canvas", 9);
+      expect(w.label()).toBe("Entity:Canvas#9");
+
+      const [first, ...rest] = [10, 20, 30];
+      expect(first).toBe(10);
+      expect(rest).toEqual([20, 30]);
+      const { id: wid } = w;
+      expect(wid).toBe(9);
+
+      const map = new Map([["a", 1], ["b", 2]]);
+      const set = new Set([1, 2, 2, 3]);
+      expect(map.get("b")).toBe(2);
+      expect(set.size).toBe(3);
+
+      const ab = new ArrayBuffer(8);
+      const dv = new DataView(ab);
+      dv.setUint32(0, 0x12345678, false);
+      const u8 = new Uint8Array(ab);
+      expect(u8[0]).toBe(0x12);
+      expect(u8[3]).toBe(0x78);
+
+      const sym = Symbol("secret");
+      const holder = { [sym]: 123 };
+      expect(holder[sym]).toBe(123);
+
+      const replaced = "v1-v2".replace(/v(\d)/g, (_, d) => `R${Number(d) * 2}`);
+      expect(replaced).toBe("R2-R4");
+
+      const rev = JSON.parse('{"x":5}', (k, v) => (k === "x" ? v * 10 : v));
+      expect(rev.x).toBe(50);
+
+      const asyncVal = await Promise.resolve(21).then((n) => n * 2);
+      expect(asyncVal).toBe(42);
+    });
+
+    it("reports complete WebView capability matrix via __probeWebViewCapabilities", function () {
+      const caps = window.__probeWebViewCapabilities();
+      document.getElementById("cap-json").textContent = JSON.stringify(caps);
+      expect(caps.dom).toBe(true);
+      expect(caps.canvas2d).toBe(true);
+      expect(caps.webgl).toBe(true);
+      expect(caps.video).toBe(true);
+      expect(caps.audio).toBe(true);
+      expect(caps.svg).toBe(true);
+    });
+  });
+  </script>
+</body>
+</html>

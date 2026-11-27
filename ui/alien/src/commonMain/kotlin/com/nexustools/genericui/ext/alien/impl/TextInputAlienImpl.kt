@@ -2,7 +2,9 @@ package com.nexustools.genericui.ext.alien.impl
 
 import com.nexustools.genericui.ext.alien.AlienBootstrapPainter
 import com.nexustools.genericui.ext.alien.AlienRenderSession
+import com.nexustools.genericui.ext.alien.AlienResolvedVisualStyle
 import com.nexustools.genericui.ext.alien.AlienWidgetNode
+import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
@@ -12,12 +14,14 @@ import com.nexustools.genericui.style.color.RgbaColor
  * Self-rendered Bootstrap 5.3 `.form-control` text field / textarea (`TextInputAlienImpl`)
  * implementing [TextInputNativeImpl].
  */
-class TextInputAlienImpl(
+open class TextInputAlienImpl(
     private var multiline: Boolean = false,
+    componentClassPrefix: String = "form-control",
+    tagName: String = if (multiline) "textarea" else "input",
     session: AlienRenderSession? = null
 ) : AlienImpl(
-    componentClassPrefix = "form-control",
-    tagName = if (multiline) "textarea" else "input",
+    componentClassPrefix = componentClassPrefix,
+    tagName = tagName,
     session = session
 ), TextInputNativeImpl<Any?> {
 
@@ -28,14 +32,17 @@ class TextInputAlienImpl(
     private var passwordModeState: Boolean = false
     private var onValueChangedListener: ((String) -> Unit)? = null
     private var onSubmitListener: ((String) -> Unit)? = null
+    private var externalKeyDownListener: ((KeyEvent) -> Unit)? = null
 
     init {
         node.focusRingEnabled = true
+        node.attributes["value"] = ""
         node.customMeasure = { availW, _, style ->
             val minW = 180
             val w = if (availW > 0) availW.coerceAtLeast(minW) else 220
             val h = if (multiline) {
-                (style.fontSizePx * 4f).toInt() + style.padding.top + style.padding.bottom
+                val rows = node.attributes["rows"]?.toIntOrNull()?.coerceAtLeast(1) ?: 4
+                (style.fontSizePx * rows).toInt() + style.padding.top + style.padding.bottom
             } else {
                 style.fontSizePx.toInt() + style.padding.top + style.padding.bottom + 10
             }
@@ -55,7 +62,7 @@ class TextInputAlienImpl(
                 else -> textValue
             }
             val textStyle = if (isShowingPlaceholder) {
-                style.copy(textColor = style.textColor.withAlpha(0.55f))
+                style.copy(textColor = resolvePlaceholderColor(style))
             } else {
                 style
             }
@@ -87,6 +94,7 @@ class TextInputAlienImpl(
             }
         }
         node.onKeyDown = { keyEv ->
+            externalKeyDownListener?.invoke(keyEv)
             if (!readOnlyState && node.enabled) {
                 when (keyEv.key) {
                     "Enter" -> if (!multiline) {
@@ -105,9 +113,13 @@ class TextInputAlienImpl(
         }
     }
 
+    protected open fun resolvePlaceholderColor(style: AlienResolvedVisualStyle): RgbaColor =
+        style.textColor.withAlpha(0.55f)
+
     private fun updateValueInternal(next: String) {
         if (textValue != next) {
             textValue = next
+            node.attributes["value"] = next
             onValueChangedListener?.invoke(textValue)
             node.invalidateBounds()
         }
@@ -116,6 +128,7 @@ class TextInputAlienImpl(
     override fun setValue(value: String) {
         if (textValue != value) {
             textValue = value
+            node.attributes["value"] = value
             node.invalidateBounds()
         }
     }
@@ -125,6 +138,7 @@ class TextInputAlienImpl(
     override fun setPlaceholder(placeholder: String) {
         if (placeholderValue != placeholder) {
             placeholderValue = placeholder
+            node.attributes["placeholder"] = placeholder
             node.invalidateBounds()
         }
     }
@@ -155,6 +169,7 @@ class TextInputAlienImpl(
     override fun setMultiline(multiline: Boolean) {
         if (this.multiline != multiline) {
             this.multiline = multiline
+            node.tagName = if (multiline) "textarea" else "input"
             node.markLayoutDirty()
             node.invalidateBounds()
         }
@@ -166,5 +181,9 @@ class TextInputAlienImpl(
 
     override fun setOnSubmit(listener: ((String) -> Unit)?) {
         onSubmitListener = listener
+    }
+
+    override fun setOnKeyDown(listener: ((KeyEvent) -> Unit)?) {
+        externalKeyDownListener = listener
     }
 }

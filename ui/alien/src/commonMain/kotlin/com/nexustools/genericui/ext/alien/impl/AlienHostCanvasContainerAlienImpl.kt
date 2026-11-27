@@ -64,10 +64,29 @@ class AlienHostCanvasContainerAlienImpl(
     }
 
     fun attachHostCanvasIfNeeded() {
+        if (session.offscreenOnly) {
+            val initialW = alienRoot.widthPx ?: session.viewportWidth
+            val initialH = alienRoot.heightPx ?: session.viewportHeight
+            if (initialW > 0 && initialH > 0) {
+                session.resizeViewport(initialW, initialH)
+                (alienRoot as? IFragment)?.onResize(initialW, initialH)
+            }
+            session.requestLayoutAndRepaint()
+            return
+        }
         if (canvasNativeImpl == null) {
-            val cImpl = runCatching {
+            val cImpl = try {
                 session.canvas2D.ensureNativeImpl()
-            }.getOrNull()
+            } catch (e: IllegalStateException) {
+                val msg = e.message ?: ""
+                if ("No Canvas2DNativeImpl provider registered" in msg ||
+                    "No active NativeFactory" in msg
+                ) {
+                    null
+                } else {
+                    throw e
+                }
+            }
             canvasNativeImpl = cImpl
             if (cImpl != null) {
                 cImpl.setAttribute("alienCanvas2D", "true")

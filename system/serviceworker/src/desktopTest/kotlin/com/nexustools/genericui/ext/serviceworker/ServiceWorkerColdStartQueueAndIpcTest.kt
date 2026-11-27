@@ -292,7 +292,7 @@ class ServiceWorkerColdStartQueueAndIpcTest {
                     correlationId = 0L,
                     clientId = "ui-1",
                     typeId = ServiceWorkerEnvelope.CONTROL_FRAGMENT_MOUNTED,
-                    payloadJson = ServiceWorkerFragmentLaunchRequest.encodeMountControlPayload(
+                    payload = ServiceWorkerFragmentLaunchRequest.encodeMountControlPayload(
                         fragmentId = "com.test.QueueTarget",
                         instanceId = "inst-q1",
                         route = "/queue-target"
@@ -311,7 +311,7 @@ class ServiceWorkerColdStartQueueAndIpcTest {
             assertEquals(3, flushedMsgs.size)
             val seqs = flushedMsgs.map { env ->
                 assertEquals("com.test.QueueTarget", env.targetFragmentId)
-                (ServiceWorkerCodecRegistry.decodePayload(env.typeId, env.payloadJson) as QueuedCmd).seq
+                (ServiceWorkerCodecRegistry.decodePayload(env.typeId, env.payload) as QueuedCmd).seq
             }
             assertEquals(listOf(1, 2, 3), seqs)
 
@@ -319,7 +319,7 @@ class ServiceWorkerColdStartQueueAndIpcTest {
             assertNotNull(reqEnv)
             assertEquals("com.test.QueueTarget", reqEnv.targetFragmentId)
 
-            val (_, respJson) = ServiceWorkerCodecRegistry.encodePayload(FragCalcResp(42))
+            val (_, respPayload) = ServiceWorkerCodecRegistry.encodePayload(FragCalcResp(42))
             worker.dispatchIncomingEnvelope(
                 clientId = "ui-1",
                 envelope = ServiceWorkerEnvelope(
@@ -327,14 +327,14 @@ class ServiceWorkerColdStartQueueAndIpcTest {
                     correlationId = reqEnv.correlationId,
                     clientId = "ui-1",
                     typeId = "test.q.FragCalcResp",
-                    payloadJson = respJson,
+                    payload = respPayload,
                     sourceFragmentId = "com.test.QueueTarget"
                 )
             )
             assertEquals(FragCalcResp(42), coldReqDeferred.await())
 
             // Fragment -> Worker targeted message and request/reply
-            val (_, statusJson) = ServiceWorkerCodecRegistry.encodePayload(StatusUpdate("synced"))
+            val (_, statusPayload) = ServiceWorkerCodecRegistry.encodePayload(StatusUpdate("synced"))
             worker.dispatchIncomingEnvelope(
                 clientId = "ui-1",
                 envelope = ServiceWorkerEnvelope(
@@ -342,14 +342,14 @@ class ServiceWorkerColdStartQueueAndIpcTest {
                     correlationId = 0L,
                     clientId = "ui-1",
                     typeId = "test.q.StatusUpdate",
-                    payloadJson = statusJson,
+                    payload = statusPayload,
                     sourceFragmentId = "com.test.QueueTarget"
                 )
             )
             waitUntil { worker.snapshotMessages().size == 1 }
             assertEquals("inst-q1" to StatusUpdate("synced"), worker.snapshotMessages().single())
 
-            val (_, fragReqJson) = ServiceWorkerCodecRegistry.encodePayload(FragCalcReq(8, 9))
+            val (_, fragReqPayload) = ServiceWorkerCodecRegistry.encodePayload(FragCalcReq(8, 9))
             worker.dispatchIncomingEnvelope(
                 clientId = "ui-1",
                 envelope = ServiceWorkerEnvelope(
@@ -357,7 +357,7 @@ class ServiceWorkerColdStartQueueAndIpcTest {
                     correlationId = 777L,
                     clientId = "ui-1",
                     typeId = "test.q.FragCalcReq",
-                    payloadJson = fragReqJson,
+                    payload = fragReqPayload,
                     sourceFragmentId = "com.test.QueueTarget"
                 )
             )
@@ -367,7 +367,7 @@ class ServiceWorkerColdStartQueueAndIpcTest {
             val workerResp = host.snapshotSent().first { it.correlationId == 777L }
             assertEquals(
                 FragCalcResp(72),
-                ServiceWorkerCodecRegistry.decodePayload(workerResp.typeId, workerResp.payloadJson)
+                ServiceWorkerCodecRegistry.decodePayload(workerResp.typeId, workerResp.payload)
             )
 
             // Unmount notifies onFragmentDisconnected
@@ -378,7 +378,7 @@ class ServiceWorkerColdStartQueueAndIpcTest {
                     correlationId = 0L,
                     clientId = "ui-1",
                     typeId = ServiceWorkerEnvelope.CONTROL_FRAGMENT_UNMOUNTED,
-                    payloadJson = ServiceWorkerFragmentLaunchRequest.encodeMountControlPayload(
+                    payload = ServiceWorkerFragmentLaunchRequest.encodeMountControlPayload(
                         fragmentId = "com.test.QueueTarget",
                         instanceId = "inst-q1",
                         route = "/queue-target"
@@ -416,7 +416,7 @@ class ServiceWorkerColdStartQueueAndIpcTest {
                     correlationId = 0L,
                     clientId = "ui-2",
                     typeId = ServiceWorkerEnvelope.CONTROL_FRAGMENT_MOUNTED,
-                    payloadJson = ServiceWorkerFragmentLaunchRequest.encodeMountControlPayload(
+                    payload = ServiceWorkerFragmentLaunchRequest.encodeMountControlPayload(
                         fragmentId = "com.test.Other",
                         instanceId = "inst-o1",
                         route = "/other"
@@ -439,7 +439,7 @@ class ServiceWorkerColdStartQueueAndIpcTest {
             assertEquals("com.test.Other", closeEnv.targetFragmentId)
             assertEquals(
                 "com.test.Other" to "inst-o1",
-                ServiceWorkerFragmentLaunchRequest.decodeCloseControlPayload(closeEnv.payloadJson)
+                ServiceWorkerFragmentLaunchRequest.decodeCloseControlPayload(closeEnv.payload)
             )
             worker.closeFragment<OtherFragment>()
             assertEquals("com.test.Other" to null, host.snapshotCloses().last())

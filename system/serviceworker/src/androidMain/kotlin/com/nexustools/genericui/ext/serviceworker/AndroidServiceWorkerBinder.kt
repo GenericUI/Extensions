@@ -1,11 +1,18 @@
 package com.nexustools.genericui.ext.serviceworker
 
-import android.os.Binder
+import com.nexustools.genericui.ext.ipc.AndroidServiceIpcBinder
+import com.nexustools.genericui.ext.ipc.IpcConfig
+import com.nexustools.genericui.ext.ipc.IpcPacket
 
 /**
- * Local in-process Android [Binder] linking Activities/clients directly to the single-process
- * `@MainServiceWorker` host managed by [AndroidServiceWorkerController].
+ * Android Binder linking UI Activities/clients to the [AndroidServiceWorkerController] service host
+ * on top of `:extensions:system:ipc`'s [AndroidServiceIpcBinder] BinaryJson chunked Binder transport.
  */
 class AndroidServiceWorkerBinder internal constructor(
-    internal val controller: AndroidServiceWorkerController
-) : Binder()
+    internal val controller: AndroidServiceWorkerController,
+    config: IpcConfig = IpcConfig(),
+    onPacketReceived: ((IpcPacket) -> IpcPacket?)? = null
+) : AndroidServiceIpcBinder(
+    config = config,
+    onPacketReceived = onPacketReceived
+)

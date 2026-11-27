@@ -1,4 +1,7 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+@file:OptIn(
+    kotlinx.cinterop.ExperimentalForeignApi::class,
+    kotlin.concurrent.atomics.ExperimentalAtomicApi::class
+)
 
 package com.nexustools.genericui.ios
 
@@ -12,8 +15,14 @@ import com.nexustools.genericui.enums.media.MediaContainer
 import com.nexustools.genericui.enums.media.VideoCodec
 import com.nexustools.genericui.enums.media.VideoResizeMode
 import com.nexustools.genericui.ext.media.MediaScreenWakeController
+import com.nexustools.genericui.ext.media.system.SystemMediaFrameRingBuffer
+import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.nativeimpl.media.VideoPlayerNativeImpl
+import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CValue
+import kotlinx.cinterop.get
+import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.useContents
 import platform.AVFAudio.AVAudioSession
 import platform.AVFAudio.AVAudioSessionCategoryPlayback
 import platform.AVFAudio.setActive
@@ -26,9 +35,11 @@ import platform.AVFoundation.AVMediaSelectionOption
 import platform.AVFoundation.AVPlayer
 import platform.AVFoundation.AVPlayerItem
 import platform.AVFoundation.AVPlayerItemDidPlayToEndTimeNotification
+import platform.AVFoundation.AVPlayerItemVideoOutput
 import platform.AVFoundation.AVPlayerLayer
 import platform.AVFoundation.AVURLAsset
 import platform.AVFoundation.CMTimeRangeValue
+import platform.AVFoundation.addOutput
 import platform.AVFoundation.addPeriodicTimeObserverForInterval
 import platform.AVFoundation.asset
 import platform.AVFoundation.currentItem
@@ -39,8 +50,10 @@ import platform.AVFoundation.mediaSelectionGroupForMediaCharacteristic
 import platform.AVFoundation.muted
 import platform.AVFoundation.pause
 import platform.AVFoundation.play
+import platform.AVFoundation.presentationSize
 import platform.AVFoundation.preventsDisplaySleepDuringVideoPlayback
 import platform.AVFoundation.rate
+import platform.AVFoundation.removeOutput
 import platform.AVFoundation.removeTimeObserver
 import platform.AVFoundation.replaceCurrentItemWithPlayerItem
 import platform.AVFoundation.seekToTime
@@ -51,13 +64,28 @@ import platform.CoreGraphics.CGRectMake
 import platform.CoreMedia.CMTimeGetSeconds
 import platform.CoreMedia.CMTimeMakeWithSeconds
 import platform.CoreMedia.CMTimeRangeGetEnd
+import platform.CoreVideo.CVPixelBufferGetBaseAddress
+import platform.CoreVideo.CVPixelBufferGetBytesPerRow
+import platform.CoreVideo.CVPixelBufferGetHeight
+import platform.CoreVideo.CVPixelBufferGetWidth
+import platform.CoreVideo.CVPixelBufferLockBaseAddress
+import platform.CoreVideo.CVPixelBufferRelease
+import platform.CoreVideo.CVPixelBufferUnlockBaseAddress
+import platform.CoreVideo.kCVPixelBufferLock_ReadOnly
+import platform.CoreVideo.kCVPixelBufferPixelFormatTypeKey
+import platform.CoreVideo.kCVPixelFormatType_32BGRA
+import platform.Foundation.CFBridgingRelease
 import platform.Foundation.NSNotificationCenter
+import platform.Foundation.NSNumber
 import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSURL
 import platform.Foundation.NSValue
 import platform.Foundation.localeIdentifier
+import platform.Foundation.numberWithUnsignedInt
 import platform.UIKit.UIColor
 import platform.UIKit.UIView
+import kotlin.concurrent.atomics.AtomicInt
+import kotlin.concurrent.atomics.AtomicLong
 
 /**
  * Apple iOS & iPadOS (`BackendTarget.IOS` and `BackendTarget.IPadOS`) implementation of
@@ -106,9 +134,20 @@ class IosVideoPlayerImpl private constructor(
     private var volumeLevel: Float = 1.0f
     private var mutedFlag: Boolean = false
     private var resizeMode: VideoResizeMode = VideoResizeMode.FIT
+    private var loopEnabled: Boolean = false
     private var antialiasingEnabled: Boolean = true
     private var keepScreenOnState: Boolean = true
     private var screenWakeToken: Long = MediaScreenWakeController.allocateToken()
+
+    private var offscreenFrameCaptureEnabled: Boolean = false
+    private var videoOutput: AVPlayerItemVideoOutput? = null
+    private val frameRingLock = AtomicInt(0)
+    private var offscreenRgbaRing = SystemMediaFrameRingBuffer(width = 16, height = 16, capacity = 3)
+    private val frameVersionCounter = AtomicLong(0L)
+    private val presentedFrameCounter = AtomicLong(0L)
+    private var naturalWidthPx: Int = 0
+    private var naturalHeightPx: Int = 0
+    private var onBeforeFramePresentListener: ((Long, Double) -> Unit)? = null
 
     @kotlin.concurrent.Volatile
     private var nativePlayerDisposed: Boolean = false
@@ -162,12 +201,88 @@ class IosVideoPlayerImpl private constructor(
                     onTimeUpdateListener?.invoke(sec)
                 }
                 syncItemDurationAndBuffersFromPlayer()
+                if (offscreenFrameCaptureEnabled) {
+                    captureLatestFrameFromVideoOutput()
+                }
             }
+        }
+    }
+
+    private fun attachVideoOutputToCurrentItem() {
+        val item = avPlayer.currentItem ?: return
+        val existing = videoOutput
+        if (existing != null) {
+            runCatching { item.removeOutput(existing) }
+        }
+        val formatKey = CFBridgingRelease(kCVPixelBufferPixelFormatTypeKey)
+        val attrs = mapOf<Any?, Any?>(
+            formatKey to NSNumber.numberWithUnsignedInt(kCVPixelFormatType_32BGRA)
+        )
+        val output = AVPlayerItemVideoOutput(pixelBufferAttributes = attrs)
+        item.addOutput(output)
+        videoOutput = output
+    }
+
+    private fun captureLatestFrameFromVideoOutput() {
+        if (!offscreenFrameCaptureEnabled || nativePlayerDisposed) return
+        val output = videoOutput ?: return
+        val currentCmTime = avPlayer.currentTime()
+        if (!output.hasNewPixelBufferForItemTime(currentCmTime)) return
+        val pb = output.copyPixelBufferForItemTime(currentCmTime, itemTimeForDisplay = null) ?: return
+        try {
+            CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly)
+            try {
+                val w = CVPixelBufferGetWidth(pb).toInt().coerceAtLeast(1)
+                val h = CVPixelBufferGetHeight(pb).toInt().coerceAtLeast(1)
+                val bytesPerRow = CVPixelBufferGetBytesPerRow(pb).toInt().coerceAtLeast(w * 4)
+                val baseAddr = CVPixelBufferGetBaseAddress(pb)?.reinterpret<ByteVar>() ?: return
+                naturalWidthPx = w
+                naturalHeightPx = h
+                while (!frameRingLock.compareAndSet(0, 1)) {
+                    // brief spin
+                }
+                try {
+                    val latest = offscreenRgbaRing.latestPresentedSlot()
+                    if (latest.width != w || latest.height != h) {
+                        offscreenRgbaRing = SystemMediaFrameRingBuffer(width = w, height = h, capacity = 3)
+                    }
+                    val dst = offscreenRgbaRing.acquireWriteSlot().bytes
+                    for (y in 0 until h) {
+                        val srcRow = y * bytesPerRow
+                        val dstRow = y * w * 4
+                        for (x in 0 until w) {
+                            val sIdx = srcRow + (x shl 2)
+                            val dIdx = dstRow + (x shl 2)
+                            dst[dIdx] = baseAddr[sIdx + 2]
+                            dst[dIdx + 1] = baseAddr[sIdx + 1]
+                            dst[dIdx + 2] = baseAddr[sIdx]
+                            dst[dIdx + 3] = baseAddr[sIdx + 3]
+                        }
+                    }
+                } finally {
+                    frameRingLock.store(0)
+                }
+                val frameIdx = presentedFrameCounter.addAndFetch(1L)
+                frameVersionCounter.addAndFetch(1L)
+                onBeforeFramePresentListener?.invoke(frameIdx, (currentTimeSec * 1000.0).coerceAtLeast(0.0))
+            } finally {
+                CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly)
+            }
+        } finally {
+            CVPixelBufferRelease(pb)
         }
     }
 
     private fun syncItemDurationAndBuffersFromPlayer() {
         val item = avPlayer.currentItem ?: return
+        item.presentationSize.useContents {
+            val w = width.toInt()
+            val h = height.toInt()
+            if (w > 0 && h > 0) {
+                naturalWidthPx = w
+                naturalHeightPx = h
+            }
+        }
         val dur = CMTimeGetSeconds(item.duration)
         if (!dur.isNaN() && !dur.isInfinite() && dur > 0.0 && dur != durationSec) {
             durationSec = dur
@@ -252,6 +367,9 @@ class IosVideoPlayerImpl private constructor(
             runCatching {
                 val item = AVPlayerItem.playerItemWithURL(nsUrl)
                 avPlayer.replaceCurrentItemWithPlayerItem(item)
+                if (offscreenFrameCaptureEnabled) {
+                    attachVideoOutputToCurrentItem()
+                }
                 if (currentTimeSec > 0.0) {
                     avPlayer.seekToTime(CMTimeMakeWithSeconds(currentTimeSec, 600))
                 }
@@ -260,6 +378,14 @@ class IosVideoPlayerImpl private constructor(
                     `object` = item,
                     queue = NSOperationQueue.mainQueue
                 ) { _ ->
+                    if (loopEnabled && !nativePlayerDisposed) {
+                        avPlayer.seekToTime(CMTimeMakeWithSeconds(0.0, 600))
+                        avPlayer.play()
+                        if (speed != 1.0f) {
+                            avPlayer.rate = speed
+                        }
+                        return@addObserverForName
+                    }
                     playing = false
                     syncWakeLockState()
                     onPlayingStateChangedListener?.invoke(false)
@@ -485,12 +611,62 @@ class IosVideoPlayerImpl private constructor(
             endedNotificationObserver = null
         }
         runCatching {
+            videoOutput?.let { out -> avPlayer.currentItem?.removeOutput(out) }
+            videoOutput = null
             avPlayer.pause()
             avPlayer.replaceCurrentItemWithPlayerItem(null)
         }
         hostView.playerLayer.player = null
         MediaScreenWakeController.releaseToken(screenWakeToken)
         super.dispose()
+    }
+
+    override fun setLoop(loop: Boolean) {
+        loopEnabled = loop
+    }
+
+    override fun isLoop(): Boolean = loopEnabled
+
+    override fun enableOffscreenFrameCapture(enabled: Boolean) {
+        offscreenFrameCaptureEnabled = enabled
+        if (enabled) {
+            runCatching { attachVideoOutputToCurrentItem() }
+        }
+    }
+
+    override fun copyLatestVideoFrame(): ImageBuffer? {
+        if (offscreenFrameCaptureEnabled) {
+            runCatching { captureLatestFrameFromVideoOutput() }
+        }
+        if (frameVersionCounter.load() <= 0L) return null
+        while (!frameRingLock.compareAndSet(0, 1)) {
+            // brief spin
+        }
+        return try {
+            val slot = offscreenRgbaRing.latestPresentedSlot()
+            ImageBuffer(
+                width = slot.width,
+                height = slot.height,
+                pixelFormat = slot.pixelFormat,
+                colorSpace = slot.colorSpace,
+                bytes = slot.bytes.copyOf()
+            )
+        } finally {
+            frameRingLock.store(0)
+        }
+    }
+
+    override val videoFrameVersion: Long
+        get() = frameVersionCounter.load()
+
+    override fun getNaturalVideoWidth(): Int = naturalWidthPx
+
+    override fun getNaturalVideoHeight(): Int = naturalHeightPx
+
+    override fun getPresentedFrameCount(): Long = presentedFrameCounter.load()
+
+    override fun setOnBeforeFramePresent(listener: ((frameIndex: Long, timestampMs: Double) -> Unit)?) {
+        onBeforeFramePresentListener = listener
     }
 
     override fun setOnMediaReady(listener: (() -> Unit)?) {

@@ -26,7 +26,7 @@
 - **Full `!important` Support**: Assign inside `important { ... }` or call `set<Property>(value, important = true)`.
 
 ### 1.2 `T.bootstrap { ... }` (Invisible Enum-Driven Bootstrap 5 Utilities)
-- Populates `WebDomElement.enumClassList` on `:web` and executes natively on all 7 non-web system targets, remaining invisible to `getClasses()` / `hasClass()` / `addClass()` / `removeClass()`:
+- Populates `WebDomElement.enumClassList` on `:web` and executes natively on all 8 non-web system targets, remaining invisible to `getClasses()` / `hasClass()` / `addClass()` / `removeClass()`:
   - **Variant & Sizing**: `type: BootstrapType?` (defaults to `NONE`), `size: BootstrapSize?`, `outline: Boolean`, `width: BootstrapWidth?`, `height: BootstrapHeight?`.
   - **Display & Flexbox**: `display: DisplayMode?`, `flexDirection: FlexDirection?`, `flexWrap: FlexWrap?`, `justifyContent: JustifyContent?`, `alignItems: AlignItems?`, `alignSelf: AlignSelf?`, `flexGrow`, `flexShrink`, `flexFill`, `gap`, `rowGap`, `columnGap`.
   - **Directional `SpacingScale` Margins & Paddings**, **Colors, Borders, Shadow, & Opacity**, and **Typography & Layout Utilities**.
@@ -61,54 +61,51 @@ val saveButton = buildDiv {
 
 ---
 
-## 2. Modular `:dsl` Architecture & Automatic Gradle Wiring (18 Companion `:dsl` Modules)
+## 2. Modular `:dsl` Architecture & Automatic Gradle Wiring (16 Companion `:dsl` Modules)
 
-To keep `:extensions:ui:dsl` lightweight and dependency-free outside `:common`, each DSL-enabled extension ships its own dedicated `<ext>:dsl` module wired automatically whenever `dsl()` is enabled in `genericui { extensions { ... } }`:
+To keep `:extensions:ui:dsl` lightweight and dependency-free outside `:common`, each UI/graphics/game/data extension with declarative tree builders ships its own dedicated `<ext>:dsl` module wired automatically whenever `dsl()` is enabled in `genericui { extensions { ... } }` (while non-UI utility and OS-bridge extensions such as `gamepad`, `mediacontrols`, `serviceworker`, `ipc`, and `pip` expose clean idiomatic Kotlin core APIs directly without `:dsl` modules):
 
 ```mermaid
 flowchart TD
     BaseDsl[":extensions:ui:dsl<br/>(@GenericUiDslMarker, style/bootstrap/important, HybridLayoutDsl, Builders, MVC)"]
     Common[":common"]
 
-    GraphicsDsl["Graphics :dsl<br/>:extensions:graphics:canvas2d:dsl • canvas3d:dsl • threejs:dsl"]
+    GraphicsDsl["Graphics :dsl<br/>:extensions:graphics:svg:dsl • canvas2d:dsl • canvas3d:dsl • threejs:dsl"]
     PhysicsDsl["Physics :dsl<br/>:extensions:physics:box2d:dsl • box3d:dsl"]
-    GameDsl["Game :dsl<br/>:extensions:game:gamepad:dsl • engine:dsl • engine2d:dsl • engine3d:dsl"]
-    MediaDsl["Media :dsl<br/>:extensions:media:media:dsl • mediacontrols:dsl"]
-    DataSystemDsl["Data & System :dsl<br/>:extensions:data:schema:dsl • :extensions:system:serviceworker:dsl"]
-    UiDsl["UI :dsl<br/>:extensions:ui:overlay:dsl • alien:dsl • webview:dsl • codeeditor:dsl • aichat:dsl • pip:dsl"]
+    GameDsl["Game :dsl<br/>:extensions:game:engine:dsl • engine2d:dsl • engine3d:dsl"]
+    MediaDsl["Media :dsl<br/>:extensions:media:media:dsl"]
+    DataDsl["Data :dsl<br/>:extensions:data:schema:dsl"]
+    UiDsl["UI :dsl<br/>:extensions:ui:overlay:dsl • alien:dsl • webview:dsl • codeeditor:dsl • aichat:dsl"]
 
     BaseDsl --> Common
     GraphicsDsl --> BaseDsl
     PhysicsDsl --> BaseDsl
     GameDsl --> BaseDsl
     MediaDsl --> BaseDsl
-    DataSystemDsl --> BaseDsl
+    DataDsl --> BaseDsl
     UiDsl --> BaseDsl
 ```
 
-### Complete Companion `:dsl` Module Matrix (All 18 Modules)
+### Complete Companion `:dsl` Module Matrix (All 16 Modules)
 
 | Companion `:dsl` Module | Package | Key Builders Provided | Dedicated Guide |
 | :--- | :--- | :--- | :--- |
+| **`:extensions:graphics:svg:dsl`** | `com.nexustools.genericui.ext.svg.dsl` | `svg`, `svgFromXml`, `buildSvg`, `viewBox`, `defs`, `linearGradient`, `radialGradient`, `clipPath`, `g`, `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `path`, `text`, `use` | [`svg.md`](svg.md) |
 | **`:extensions:graphics:canvas2d:dsl`** | `com.nexustools.genericui.ext.canvas2d.dsl` | `canvas2D`, `canvas2DExt`, `scrollCanvas2D`, `canvas2DOverlayHost`, `scrollCanvas2DOverlayHost`, `curveEditor` | [`canvas2d.md`](canvas2d.md) |
 | **`:extensions:graphics:canvas3d:dsl`** | `com.nexustools.genericui.ext.canvas3d.dsl` | `canvas3D`, `canvas3DGL`, `canvas3DVK`, `canvas3DOverlayHost`, `scrollCanvas3D`, `scrollCanvas3DOverlayHost` | [`canvas3d.md`](canvas3d.md) |
 | **`:extensions:graphics:threejs:dsl`** | `com.nexustools.genericui.ext.threejs.dsl` | `threeJsCanvas`, `scene`, `Scene.mesh`, `Scene.perspectiveCamera` | [`threejs.md`](threejs.md) |
 | **`:extensions:physics:box2d:dsl`** | `com.nexustools.genericui.ext.box2d.dsl` | `box2dDebugCanvas`, `world2D` (`body`, `staticBody`, `dynamicBody`, `kinematicBody`, fixtures) | [`box2d.md`](box2d.md) |
 | **`:extensions:physics:box3d:dsl`** | `com.nexustools.genericui.ext.box3d.dsl` | `box3dDebugCanvas`, `world3D` (`rigidBody`, colliders, joints) | [`box3d.md`](box3d.md) |
-| **`:extensions:game:gamepad:dsl`** | `com.nexustools.genericui.ext.gamepad.dsl` | `gamepadNavigation`, `gamepadButtonBadgeText` | [`gamepad.md`](../../docs/gamepad.md) |
 | **`:extensions:game:engine:dsl`** | `com.nexustools.genericui.ext.engine.dsl` | `gameWorld`, `uiStageHost`, `entity`, `behavior`, `animationScheduler` | [`game-engines.md`](../../docs/game-engines.md) |
 | **`:extensions:game:engine2d:dsl`** | `com.nexustools.genericui.ext.engine2d.dsl` | `game2DCanvas`, `physics2D`, `svgCharacter2D`, `tilemap2D` | [`game-engines.md`](../../docs/game-engines.md) |
 | **`:extensions:game:engine3d:dsl`** | `com.nexustools.genericui.ext.engine3d.dsl` | `game3DCanvas`, `physics3D`, `characterController3D`, `humanoidRig3D`, `followCamera3D`, `directionalLight3D` | [`game-engines.md`](../../docs/game-engines.md) |
 | **`:extensions:media:media:dsl`** | `com.nexustools.genericui.ext.media.dsl` | `videoPlayer`, `audioPlayer`, `seekBar`, `audioAnalyzer`, `videoOverlayHost`, `expandingVolumeSlider`, `buildExpandingVolumeSlider` | [`media.md`](media.md) |
-| **`:extensions:media:mediacontrols:dsl`** | `com.nexustools.genericui.ext.mediacontrols.dsl` | `mediaControlsSession`, `metadata`, `playbackStatus`, `buttons`, `onEvent`, `onPlay` / `onPause` / `onSeekTo` | [`mediacontrols.md`](mediacontrols.md) |
 | **`:extensions:data:schema:dsl`** | `com.nexustools.genericui.ext.schema.dsl` | `objectSchema`, `buildObjectSchema` (`section`, `preset`, `booleanField`, `intField`, `longField`, `doubleField`, `floatField`, `compoundNumberField`, `stringField`, `colorField`, `selectField`, `orderedMultiSelectField`, `polymorphicRowListField`, `cubicBezierField`, `objectListField`, `customField`, `group`, `asyncGroup`, `indexedGroup`, `separator`, `reactiveRule`), `schemaForm`, `buildSchemaForm`, `schemaModal` | [`schema.md`](schema.md) |
-| **`:extensions:system:serviceworker:dsl`** | `com.nexustools.genericui.ext.serviceworker.dsl` | `ServiceWorker.onMessage`, `ServiceWorker.onRequest`, `ServiceWorkerChannel.onMessage`, `ServiceWorkerChannel.onRequest`, `trayMenu { item(...); separator() }`, `notificationActions { action(...); stopAction(...) }` | [`serviceworker.md`](serviceworker.md) |
 | **`:extensions:ui:overlay:dsl`** | `com.nexustools.genericui.ext.overlay.dsl` | `buildOverlayHostBox`, `overlayHostBox`, `buildOverlay`, `overlay`, `attachPureOverlay`, `overlayElement`, `fillLayer`, `floatingLayer`, `buildYoutubePlayerOverlay`, `youtubePlayerOverlay`, `attachYoutubePlayerOverlay`, `hybridOverlayDifference`, `overlayControlButton`, `overlayPlayPauseButton`, `overlayFullscreenButton` | [`overlay.md`](overlay.md) |
 | **`:extensions:ui:alien:dsl`** | `com.nexustools.genericui.ext.alien.dsl` | `alienContainer`, `unalienContainer` | [`alien.md`](alien.md) |
 | **`:extensions:ui:webview:dsl`** | `com.nexustools.genericui.ext.webview.dsl` | `webViewExt`, `webView` | [`webview.md`](webview.md) |
 | **`:extensions:ui:codeeditor:dsl`** | `com.nexustools.genericui.ext.codeeditor.dsl` | `codeEditor`, `ideCodeEditor`, `codeMinimap` | [`codeeditor.md`](codeeditor.md) |
 | **`:extensions:ui:aichat:dsl`** | `com.nexustools.genericui.ext.aichat.dsl` | `aiChat`, `aiChatContainer`, `aiChatMessageView`, `aiChatToolCallCard`, `aiChatReasoningAccordion` | [`aichat.md`](aichat.md) |
-| **`:extensions:ui:pip:dsl`** | `com.nexustools.genericui.ext.pip.dsl` | `Fragment.installPipHelper { ... }`, `Fragment.pipHelper` | [`pip.md`](pip.md) |
 
 ---
 
@@ -233,9 +230,9 @@ class CounterController(
 
 ## 6. Related Extensions & Cross-References
 
-- [`:extensions:data:schema` & `:dsl` (`schema.md`)](schema.md) · [`:extensions:system:serviceworker` & `:dsl` (`serviceworker.md`)](serviceworker.md) · [`:extensions:ui:pip` & `:dsl` (`pip.md`)](pip.md)
-- [`:extensions:ui:overlay` & `:dsl` (`overlay.md`)](overlay.md) · [`:extensions:media:media` & `:dsl` (`media.md`)](media.md) · [`:extensions:media:mediacontrols` & `:dsl` (`mediacontrols.md`)](mediacontrols.md)
+- [`:extensions:data:schema` & `:dsl` (`schema.md`)](schema.md) · [`:extensions:system:serviceworker` (`serviceworker.md`)](serviceworker.md) · [`:extensions:system:ipc` (`ipc.md`)](ipc.md) · [`:extensions:ui:pip` (`pip.md`)](pip.md)
+- [`:extensions:ui:overlay` & `:dsl` (`overlay.md`)](overlay.md) · [`:extensions:media:media` & `:dsl` (`media.md`)](media.md) · [`:extensions:media:mediacontrols` (`mediacontrols.md`)](mediacontrols.md)
 - [`:extensions:ui:alien` & `:dsl` (`alien.md`)](alien.md) · [`:extensions:ui:webview` & `:dsl` (`webview.md`)](webview.md) · [`:extensions:ui:codeeditor` & `:dsl` (`codeeditor.md`)](codeeditor.md) · [`:extensions:ui:aichat` & `:dsl` (`aichat.md`)](aichat.md)
-- [`:extensions:graphics:canvas2d` (`canvas2d.md`)](canvas2d.md) · [`:extensions:graphics:canvas3d` (`canvas3d.md`)](canvas3d.md) · [`:extensions:graphics:threejs` (`threejs.md`)](threejs.md) · [`:extensions:physics:box2d` (`box2d.md`)](box2d.md) · [`:extensions:physics:box3d` (`box3d.md`)](box3d.md)
+- [`:extensions:graphics:svg` & `:dsl` (`svg.md`)](svg.md) · [`:extensions:graphics:canvas2d` & `:dsl` (`canvas2d.md`)](canvas2d.md) · [`:extensions:graphics:canvas3d` & `:dsl` (`canvas3d.md`)](canvas3d.md) · [`:extensions:graphics:threejs` & `:dsl` (`threejs.md`)](threejs.md) · [`:extensions:physics:box2d` & `:dsl` (`box2d.md`)](box2d.md) · [`:extensions:physics:box3d` & `:dsl` (`box3d.md`)](box3d.md)
 - [`:extensions:graphics:gpu` (`gpu.md`)](gpu.md) · [`:extensions:graphics:imageprocessing` (`imageprocessing.md`)](imageprocessing.md)
 - [GenericUI Root (`../../README.md`)](../../README.md) · [Extensions Architecture (`../../docs/extensions.md`)](../../docs/extensions.md) · [Resources (`../../docs/resources.md`)](../../docs/resources.md) · [Gradle Plugin (`../../docs/gradle-plugin.md`)](../../docs/gradle-plugin.md)

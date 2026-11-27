@@ -3,8 +3,8 @@ package com.nexustools.genericui.ext.schema
 import com.nexustools.genericui.component.form.Select
 import com.nexustools.genericui.component.form.SelectOption
 import com.nexustools.genericui.component.layout.HStack
-import com.nexustools.genericui.component.layout.StyledContainer
 import com.nexustools.genericui.component.layout.VStack
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.component.typography.Text
 import com.nexustools.genericui.core.AbstractComponent
@@ -70,6 +70,7 @@ internal class SchemaIndexedGroupController(
     override val rootComponent: AbstractComponent
 
     init {
+        labelComponent?.target = indexSelect
         indexSelect.onSelectionChanged = { selectedStr ->
             if (!suppressSwitch) {
                 val target = selectedStr.toIntOrNull()

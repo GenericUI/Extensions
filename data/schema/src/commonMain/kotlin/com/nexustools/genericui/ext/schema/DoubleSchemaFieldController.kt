@@ -127,6 +127,7 @@ internal class DoubleSchemaFieldController(
         } else {
             row
         }
+        bindLabelTarget(numberField)
         mountStandardBody(body, compactInline, numberField)
     }
 

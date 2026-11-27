@@ -10,24 +10,18 @@ import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.enums.system.BackendTarget
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
-import kotlinx.coroutines.SupervisorJob
+import com.nexustools.genericui.ext.ipc.IpcChannelAddress
+import com.nexustools.genericui.ext.ipc.IpcClient
+import com.nexustools.genericui.ext.ipc.IpcServer
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSTemporaryDirectory
 import platform.posix.F_OK
 import platform.posix.access
-import platform.posix.geteuid
 import platform.posix.getpid
-import kotlin.concurrent.Volatile
-import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -217,12 +211,13 @@ class MacosServiceWorkerFragmentIpcTest {
             val lockKey2 = "cloexec-key-2-${getpid()}"
 
             assertTrue(DesktopOsHelpers.acquireSingleInstanceLock(lockKey1, lockFile))
-            val ipcServer = DesktopIpcServer()
+            val ipcServer = IpcServer()
             assertTrue(
                 ipcServer.start("com.test.macos.cloexec", tempDir) {},
-                "DesktopIpcServer must bind AF_UNIX socket cleanly"
+                "IpcServer must bind AF_UNIX socket cleanly"
             )
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, ipcServer.transportKind)
+            val boundAddr = assertNotNull(ipcServer.address)
+            assertEquals(IpcChannelAddress.TRANSPORT_UNIX_SOCKET, boundAddr.transportKind)
 
             try {
                 assertTrue(
@@ -245,11 +240,11 @@ class MacosServiceWorkerFragmentIpcTest {
                 // Closing the server while child is still alive must release the socket cleanly so a
                 // fresh server can bind the same path immediately without FD inheritance conflicts.
                 ipcServer.close()
-                val reboundServer = DesktopIpcServer()
+                val reboundServer = IpcServer()
                 try {
                     assertTrue(
                         reboundServer.start("com.test.macos.cloexec", tempDir) {},
-                        "DesktopIpcServer must re-bind immediately while spawned child is alive"
+                        "IpcServer must re-bind immediately while spawned child is alive"
                     )
                 } finally {
                     reboundServer.close()
@@ -265,22 +260,23 @@ class MacosServiceWorkerFragmentIpcTest {
 
     @Test
     fun macosUnixSocketRoundTripsFragmentLaunchAndBidirectionalIpc() = runBlocking {
-        // Ensure >96-byte runtimeDir so Darwin AF_UNIX falls back to hashed /tmp/genericui-<uid>/<hash>.sock
+        // Ensure >96-byte runtimeDir so Darwin AF_UNIX falls back to shortened socket path <= 96 bytes.
         val tempDir = createTempDir(
             "genericui-macos-very-long-runtime-directory-path-for-unix-socket-truncation-verification"
         )
         try {
             assertTrue(tempDir.encodeToByteArray().size > 96)
             val appId = "com.test.macos.frag.unix"
-            val resolvedSocketPath = MacosUnixSocketSupport.resolveSocketPath(appId, tempDir)
-            assertNotNull(resolvedSocketPath)
+            val resolvedAddr = IpcChannelAddress.resolveDesktopEndpoint(appId, tempDir, osHint = "macos")
+            assertEquals(IpcChannelAddress.TRANSPORT_UNIX_SOCKET, resolvedAddr.transportKind)
+            val resolvedSocketPath = resolvedAddr.endpointAddress
             assertTrue(
                 resolvedSocketPath.encodeToByteArray().size <= 96,
                 "Resolved Darwin AF_UNIX socket path must stay <= 96 UTF-8 bytes"
             )
-            assertTrue(
-                resolvedSocketPath.startsWith("/tmp/genericui-${geteuid()}/"),
-                "Long runtimeDir must hash into /tmp/genericui-<euid>/: $resolvedSocketPath"
+            assertFalse(
+                resolvedSocketPath.startsWith(tempDir),
+                "Long runtimeDir must shorten out of runtimeDir: $resolvedSocketPath"
             )
 
             val endpointFile = "$tempDir/serviceworker-endpoint.json"
@@ -300,7 +296,7 @@ class MacosServiceWorkerFragmentIpcTest {
                 lockRelease = {}
             )
             assertTrue(host.start())
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, host.boundTransport)
+            assertEquals(IpcChannelAddress.TRANSPORT_UNIX_SOCKET, host.boundTransport)
             assertEquals(0, access(resolvedSocketPath, F_OK), "AF_UNIX socket file must exist while host runs")
             worker.attachAndStart(host, options)
             try {
@@ -376,244 +372,60 @@ class MacosServiceWorkerFragmentIpcTest {
     }
 
     @Test
-    fun macosXpcAnonymousEndpointRoundTripsAuthMessagesRequestsLargePayloadAndDisconnect() = runBlocking {
-        val authToken = DesktopOsHelpers.generateRandomHexToken(32)
+    fun macosIpcHostRoundTripsAuthRejectionMessagesRequestsLargePayloadAndDisconnect() = runBlocking {
+        assertEquals("macos-xpc-mach", IpcChannelAddress.TRANSPORT_MACOS_XPC_MACH)
+        val tempDir = createTempDir("genericui-macos-large-ipc")
+        val endpointFile = "$tempDir/serviceworker-endpoint.json"
         val worker = MacosIpcWorker()
-        val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val sessionLock = AtomicBoolean(false)
-        var activeServerConn: DesktopIpcConnection? = null
-        val badAuthRejected = AtomicBoolean(false)
+        val options = ServiceWorkerOptions(appId = "com.test.macos.ipc.large", appName = "MacosIpcTest", hasWorker = true)
+        val host = DesktopServiceWorkerHost(
+            options = options,
+            worker = worker,
+            endpointFilePath = endpointFile,
+            mainBinaryBaseName = "MacosApp",
+            swingMainClassFqn = "",
+            stopEventLoop = {},
+            lockRelease = {}
+        )
+        assertTrue(host.start())
+        worker.attachAndStart(host, options)
 
-        fun <T> withSessionLock(block: () -> T): T {
-            while (!sessionLock.compareAndSet(expectedValue = false, newValue = true)) {}
-            return try {
-                block()
-            } finally {
-                sessionLock.store(false)
-            }
-        }
-
-        val listenerPair = MacosXpcListenerSupport.startAnonymousListener { serverConn ->
-            ioScope.launch {
-                var authedClientId: String? = null
-                try {
-                    val authBytes = serverConn.receiveBody(timeoutMs = 3_000)
-                    val authEnv = authBytes?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
-                    if (authEnv == null ||
-                        authEnv.kind != ServiceWorkerEnvelope.KIND_AUTH ||
-                        authEnv.payloadJson != authToken
-                    ) {
-                        badAuthRejected.store(true)
-                        serverConn.sendBody(
-                            ServiceWorkerFrameCodec.encodeBinaryBody(
-                                ServiceWorkerEnvelope(
-                                    kind = ServiceWorkerEnvelope.KIND_AUTH_ERR,
-                                    error = "Invalid XPC token"
-                                )
-                            )
-                        )
-                        serverConn.close()
-                        return@launch
-                    }
-                    val cid = authEnv.clientId.ifBlank { "xpc-client-1" }
-                    authedClientId = cid
-                    withSessionLock { activeServerConn = serverConn }
-                    serverConn.sendBody(
-                        ServiceWorkerFrameCodec.encodeBinaryBody(
-                            ServiceWorkerEnvelope(kind = ServiceWorkerEnvelope.KIND_AUTH_OK, clientId = cid)
-                        )
-                    )
-                    worker.dispatchClientConnected(cid)
-                    while (!serverConn.isClosed) {
-                        val body = serverConn.receiveBody(timeoutMs = 100) ?: continue
-                        val env = ServiceWorkerFrameCodec.decodeBinaryBody(body) ?: continue
-                        worker.dispatchIncomingEnvelope(cid, env)
-                        if (env.kind == ServiceWorkerEnvelope.KIND_BYE) {
-                            break
-                        }
-                    }
-                } finally {
-                    val cid = authedClientId
-                    if (cid != null) {
-                        withSessionLock {
-                            if (activeServerConn === serverConn) {
-                                activeServerConn = null
-                            }
-                        }
-                        worker.dispatchClientDisconnected(cid)
-                    }
-                    serverConn.close()
-                }
-            }
-        }
-        assertNotNull(listenerPair, "Anonymous kernel XPC listener must start")
-        val (listenerHandle, endpoint) = listenerPair
-
-        val runtimeHost = object : ServiceWorkerRuntimeHost {
-            override val backendName: String = "MacOS"
-            override val supportsMultipleWindows: Boolean = true
-            override val supportsFragmentLaunch: Boolean = true
-            override val supportsDialogFragments: Boolean = true
-            override val supportsSystemTray: Boolean = true
-            override val supportsOngoingNotification: Boolean = false
-            override val supportsAutostart: Boolean = true
-            override fun updateNotification(
-                title: String,
-                text: String,
-                subText: String?,
-                icon: com.nexustools.genericui.resources.ResourceID?,
-                actions: List<ServiceWorkerNotificationAction>
-            ) {}
-            override fun updateTray(
-                iconPathOrUrl: String?,
-                iconResource: com.nexustools.genericui.resources.ResourceID?,
-                tooltip: String?,
-                badgeText: String?,
-                menu: com.nexustools.genericui.component.shell.ContextMenu?,
-                onClick: (() -> Unit)?,
-                macosIconPathOrUrl: String?
-            ) {}
-            override fun openMainWindow(route: String?) {}
-            override fun closeMainWindow() {}
-            override fun requestLaunchFragment(request: ServiceWorkerFragmentLaunchRequest) {}
-            override fun requestCloseFragment(fragmentId: String, instanceId: String?) {}
-            override fun stopSelf() {}
-            override fun exitApplication(exitCode: Int) {}
-            override fun isAutostartEnabled(): Boolean = false
-            override fun setAutostartEnabled(enabled: Boolean): Boolean = false
-            override suspend fun sendToClient(clientId: String, envelope: ServiceWorkerEnvelope): Boolean {
-                val conn = withSessionLock { activeServerConn } ?: return false
-                return conn.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(envelope))
-            }
-            override suspend fun broadcastEnvelope(envelope: ServiceWorkerEnvelope): Int {
-                val conn = withSessionLock { activeServerConn } ?: return 0
-                return if (conn.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(envelope))) 1 else 0
-            }
-            override fun disconnectClient(clientId: String) {
-                withSessionLock { activeServerConn }?.close()
-            }
-        }
-
-        val options = ServiceWorkerOptions(appId = "com.test.macos.xpc", appName = "MacosXpcTest", hasWorker = true)
-        worker.attachAndStart(runtimeHost, options)
-
-        var xpcClientConn: DesktopIpcConnection? = null
-        val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val channelClient = DesktopServiceWorkerChannelClient()
         try {
-            // 1. Bad token rejection
-            val badConn = MacosXpcListenerSupport.connectAnonymousEndpoint(endpoint)
+            val descriptor = DesktopEndpointDescriptor.parse(DesktopOsHelpers.readTextFileOrNull(endpointFile))
+            assertNotNull(descriptor)
+
+            // 1. Bad token rejection over :extensions:system:ipc
+            val badConn = IpcClient.connect(descriptor.toChannelAddress(), timeoutMs = 3_000)
             assertNotNull(badConn)
-            assertTrue(
-                badConn.sendBody(
-                    ServiceWorkerFrameCodec.encodeBinaryBody(
-                        ServiceWorkerEnvelope(
-                            kind = ServiceWorkerEnvelope.KIND_AUTH,
-                            clientId = "bad-xpc-client",
-                            payloadJson = "wrong-token"
+            try {
+                assertTrue(
+                    badConn.sendPacket(
+                        DesktopIpcPacketMapper.toIpcPacket(
+                            ServiceWorkerEnvelope(
+                                kind = ServiceWorkerEnvelope.KIND_AUTH,
+                                clientId = "bad-macos-client",
+                                payload = PreferenceElement.ofString("wrong-token")
+                            )
                         )
                     )
                 )
-            )
-            val errReplyBytes = badConn.receiveBody(timeoutMs = 3_000)
-            val errReply = errReplyBytes?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
-            assertNotNull(errReply)
-            assertEquals(ServiceWorkerEnvelope.KIND_AUTH_ERR, errReply.kind)
-            waitUntil { badAuthRejected.load() && badConn.isClosed }
-            badConn.close()
-
-            // 2. Valid token handshake + bidirectional typed messages, requests, >256KB payload, disconnect
-            val xpcConnected = AtomicBoolean(false)
-            val xpcRuntime = object : ServiceWorkerPlatformRuntime {
-                @Volatile
-                private var onIncoming: ((ServiceWorkerEnvelope) -> Unit)? = null
-                @Volatile
-                private var onConnState: ((Boolean) -> Unit)? = null
-
-                override val isSupported: Boolean = true
-                override val supportsMultipleWindows: Boolean = true
-                override val supportsFragmentLaunch: Boolean = true
-                override val supportsDialogFragments: Boolean = true
-                override val supportsSystemTray: Boolean = true
-                override val supportsOngoingNotification: Boolean = false
-                override val supportsAutostart: Boolean = true
-                override fun configure(options: ServiceWorkerOptions) {}
-                override fun isClientConnected(): Boolean = xpcConnected.load() && xpcClientConn?.isClosed == false
-
-                override suspend fun connectClient(
-                    options: ServiceWorkerOptions,
-                    onIncomingEnvelope: (ServiceWorkerEnvelope) -> Unit,
-                    onConnectionChanged: (Boolean) -> Unit
-                ): Boolean {
-                    onIncoming = onIncomingEnvelope
-                    onConnState = onConnectionChanged
-                    val conn = MacosXpcListenerSupport.connectAnonymousEndpoint(endpoint) ?: return false
-                    val auth = ServiceWorkerEnvelope(
-                        kind = ServiceWorkerEnvelope.KIND_AUTH,
-                        clientId = "xpc-ui-client",
-                        payloadJson = authToken
-                    )
-                    if (!conn.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(auth))) {
-                        conn.close()
-                        return false
-                    }
-                    val okBytes = conn.receiveBody(timeoutMs = 3_000)
-                    val okEnv = okBytes?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
-                    if (okEnv == null || okEnv.kind != ServiceWorkerEnvelope.KIND_AUTH_OK) {
-                        conn.close()
-                        return false
-                    }
-                    xpcClientConn = conn
-                    xpcConnected.store(true)
-                    onConnectionChanged(true)
-                    clientScope.launch {
-                        try {
-                            while (xpcConnected.load() && !conn.isClosed) {
-                                val body = conn.receiveBody(timeoutMs = 100) ?: continue
-                                val env = ServiceWorkerFrameCodec.decodeBinaryBody(body) ?: continue
-                                onIncoming?.invoke(env)
-                                if (env.kind == ServiceWorkerEnvelope.KIND_BYE) break
-                            }
-                        } finally {
-                            xpcConnected.store(false)
-                            conn.close()
-                            onConnState?.invoke(false)
-                        }
-                    }
-                    return true
-                }
-
-                override suspend fun disconnectClient() {
-                    val conn = xpcClientConn
-                    xpcConnected.store(false)
-                    xpcClientConn = null
-                    if (conn != null && !conn.isClosed) {
-                        conn.sendBody(
-                            ServiceWorkerFrameCodec.encodeBinaryBody(
-                                ServiceWorkerEnvelope(kind = ServiceWorkerEnvelope.KIND_BYE, clientId = "xpc-ui-client")
-                            )
-                        )
-                        conn.close()
-                    }
-                    onConnState?.invoke(false)
-                }
-
-                override suspend fun sendClientEnvelope(envelope: ServiceWorkerEnvelope): Boolean {
-                    val conn = xpcClientConn ?: return false
-                    if (!xpcConnected.load() || conn.isClosed) return false
-                    return conn.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(envelope))
-                }
-
-                override fun activeWorker(): ServiceWorker = worker
-                override fun currentBackendTarget(): BackendTarget = BackendTarget.MacOS
+                val errPacket = badConn.receivePacket(timeoutMs = 3_000)
+                val errReply = errPacket?.let { DesktopIpcPacketMapper.fromIpcPacket(it) }
+                assertNotNull(errReply)
+                assertEquals(ServiceWorkerEnvelope.KIND_AUTH_ERR, errReply.kind)
+            } finally {
+                badConn.close()
             }
 
+            // 2. Valid token handshake + bidirectional typed messages, requests, >256KB payload, disconnect
             ServiceWorkerExtension.install(options)
-            ServiceWorkerExtension.installRuntimeOverrideForTests(xpcRuntime)
+            ServiceWorkerExtension.installRuntimeOverrideForTests(MacosIpcRuntime(descriptor, worker))
             val channel = ServiceWorkerExtension.channel
             val clientReceived = mutableListOf<MacosCommand>()
             val msgSub = channel.onMessage<MacosCommand> { msg -> clientReceived.add(msg) }
             val reqSub = channel.onRequest<MacosPing> { req, reply ->
-                reply.send(MacosPong(req.seq, "client:xpc"))
+                reply.send(MacosPong(req.seq, "client:ipc"))
             }
 
             assertTrue(channel.connect())
@@ -621,20 +433,20 @@ class MacosServiceWorkerFragmentIpcTest {
             val workerClientHandle = worker.snapshotConnectedClients().first()
 
             // Bidirectional messages
-            channel.send(MacosCommand("xpc-to-worker"))
+            channel.send(MacosCommand("ipc-to-worker"))
             waitUntil { worker.snapshotReceivedClient().size == 1 }
-            assertEquals(listOf(MacosCommand("xpc-to-worker")), worker.snapshotReceivedClient())
+            assertEquals(listOf(MacosCommand("ipc-to-worker")), worker.snapshotReceivedClient())
 
-            assertEquals(1, worker.broadcast(MacosCommand("xpc-to-client")))
+            assertEquals(1, worker.broadcast(MacosCommand("ipc-to-client")))
             waitUntil { clientReceived.size == 1 }
-            assertEquals(listOf(MacosCommand("xpc-to-client")), clientReceived)
+            assertEquals(listOf(MacosCommand("ipc-to-client")), clientReceived)
 
             // Bidirectional requests/replies
             val workerReply = channel.request<MacosPong>(MacosPing(77), timeoutMs = 5_000L)
             assertEquals(MacosPong(77, "worker:xpc"), workerReply)
 
             val clientReply = workerClientHandle.request<MacosPong>(MacosPing(88), timeoutMs = 5_000L)
-            assertEquals(MacosPong(88, "client:xpc"), clientReply)
+            assertEquals(MacosPong(88, "client:ipc"), clientReply)
 
             // Large > 256 KB payload in both directions
             val largePayload = "X".repeat(300 * 1024)
@@ -650,16 +462,15 @@ class MacosServiceWorkerFragmentIpcTest {
 
             // Disconnect cleanup
             channel.disconnect()
-            waitUntil { !channel.isConnected && worker.snapshotDisconnectedClients().contains("xpc-ui-client") }
+            waitUntil { !channel.isConnected && worker.snapshotDisconnectedClients().isNotEmpty() }
             assertFalse(channel.isConnected)
             msgSub.dispose()
             reqSub.dispose()
         } finally {
-            xpcClientConn?.close()
-            clientScope.cancel()
+            channelClient.disconnect()
             worker.performStop()
-            listenerHandle.close()
-            ioScope.cancel()
+            host.shutdown()
+            NSFileManager.defaultManager.removeItemAtPath(tempDir, error = null)
         }
     }
 
@@ -712,10 +523,10 @@ class MacosServiceWorkerFragmentIpcTest {
         worker.attachAndStart(host, options)
         val client = DesktopServiceWorkerChannelClient()
         try {
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, host.boundTransport)
+            assertEquals(IpcChannelAddress.TRANSPORT_UNIX_SOCKET, host.boundTransport)
             val descriptor = DesktopEndpointDescriptor.parse(DesktopOsHelpers.readTextFileOrNull(endpointFile))
             assertNotNull(descriptor)
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, descriptor.transport)
+            assertEquals(IpcChannelAddress.TRANSPORT_UNIX_SOCKET, descriptor.transport)
             assertEquals(host.boundAddress, descriptor.address)
 
             ServiceWorkerExtension.install(options)
@@ -786,53 +597,53 @@ class MacosServiceWorkerFragmentIpcTest {
                 val descriptor = DesktopEndpointDescriptor.parse(DesktopOsHelpers.readTextFileOrNull(endpointFile))
                 assertNotNull(descriptor)
 
-                fun queryOnce(): String? {
-                    val conn = DesktopIpcClient.connect(descriptor.transport, descriptor.address, timeoutMs = 1_500)
+                fun queryOnce(): Boolean? {
+                    val conn = IpcClient.connect(descriptor.toChannelAddress(), timeoutMs = 1_500)
                         ?: return null
                     return try {
                         val cid = "${DESKTOP_CONTROL_CLIENT_PREFIX}test-${getpid()}"
                         assertTrue(
-                            conn.sendBody(
-                                ServiceWorkerFrameCodec.encodeBinaryBody(
+                            conn.sendPacket(
+                                DesktopIpcPacketMapper.toIpcPacket(
                                     ServiceWorkerEnvelope(
                                         kind = ServiceWorkerEnvelope.KIND_AUTH,
                                         clientId = cid,
-                                        payloadJson = descriptor.token
+                                        payload = PreferenceElement.ofString(descriptor.token)
                                     )
                                 )
                             )
                         )
-                        val authReply = conn.receiveBody(1_500)?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
+                        val authReply = conn.receivePacket(1_500)?.let { DesktopIpcPacketMapper.fromIpcPacket(it) }
                         assertEquals(ServiceWorkerEnvelope.KIND_AUTH_OK, authReply?.kind)
                         assertTrue(
-                            conn.sendBody(
-                                ServiceWorkerFrameCodec.encodeBinaryBody(
+                            conn.sendPacket(
+                                DesktopIpcPacketMapper.toIpcPacket(
                                     ServiceWorkerEnvelope(
                                         kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                                         clientId = cid,
                                         typeId = ServiceWorkerEnvelope.CONTROL_QUERY_SHOULD_OPEN_MAIN_WINDOW,
-                                        payloadJson = "null"
+                                        payload = PreferenceElement.Null
                                     )
                                 )
                             )
                         )
-                        val reply = conn.receiveBody(1_500)?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
-                        conn.sendBody(
-                            ServiceWorkerFrameCodec.encodeBinaryBody(
+                        val reply = conn.receivePacket(1_500)?.let { DesktopIpcPacketMapper.fromIpcPacket(it) }
+                        conn.sendPacket(
+                            DesktopIpcPacketMapper.toIpcPacket(
                                 ServiceWorkerEnvelope(kind = ServiceWorkerEnvelope.KIND_BYE, clientId = cid)
                             )
                         )
                         assertEquals(ServiceWorkerEnvelope.KIND_MESSAGE, reply?.kind)
                         assertEquals(ServiceWorkerEnvelope.CONTROL_QUERY_SHOULD_OPEN_MAIN_WINDOW, reply?.typeId)
-                        reply?.payloadJson
+                        reply?.payload?.asBoolean()
                     } finally {
                         conn.close()
                     }
                 }
 
-                assertEquals("false", queryOnce())
+                assertEquals(false, queryOnce())
                 allowOpen = true
-                assertEquals("true", queryOnce())
+                assertEquals(true, queryOnce())
             } finally {
                 worker.performStop()
                 host.shutdown()

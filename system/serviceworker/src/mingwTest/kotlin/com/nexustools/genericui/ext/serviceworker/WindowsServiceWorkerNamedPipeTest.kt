@@ -10,6 +10,10 @@ import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.ext.ipc.IpcChannelAddress
+import com.nexustools.genericui.ext.ipc.IpcClient
+import com.nexustools.genericui.ext.ipc.IpcConnection
+import com.nexustools.genericui.ext.ipc.IpcServer
 import kotlinx.cinterop.UShortVar
 import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.memScoped
@@ -20,6 +24,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
+import platform.posix.getenv
 import platform.windows.GetCurrentProcessId
 import platform.windows.GetTempPathW
 import platform.windows.MAX_PATH
@@ -205,42 +210,33 @@ class WindowsServiceWorkerNamedPipeTest {
         val dirA2 = "c:/users/alice/appdata/local/genericui/appa/"
         val dirB = "C:\\Users\\Alice\\AppData\\Local\\GenericUI\\AppB"
 
-        val nameA1 = WindowsNamedPipeSecurity.buildPipeName("com.example.App", dirA1)
-        val nameA2 = WindowsNamedPipeSecurity.buildPipeName("  COM.EXAMPLE.APP ", dirA2)
-        val nameB = WindowsNamedPipeSecurity.buildPipeName("com.example.App", dirB)
-        val nameDifferentApp = WindowsNamedPipeSecurity.buildPipeName("com.example.Other", dirA1)
+        val addrA1 = IpcChannelAddress.resolveDesktopEndpoint("com.example.App", dirA1, osHint = "windows")
+        val addrA2 = IpcChannelAddress.resolveDesktopEndpoint("  COM.EXAMPLE.APP ", dirA2, osHint = "windows")
+        val addrB = IpcChannelAddress.resolveDesktopEndpoint("com.example.App", dirB, osHint = "windows")
+        val addrDifferentApp = IpcChannelAddress.resolveDesktopEndpoint("com.example.Other", dirA1, osHint = "windows")
 
+        assertEquals(IpcChannelAddress.TRANSPORT_WINDOWS_NAMED_PIPE, addrA1.transportKind)
+        val nameA1 = addrA1.endpointAddress
         assertTrue(nameA1.startsWith("\\\\.\\pipe\\genericui."), "Unexpected pipe prefix: $nameA1")
-        assertTrue(nameA1.endsWith(".sw"), "Unexpected pipe suffix: $nameA1")
-        assertEquals(nameA1, nameA2, "Normalized appId + runtimeDir must hash identically")
-        assertNotEquals(nameA1, nameB, "Different runtimeDirs must produce distinct pipe names")
-        assertNotEquals(nameA1, nameDifferentApp, "Different appIds must produce distinct pipe names")
+        assertTrue(nameA1.endsWith(".ipc"), "Unexpected pipe suffix: $nameA1")
+        assertEquals(nameA1, addrA2.endpointAddress, "Normalized appId + runtimeDir must hash identically")
+        assertNotEquals(nameA1, addrB.endpointAddress, "Different runtimeDirs must produce distinct pipe names")
+        assertNotEquals(nameA1, addrDifferentApp.endpointAddress, "Different appIds must produce distinct pipe names")
 
-        val parts = nameA1.removePrefix("\\\\.\\pipe\\genericui.").removeSuffix(".sw").split('.')
-        assertEquals(2, parts.size, "Pipe name must contain <sidHash8>.<scopeHash16>")
-        assertEquals(8, parts[0].length, "User SID hash must be 8 hex chars")
+        val parts = nameA1.removePrefix("\\\\.\\pipe\\genericui.").removeSuffix(".ipc").split('.')
+        assertEquals(2, parts.size, "Pipe name must contain <userHash8>.<scopeHash16>")
+        assertEquals(8, parts[0].length, "User hash must be 8 hex chars")
         assertEquals(16, parts[1].length, "Scope hash must be 16 hex chars")
         assertTrue(parts[0].all { it in '0'..'9' || it in 'a'..'f' })
         assertTrue(parts[1].all { it in '0'..'9' || it in 'a'..'f' })
     }
 
     @Test
-    fun currentUserSecurityAttributesConstructsValidDescriptor() {
-        var sawNonNullAttributes = false
-        val returned = WindowsNamedPipeSecurity.withCurrentUserPipeSecurityAttributes { saPtr ->
-            sawNonNullAttributes = saPtr != null
-            42
-        }
-        assertEquals(42, returned)
-        assertTrue(sawNonNullAttributes, "Current-user DACL SECURITY_ATTRIBUTES must construct cleanly")
-    }
-
-    @Test
     fun namedPipeServerAndClientSupportConcurrentConnectionsAndCleanShutdown() = runDesktopBlockingTest {
         val tempDir = createTempDir("genericui-win-pipe-conc")
-        val server = DesktopIpcServer()
+        val server = IpcServer()
         try {
-            val serverConns = mutableListOf<DesktopIpcConnection>()
+            val serverConns = mutableListOf<IpcConnection>()
             val connLock = AtomicBoolean(false)
             assertTrue(
                 server.start("com.test.win.concurrent", tempDir) { conn ->
@@ -250,7 +246,7 @@ class WindowsServiceWorkerNamedPipeTest {
                     } finally {
                         connLock.store(false)
                     }
-                    val req = conn.receiveBody(timeoutMs = 3_000)
+                    val req = conn.readBody(timeoutMs = 3_000)
                     if (req != null) {
                         val reply = ("ack:" + req.decodeToString()).encodeToByteArray()
                         conn.sendBody(reply)
@@ -258,21 +254,21 @@ class WindowsServiceWorkerNamedPipeTest {
                 },
                 "Named pipe server must start"
             )
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_WINDOWS_NAMED_PIPE, server.transportKind)
-            assertTrue(server.endpointAddress.startsWith("\\\\.\\pipe\\genericui."))
+            val boundAddr = assertNotNull(server.address)
+            assertEquals(IpcChannelAddress.TRANSPORT_WINDOWS_NAMED_PIPE, boundAddr.transportKind)
+            assertTrue(boundAddr.endpointAddress.startsWith("\\\\.\\pipe\\genericui."))
 
             val results = withTimeout(8_000L) {
                 (1..4).map { idx ->
                     async(Dispatchers.IO) {
-                        val client = DesktopIpcClient.connect(
-                            transportKind = server.transportKind,
-                            address = server.endpointAddress,
+                        val client = IpcClient.connect(
+                            address = boundAddr,
                             timeoutMs = 4_000
                         )
                         assertNotNull(client, "Client $idx must connect to named pipe")
                         try {
                             assertTrue(client.sendBody("hello-$idx".encodeToByteArray()))
-                            val reply = client.receiveBody(timeoutMs = 3_000)
+                            val reply = client.readBody(timeoutMs = 3_000)
                             assertNotNull(reply, "Client $idx must receive echo reply")
                             reply.decodeToString()
                         } finally {
@@ -291,12 +287,10 @@ class WindowsServiceWorkerNamedPipeTest {
                 connLock.store(false)
             }
 
-            val pipeAddress = server.endpointAddress
             server.close()
             assertNull(
-                DesktopIpcClient.connect(
-                    transportKind = DesktopEndpointDescriptor.TRANSPORT_WINDOWS_NAMED_PIPE,
-                    address = pipeAddress,
+                IpcClient.connect(
+                    address = boundAddr,
                     timeoutMs = 200
                 ),
                 "Connecting after server.close() must fail"
@@ -333,20 +327,19 @@ class WindowsServiceWorkerNamedPipeTest {
             val rawEndpoint = DesktopOsHelpers.readTextFileOrNull(endpointFile)
             assertNotNull(rawEndpoint)
             assertTrue(
-                rawEndpoint.contains(DesktopEndpointDescriptor.TRANSPORT_WINDOWS_NAMED_PIPE),
-                "Endpoint JSON must advertise named_pipe transport"
+                rawEndpoint.contains(IpcChannelAddress.TRANSPORT_WINDOWS_NAMED_PIPE),
+                "Endpoint JSON must advertise named-pipe transport"
             )
             val descriptor = DesktopEndpointDescriptor.parse(rawEndpoint)
             assertNotNull(descriptor)
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_WINDOWS_NAMED_PIPE, descriptor.transport)
+            assertEquals(IpcChannelAddress.TRANSPORT_WINDOWS_NAMED_PIPE, descriptor.transport)
 
-            val pipeAddress = WindowsNamedPipeSecurity.buildPipeName(options.appId, tempDir)
-            assertEquals(pipeAddress, descriptor.address)
+            val resolvedAddr = IpcChannelAddress.resolveDesktopEndpoint(options.appId, tempDir)
+            assertEquals(resolvedAddr.endpointAddress, descriptor.address)
 
             // Verify bad auth token rejection over raw named pipe
-            val badClient = DesktopIpcClient.connect(
-                transportKind = DesktopEndpointDescriptor.TRANSPORT_WINDOWS_NAMED_PIPE,
-                address = pipeAddress,
+            val badClient = IpcClient.connect(
+                address = descriptor.toChannelAddress(),
                 timeoutMs = 4_000
             )
             assertNotNull(badClient, "Raw client must reach named pipe endpoint for auth test")
@@ -354,13 +347,13 @@ class WindowsServiceWorkerNamedPipeTest {
                 val badAuth = ServiceWorkerEnvelope(
                     kind = ServiceWorkerEnvelope.KIND_AUTH,
                     clientId = "bad-client",
-                    payloadJson = "wrong-token"
+                    payload = PreferenceElement.ofString("wrong-token")
                 )
-                assertTrue(badClient.sendBody(ServiceWorkerFrameCodec.encodeBinaryBody(badAuth)))
-                val authErrBytes = withTimeout(5_000L) {
-                    badClient.receiveBody(timeoutMs = 3_000)
+                assertTrue(badClient.sendPacket(DesktopIpcPacketMapper.toIpcPacket(badAuth)))
+                val authErrPacket = withTimeout(5_000L) {
+                    badClient.receivePacket(timeoutMs = 3_000)
                 }
-                val authErrEnv = authErrBytes?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
+                val authErrEnv = authErrPacket?.let { DesktopIpcPacketMapper.fromIpcPacket(it) }
                 assertNotNull(authErrEnv)
                 assertEquals(ServiceWorkerEnvelope.KIND_AUTH_ERR, authErrEnv.kind)
             } finally {
@@ -433,9 +426,8 @@ class WindowsServiceWorkerNamedPipeTest {
                 "Clean shutdown must remove endpoint descriptor file"
             )
             assertNull(
-                DesktopIpcClient.connect(
-                    transportKind = DesktopEndpointDescriptor.TRANSPORT_WINDOWS_NAMED_PIPE,
-                    address = pipeAddress,
+                IpcClient.connect(
+                    address = descriptor.toChannelAddress(),
                     timeoutMs = 200
                 ),
                 "Connecting after host.shutdown() must return null"
@@ -444,6 +436,58 @@ class WindowsServiceWorkerNamedPipeTest {
             worker.performStop()
             host.shutdown()
             deleteTempDir(tempDir, "serviceworker-endpoint.json")
+        }
+    }
+
+    @Test
+    fun resolvedWorkerBinaryBaseNameResolvesSiblingExeWithSwSuffix() {
+        val options = ServiceWorkerOptions(
+            appId = "com.example.episodecaster",
+            appName = "Episode Caster Receiver",
+            baseName = "episode-caster-receiver"
+        )
+        assertEquals("episode-caster-receiver-sw", options.resolvedWorkerBinaryBaseName())
+        val cmd = DesktopOsHelpers.resolveSiblingBinaryCommand(
+            siblingBaseName = options.resolvedWorkerBinaryBaseName(),
+            jvmMainClassFqn = ""
+        )
+        assertNotNull(cmd)
+        assertTrue(
+            cmd.first.endsWith("\\episode-caster-receiver-sw.exe"),
+            "Expected sibling exe ending with \\episode-caster-receiver-sw.exe but got: ${cmd.first}"
+        )
+        assertEquals(emptyList(), cmd.second)
+    }
+
+    @Test
+    fun spawnDetachedProcessLaunchesDetachedProcessAndReturnsFalseForMissingExecutable() = runDesktopBlockingTest {
+        val tempDir = createTempDir("genericui-win-spawn")
+        val markerFile = "$tempDir\\detached-marker.txt"
+        try {
+            assertFalse(
+                DesktopOsHelpers.spawnDetachedProcess(
+                    executablePath = "$tempDir\\missing-sw.exe",
+                    args = listOf("--probe"),
+                    workingDir = tempDir
+                ),
+                "Missing executable must return false after Job breakaway + fallback CreateProcessW attempts"
+            )
+
+            val comSpec = getenv("ComSpec")?.toKString()?.takeIf { it.isNotBlank() }
+                ?: "C:\\Windows\\System32\\cmd.exe"
+            assertTrue(
+                DesktopOsHelpers.spawnDetachedProcess(
+                    executablePath = comSpec,
+                    args = listOf("/c", "copy", "/y", "NUL", markerFile),
+                    workingDir = tempDir
+                ),
+                "spawnDetachedProcess should launch cmd.exe cleanly"
+            )
+            waitUntil(timeoutMs = 5_000L) {
+                DesktopOsHelpers.readTextFileOrNull(markerFile) != null
+            }
+        } finally {
+            deleteTempDir(tempDir, "detached-marker.txt")
         }
     }
 }

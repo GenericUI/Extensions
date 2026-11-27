@@ -63,10 +63,18 @@ class AlienRepaintManager(
             return emptyList()
         }
 
-        val rootStyle = session.rootNode.resolveVisualStyle()
+        val startedPass = session.activeStylePassId < 0L
+        if (startedPass) session.beginStylePass()
+        try {
+            val rootStyle = session.rootNode.resolveVisualStyle()
 
-        for (region in regions) {
-            paintDirtyRegion(ctx, region, rootStyle, session.rootNode)
+            val transparentUnstyledRoot = session.offscreenOnly && !session.hasBootstrapStyleSheet
+
+            for (region in regions) {
+                paintDirtyRegion(ctx, region, rootStyle, session.rootNode, transparentUnstyledRoot)
+            }
+        } finally {
+            if (startedPass) session.endStylePass()
         }
 
         session.canvas2D.swapBuffers()
@@ -94,7 +102,8 @@ class AlienRepaintManager(
         ctx: ImageBuffer2DContext,
         region: Rect,
         rootStyle: AlienResolvedVisualStyle,
-        rootNode: AlienWidgetNode
+        rootNode: AlienWidgetNode,
+        transparentUnstyledRoot: Boolean = false
     ) {
         ctx.save()
         ctx.beginPath()
@@ -107,17 +116,23 @@ class AlienRepaintManager(
 
         // Clear region and paint default body background unless root specifies a custom background
         ctx.clearRect(region.x.toFloat(), region.y.toFloat(), region.width.toFloat(), region.height.toFloat())
-        val baseBg = when {
-            rootStyle.backgroundColor.a > 0 -> rootStyle.backgroundColor
-            rootNode.componentClassPrefix == "alien-root" ||
-                rootNode.tagName.equals("genericui:app", ignoreCase = true) ||
-                rootNode.tagName.equals("genericui:fragment", ignoreCase = true) ||
-                !rootStyle.backgroundImageUrl.isNullOrBlank() -> RgbaColor.BLACK
-            rootStyle.darkTheme -> AlienBootstrapThemeTokens.BODY_BG_DARK
-            else -> AlienBootstrapThemeTokens.BODY_BG_LIGHT
+        val skipUnstyledRootFill =
+            transparentUnstyledRoot &&
+                rootStyle.backgroundColor.a == 0 &&
+                rootStyle.backgroundImageUrl.isNullOrBlank()
+        if (!skipUnstyledRootFill) {
+            val baseBg = when {
+                rootStyle.backgroundColor.a > 0 -> rootStyle.backgroundColor
+                rootNode.componentClassPrefix == "alien-root" ||
+                    rootNode.tagName.equals("genericui:app", ignoreCase = true) ||
+                    rootNode.tagName.equals("genericui:fragment", ignoreCase = true) ||
+                    !rootStyle.backgroundImageUrl.isNullOrBlank() -> RgbaColor.BLACK
+                rootStyle.darkTheme -> AlienBootstrapThemeTokens.BODY_BG_DARK
+                else -> AlienBootstrapThemeTokens.BODY_BG_LIGHT
+            }
+            ctx.setFillColor(baseBg)
+            ctx.fillRect(region.x.toFloat(), region.y.toFloat(), region.width.toFloat(), region.height.toFloat())
         }
-        ctx.setFillColor(baseBg)
-        ctx.fillRect(region.x.toFloat(), region.y.toFloat(), region.width.toFloat(), region.height.toFloat())
 
         paintNodeHierarchy(ctx, rootNode, region, inheritedOpacity = 1f)
 
@@ -165,23 +180,21 @@ class AlienRepaintManager(
         ctx.save()
         if (transform != CssTransform2D.IDENTITY) {
             val isPositioned = style.position == "absolute" || style.position == "fixed"
+            val m = transform.resolveAffineMatrix(node.bounds.width, node.bounds.height)
             // Positioned nodes already have `translate(dx, dy)` applied to `node.bounds` in AlienLayoutEngine
-            val (dx, dy) = if (isPositioned) {
-                0f to 0f
-            } else {
-                transform.resolveTranslationPx(node.bounds.width, node.bounds.height)
-            }
-            val cx = node.bounds.x + node.bounds.width * 0.5f
-            val cy = node.bounds.y + node.bounds.height * 0.5f
-            if (dx != 0f || dy != 0f || transform.rotateDeg != 0f || transform.scaleX != 1f || transform.scaleY != 1f) {
-                ctx.translate(cx + dx, cy + dy)
-                if (transform.rotateDeg != 0f) {
-                    ctx.rotate(transform.rotateDeg * (3.1415927f / 180f))
+            val tx = if (isPositioned && !transform.hasMatrix) 0f else m[4]
+            val ty = if (isPositioned && !transform.hasMatrix) 0f else m[5]
+            val ox = node.bounds.x + (style.transformOriginXPxOffset
+                ?: ((style.transformOriginXPercent / 100f) * node.bounds.width))
+            val oy = node.bounds.y + (style.transformOriginYPxOffset
+                ?: ((style.transformOriginYPercent / 100f) * node.bounds.height))
+            val hasLinearTransform = m[0] != 1f || m[1] != 0f || m[2] != 0f || m[3] != 1f
+            if (tx != 0f || ty != 0f || hasLinearTransform) {
+                ctx.translate(ox + tx, oy + ty)
+                if (hasLinearTransform) {
+                    ctx.transform(m[0], m[1], m[2], m[3], 0f, 0f)
                 }
-                if (transform.scaleX != 1f || transform.scaleY != 1f) {
-                    ctx.scale(transform.scaleX, transform.scaleY)
-                }
-                ctx.translate(-cx, -cy)
+                ctx.translate(-ox, -oy)
             }
         }
 
@@ -191,17 +204,75 @@ class AlienRepaintManager(
             style
         }
 
-        if (style.visible && (rectsIntersect(node.bounds, clipRegion) || transform.scaleX != 1f || transform.scaleY != 1f)) {
-            // Paint standard Bootstrap 5.3 box surface (shadow, focus ring, background/gradient, border)
+        val hasTransformNonIdentity = transform != CssTransform2D.IDENTITY
+        if (style.visible && (rectsIntersect(node.bounds, clipRegion) || hasTransformNonIdentity)) {
+            // Paint standard Bootstrap 5.3 box surface (shadow, focus ring, background/gradient, border, outline)
             AlienBootstrapPainter.paintBoxSurface(ctx, node.bounds, effectiveStyle)
 
-            // Paint component-specific content (button label, input text/caret, progress bar, checkbox, image, etc.)
-            node.customPaint?.invoke(ctx, node.bounds, effectiveStyle)
+            // Paint list marker for <li> / display: list-item nodes
+            if ((node.tagName.equals("li", ignoreCase = true) || effectiveStyle.display == "list-item") &&
+                effectiveStyle.listStyleType != "none"
+            ) {
+                AlienBootstrapPainter.paintListMarker(ctx, node.bounds, effectiveStyle, node.listItemIndex)
+            }
+
+            // Paint ::before pseudo-element
+            effectiveStyle.beforeStyle?.let { bStyle ->
+                AlienBootstrapPainter.paintPseudoElementBox(ctx, node.bounds, bStyle, isAfter = false)
+            }
+
+            // Paint component-specific content (or extension widget surface) with opacity + rounded/overflow clipping
+            node.customPaint?.let { painter ->
+                ctx.save()
+                ctx.setGlobalAlpha(effectiveOpacity)
+                val clipsSelf = effectiveStyle.overflow != OverflowBehavior.VISIBLE ||
+                    effectiveStyle.overflowX != OverflowBehavior.VISIBLE ||
+                    effectiveStyle.overflowY != OverflowBehavior.VISIBLE ||
+                    effectiveStyle.borderRadiusPx > 0f ||
+                    effectiveStyle.cornerRadii != null
+                if (clipsSelf && node.bounds.width > 0 && node.bounds.height > 0) {
+                    val radii = AlienBootstrapPainter.resolveCornerRadii(
+                        node.bounds.width.toFloat(),
+                        node.bounds.height.toFloat(),
+                        effectiveStyle
+                    )
+                    ctx.beginPath()
+                    if (radii[0] == radii[1] && radii[1] == radii[2] && radii[2] == radii[3]) {
+                        if (radii[0] <= 0.5f) {
+                            ctx.rect(
+                                node.bounds.x.toFloat(),
+                                node.bounds.y.toFloat(),
+                                node.bounds.width.toFloat(),
+                                node.bounds.height.toFloat()
+                            )
+                        } else {
+                            ctx.roundRect(
+                                node.bounds.x.toFloat(),
+                                node.bounds.y.toFloat(),
+                                node.bounds.width.toFloat(),
+                                node.bounds.height.toFloat(),
+                                radii[0]
+                            )
+                        }
+                    } else {
+                        ctx.roundRect(
+                            node.bounds.x.toFloat(),
+                            node.bounds.y.toFloat(),
+                            node.bounds.width.toFloat(),
+                            node.bounds.height.toFloat(),
+                            radii[0], radii[1], radii[2], radii[3]
+                        )
+                    }
+                    ctx.clip()
+                }
+                painter(ctx, node.bounds, effectiveStyle)
+                ctx.restore()
+            }
         }
 
         if (node.children.isNotEmpty()) {
-            val clipsX = style.overflow == OverflowBehavior.HIDDEN || style.overflowX == OverflowBehavior.HIDDEN
-            val clipsY = style.overflow == OverflowBehavior.HIDDEN || style.overflowY == OverflowBehavior.HIDDEN
+            val clipsX = style.overflow != OverflowBehavior.VISIBLE || style.overflowX != OverflowBehavior.VISIBLE
+            val clipsY = style.overflow != OverflowBehavior.VISIBLE || style.overflowY != OverflowBehavior.VISIBLE
             val hasOverflowClip = clipsX || clipsY
 
             var childClipRegion: Rect? = clipRegion
@@ -215,15 +286,18 @@ class AlienRepaintManager(
                     childClipRegion = null
                 } else {
                     ctx.save()
+                    val cw = clipRight - clipLeft
+                    val ch = clipBottom - clipTop
+                    val radii = if (clipsX && clipsY) AlienBootstrapPainter.resolveCornerRadii(cw, ch, effectiveStyle) else FloatArray(4)
                     ctx.beginPath()
-                    ctx.moveTo(clipLeft, clipTop)
-                    ctx.lineTo(clipRight, clipTop)
-                    ctx.lineTo(clipRight, clipBottom)
-                    ctx.lineTo(clipLeft, clipBottom)
-                    ctx.closePath()
+                    if (radii.any { it > 0.5f }) {
+                        ctx.roundRect(clipLeft, clipTop, cw, ch, radii[0], radii[1], radii[2], radii[3])
+                    } else {
+                        ctx.rect(clipLeft, clipTop, cw, ch)
+                    }
                     ctx.clip()
 
-                    if (transform.scaleX == 1f && transform.scaleY == 1f && transform.rotateDeg == 0f) {
+                    if (!hasTransformNonIdentity) {
                         val x0 = if (clipsX) max(clipRegion.x, node.bounds.x) else clipRegion.x
                         val y0 = if (clipsY) max(clipRegion.y, node.bounds.y) else clipRegion.y
                         val x1 = if (clipsX) min(clipRegion.right, node.bounds.right) else clipRegion.right
@@ -244,6 +318,12 @@ class AlienRepaintManager(
 
             if (hasOverflowClip && childClipRegion != null) {
                 ctx.restore()
+            }
+        }
+
+        if (style.visible && (rectsIntersect(node.bounds, clipRegion) || hasTransformNonIdentity)) {
+            effectiveStyle.afterStyle?.let { aStyle ->
+                AlienBootstrapPainter.paintPseudoElementBox(ctx, node.bounds, aStyle, isAfter = true)
             }
         }
 

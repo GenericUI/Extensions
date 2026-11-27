@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>04 - CSS Flexbox Layout Geometry</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    h1 { margin: 0 0 8px 0; font-size: 20px; color: #38bdf8; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .box { background: #2563eb; border-radius: 4px; text-align: center; font-size: 12px; color: #fff; }
+    .row { display: flex; width: 320px; background: #0b1220; border: 1px solid #334155; }
+    #flex-inline { display: inline-flex; gap: 10px; background: #0b1220; border: 1px solid #475569; }
+    #flex-row-rev { flex-direction: row-reverse; gap: 10px; }
+    #flex-col-rev { flex-direction: column-reverse; height: 100px; gap: 8px; }
+    #flex-wrap-box { width: 220px; flex-wrap: wrap; row-gap: 6px; column-gap: 10px; }
+    #flex-wrap-rev { width: 220px; height: 90px; flex-wrap: wrap-reverse; align-content: space-between; }
+    #flex-jc-sb { justify-content: space-between; }
+    #flex-jc-sa { justify-content: space-around; }
+    #flex-jc-se { justify-content: space-evenly; }
+    #flex-jc-center { justify-content: center; }
+    #flex-jc-end { justify-content: flex-end; }
+    #flex-align { height: 80px; align-items: flex-start; gap: 6px; }
+    #flex-grow-shrink { width: 300px; }
+    #nested-outer { display: flex; width: 300px; height: 60px; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+  </style>
+</head>
+<body>
+  <h1>04 &mdash; CSS Flexbox Layout Compliance</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <div><span id="flex-inline"><span class="box" style="width:40px;height:20px;">A</span><span class="box" style="width:40px;height:20px;">B</span></span></div>
+
+    <div id="flex-row-rev" class="row">
+      <div id="rr-1" class="box" style="width:50px;height:24px;">1</div>
+      <div id="rr-2" class="box" style="width:50px;height:24px;">2</div>
+    </div>
+
+    <div id="flex-col-rev" class="row">
+      <div id="cr-1" class="box" style="height:24px;">1</div>
+      <div id="cr-2" class="box" style="height:24px;">2</div>
+    </div>
+
+    <div id="flex-wrap-box" class="row">
+      <div id="fw-1" class="box" style="width:100px;height:24px;">W1</div>
+      <div id="fw-2" class="box" style="width:100px;height:24px;">W2</div>
+      <div id="fw-3" class="box" style="width:100px;height:24px;">W3</div>
+    </div>
+
+    <div id="flex-wrap-rev" class="row">
+      <div id="fwr-1" class="box" style="width:120px;height:24px;">R1</div>
+      <div id="fwr-2" class="box" style="width:120px;height:24px;">R2</div>
+    </div>
+
+    <div id="flex-jc-sb" class="row" style="width:300px;border:none;">
+      <div id="sb-1" class="box" style="width:50px;height:20px;"></div>
+      <div id="sb-2" class="box" style="width:50px;height:20px;"></div>
+      <div id="sb-3" class="box" style="width:50px;height:20px;"></div>
+    </div>
+    <div id="flex-jc-se" class="row" style="width:300px;border:none;">
+      <div id="se-1" class="box" style="width:60px;height:20px;"></div>
+      <div id="se-2" class="box" style="width:60px;height:20px;"></div>
+    </div>
+    <div id="flex-jc-sa" class="row" style="width:300px;border:none;">
+      <div id="sa-1" class="box" style="width:60px;height:20px;"></div>
+      <div id="sa-2" class="box" style="width:60px;height:20px;"></div>
+    </div>
+    <div id="flex-jc-center" class="row" style="width:300px;border:none;">
+      <div id="jc-c" class="box" style="width:100px;height:20px;"></div>
+    </div>
+    <div id="flex-jc-end" class="row" style="width:300px;border:none;">
+      <div id="jc-e" class="box" style="width:80px;height:20px;"></div>
+    </div>
+
+    <div id="flex-align" class="row" style="border:none;">
+      <div id="al-stretch" class="box" style="width:50px;align-self:stretch;">S</div>
+      <div id="al-center" class="box" style="width:50px;height:20px;align-self:center;">C</div>
+      <div id="al-end" class="box" style="width:50px;height:20px;align-self:flex-end;">E</div>
+    </div>
+
+    <div id="flex-grow-shrink" class="row" style="border:none;">
+      <div id="fg-1" class="box" style="flex:1 1 0px;height:24px;">G1</div>
+      <div id="fg-2" class="box" style="flex:2 1 0px;height:24px;">G2</div>
+    </div>
+
+    <div id="flex-shrink-test" class="row" style="width:200px;border:none;">
+      <div id="fs-1" class="box" style="width:150px;flex-shrink:1;height:24px;">S1</div>
+      <div id="fs-2" class="box" style="width:150px;flex-shrink:0;height:24px;">S2</div>
+    </div>
+
+    <div id="flex-order-box" class="row" style="width:240px;border:none;">
+      <div id="ord-1" class="box" style="width:60px;height:20px;order:2;">A(2)</div>
+      <div id="ord-2" class="box" style="width:60px;height:20px;order:1;">B(1)</div>
+      <div id="ord-3" class="box" style="width:60px;height:20px;order:3;">C(3)</div>
+    </div>
+
+    <div id="nested-outer">
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;background:#334155;">
+        <div id="nested-inner" class="box" style="width:40px;height:20px;">N</div>
+      </div>
+    </div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) {
+          var tc = suites[i].tests[j]; sum.total++;
+          var row = document.createElement("div"); c.appendChild(row);
+          try { tc.fn(); sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }
+          catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+        }
+        root.__suiteSummary = sum;
+        var bar = document.getElementById("suite-summary-bar");
+        bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+        bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+      });
+    }
+  })(window);
+  </script>
+
+  <script>
+  describe("04 - CSS Flexbox Layout Geometry", function () {
+    it("shrink-wraps display: inline-flex to child widths plus gap", function () {
+      var r = document.getElementById("flex-inline").getBoundingClientRect();
+      expect(Math.round(r.width)).toBe(92);
+    });
+
+    it("lays out flex-direction: row-reverse and column-reverse in inverted order with gaps", function () {
+      var r1 = document.getElementById("rr-1").getBoundingClientRect();
+      var r2 = document.getElementById("rr-2").getBoundingClientRect();
+      expect(r1.left).toBeGreaterThan(r2.left);
+      expect(Math.round(r1.left - r2.right)).toBe(10);
+
+      var c1 = document.getElementById("cr-1").getBoundingClientRect();
+      var c2 = document.getElementById("cr-2").getBoundingClientRect();
+      expect(c1.top).toBeGreaterThan(c2.top);
+      expect(Math.round(c1.top - c2.bottom)).toBe(8);
+    });
+
+    it("wraps items cleanly with flex-wrap: wrap and wrap-reverse plus row/column gap", function () {
+      var w1 = document.getElementById("fw-1").getBoundingClientRect();
+      var w2 = document.getElementById("fw-2").getBoundingClientRect();
+      var w3 = document.getElementById("fw-3").getBoundingClientRect();
+      expect(Math.round(w2.left - w1.right)).toBe(10);
+      expect(Math.round(w3.top - w1.bottom)).toBe(6);
+      expect(Math.round(w3.left)).toBe(Math.round(w1.left));
+
+      var wr1 = document.getElementById("fwr-1").getBoundingClientRect();
+      var wr2 = document.getElementById("fwr-2").getBoundingClientRect();
+      expect(wr1.top).toBeGreaterThan(wr2.top);
+    });
+
+    it("computes exact positions for all justify-content modes", function () {
+      var sbP = document.getElementById("flex-jc-sb").getBoundingClientRect();
+      var sb1 = document.getElementById("sb-1").getBoundingClientRect();
+      var sb2 = document.getElementById("sb-2").getBoundingClientRect();
+      var sb3 = document.getElementById("sb-3").getBoundingClientRect();
+      expect(Math.round(sb1.left - sbP.left)).toBe(0);
+      expect(Math.round(sb2.left - sb1.right)).toBe(75);
+      expect(Math.round(sb3.right - sbP.right)).toBe(0);
+
+      var seP = document.getElementById("flex-jc-se").getBoundingClientRect();
+      var se1 = document.getElementById("se-1").getBoundingClientRect();
+      var se2 = document.getElementById("se-2").getBoundingClientRect();
+      expect(Math.round(se1.left - seP.left)).toBe(60);
+      expect(Math.round(se2.left - se1.right)).toBe(60);
+
+      var saP = document.getElementById("flex-jc-sa").getBoundingClientRect();
+      var sa1 = document.getElementById("sa-1").getBoundingClientRect();
+      var sa2 = document.getElementById("sa-2").getBoundingClientRect();
+      expect(Math.round(sa1.left - saP.left)).toBe(45);
+      expect(Math.round(sa2.left - sa1.right)).toBe(90);
+
+      var cP = document.getElementById("flex-jc-center").getBoundingClientRect();
+      var jcC = document.getElementById("jc-c").getBoundingClientRect();
+      expect(Math.round(jcC.left - cP.left)).toBe(100);
+
+      var eP = document.getElementById("flex-jc-end").getBoundingClientRect();
+      var jcE = document.getElementById("jc-e").getBoundingClientRect();
+      expect(Math.round(eP.right - jcE.right)).toBe(0);
+    });
+
+    it("honors align-self stretch, center, and flex-end inside container height", function () {
+      var p = document.getElementById("flex-align").getBoundingClientRect();
+      var s = document.getElementById("al-stretch").getBoundingClientRect();
+      var c = document.getElementById("al-center").getBoundingClientRect();
+      var e = document.getElementById("al-end").getBoundingClientRect();
+      expect(Math.round(s.height)).toBe(80);
+      expect(Math.round(c.top - p.top)).toBe(30);
+      expect(Math.round(p.bottom - e.bottom)).toBe(0);
+    });
+
+    it("distributes space proportionally via flex-grow and honors flex-shrink: 0 vs 1", function () {
+      var g1 = document.getElementById("fg-1").getBoundingClientRect();
+      var g2 = document.getElementById("fg-2").getBoundingClientRect();
+      expect(Math.round(g1.width)).toBe(100);
+      expect(Math.round(g2.width)).toBe(200);
+
+      var s1 = document.getElementById("fs-1").getBoundingClientRect();
+      var s2 = document.getElementById("fs-2").getBoundingClientRect();
+      expect(Math.round(s2.width)).toBe(150);
+      expect(Math.round(s1.width)).toBe(50);
+    });
+
+    it("reorders visual items via CSS order and centers nested flex children", function () {
+      var o1 = document.getElementById("ord-1").getBoundingClientRect();
+      var o2 = document.getElementById("ord-2").getBoundingClientRect();
+      var o3 = document.getElementById("ord-3").getBoundingClientRect();
+      expect(o2.left).toBeLessThan(o1.left);
+      expect(o1.left).toBeLessThan(o3.left);
+
+      var outR = document.getElementById("nested-outer").getBoundingClientRect();
+      var inR = document.getElementById("nested-inner").getBoundingClientRect();
+      expect(Math.round(inR.left - outR.left)).toBe(130);
+      expect(Math.round(inR.top - outR.top)).toBe(20);
+    });
+  });
+  </script>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>03 - Box Model, Borders, Backgrounds &amp; Visuals</title>
+  <style>
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    h1 { margin: 0 0 8px 0; font-size: 20px; color: #38bdf8; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+
+    #content-box-el {
+      box-sizing: content-box;
+      width: 120px; height: 60px; padding: 10px; border: 5px solid #38bdf8; margin: 4px;
+      background-color: #1d4ed8;
+    }
+    #border-box-el {
+      box-sizing: border-box;
+      width: 120px; height: 60px; padding: 10px; border: 5px solid #22c55e; margin: 4px;
+      background-color: #15803d;
+    }
+    #auto-center-parent { width: 300px; border: 1px solid #475569; padding: 4px 0; margin: 8px 0; }
+    #auto-center-child { box-sizing: border-box; width: 100px; height: 24px; margin: 0 auto; background: #f59e0b; }
+    #minmax-box { box-sizing: border-box; width: 40px; min-width: 90px; max-height: 36px; height: 100px; background: #a855f7; }
+    #per-side-border {
+      box-sizing: border-box; width: 140px; height: 56px; margin: 8px 0;
+      border-top: 2px solid rgb(239, 68, 68);
+      border-right: 4px dashed rgb(34, 197, 94);
+      border-bottom: 6px dotted rgb(56, 189, 248);
+      border-left: 8px solid rgb(250, 204, 21);
+      border-top-left-radius: 6px;
+      border-top-right-radius: 14px;
+      border-bottom-right-radius: 20px;
+      border-bottom-left-radius: 4px;
+    }
+    #gradient-card {
+      width: 240px; height: 48px; border-radius: 10px; margin: 8px 0;
+      background: linear-gradient(90deg, #ef4444 0%, #eab308 50%, #22c55e 100%);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
+      text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+      display: flex; align-items: center; justify-content: center; font-weight: 700;
+    }
+    #radial-card {
+      width: 120px; height: 48px; margin: 8px 0;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.9) 0%, hsla(220, 60%, 20%, 1) 100%);
+    }
+    #hsl-box { width: 80px; height: 24px; background-color: hsl(120, 100%, 50%); opacity: 0.75; }
+    #vis-hidden { width: 80px; height: 25px; visibility: hidden; background: #ec4899; }
+    #disp-none { width: 80px; height: 25px; display: none; background: #ec4899; }
+    #overflow-clip { width: 100px; height: 32px; overflow: hidden; border: 1px solid #64748b; }
+    #overflow-inner { width: 240px; height: 80px; background: #0284c7; }
+    #transform-scale {
+      width: 60px; height: 30px; background: #f43f5e; margin: 16px 32px;
+      transform-origin: 0 0;
+      transform: translate(10px, 5px) scale(2, 2);
+    }
+    #transform-rotate {
+      width: 60px; height: 20px; background: #14b8a6; margin: 20px;
+      transform: rotate(90deg);
+    }
+  </style>
+</head>
+<body>
+  <h1>03 &mdash; Box Model, Borders, Gradients, Visibility &amp; CSS Transforms</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <div id="content-box-el">content-box</div>
+    <div id="border-box-el">border-box</div>
+    <div id="auto-center-parent"><div id="auto-center-child"></div></div>
+    <div id="minmax-box"></div>
+    <div id="per-side-border">Borders</div>
+    <div id="gradient-card">Linear Gradient + Shadow</div>
+    <div id="radial-card"></div>
+    <div id="hsl-box"></div>
+    <div id="vis-hidden">Hidden</div>
+    <div id="disp-none">None</div>
+    <div id="overflow-clip"><div id="overflow-inner">Clipped content</div></div>
+    <div id="transform-scale">Scaled</div>
+    <div id="transform-rotate">Rot90</div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function formatVal(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function extendMatchers(m, actual) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(actual <= n)) throw new Error("Expected " + actual + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (exp, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(actual - exp) >= tol) throw new Error("Expected " + actual + " close to " + exp); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { actual(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return extendMatchers(oe(a), a); }; }
+    else {
+      root.expect = function (actual) {
+        return extendMatchers({
+          toBe: function (e) { if (actual !== e) throw new Error("Expected " + formatVal(e) + " got " + formatVal(actual)); },
+          toEqual: function (e) { if (formatVal(actual) !== formatVal(e)) throw new Error("Expected " + formatVal(e) + " == " + formatVal(actual)); },
+          toBeTruthy: function () { if (!actual) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (actual) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (actual != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (actual === undefined) throw new Error("Expected defined"); },
+          toContain: function (item) { if (actual == null || String(actual).indexOf(String(item)) === -1) throw new Error("Expected contain " + item); },
+          toBeGreaterThan: function (n) { if (!(actual > n)) throw new Error("Expected " + actual + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(actual >= n)) throw new Error("Expected " + actual + " >= " + n); },
+          toBeLessThan: function (n) { if (!(actual < n)) throw new Error("Expected " + actual + " < " + n); }
+        }, actual);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var p = activeSuite; var s = { name: n, beforeAll: [], afterAll: [], beforeEach: [], afterEach: [], tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = p; };
+      root.beforeAll = root.afterAll = root.beforeEach = root.afterEach = function () {};
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) {
+          var tc = suites[i].tests[j]; sum.total++;
+          var row = document.createElement("div"); c.appendChild(row);
+          try { tc.fn(); sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }
+          catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+        }
+        root.__suiteSummary = sum;
+        var bar = document.getElementById("suite-summary-bar");
+        bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+        bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+      });
+    }
+  })(window);
+  </script>
+
+  <script>
+  describe("03 - Box Model, Borders, Gradients & Visuals", function () {
+    it("computes exact content-box vs border-box dimensions via getBoundingClientRect", function () {
+      var cb = document.getElementById("content-box-el").getBoundingClientRect();
+      expect(Math.round(cb.width)).toBe(150);
+      expect(Math.round(cb.height)).toBe(90);
+
+      var bb = document.getElementById("border-box-el").getBoundingClientRect();
+      expect(Math.round(bb.width)).toBe(120);
+      expect(Math.round(bb.height)).toBe(60);
+    });
+
+    it("centers block elements horizontally with margin: 0 auto and clamps min/max sizing", function () {
+      var pr = document.getElementById("auto-center-parent").getBoundingClientRect();
+      var ch = document.getElementById("auto-center-child").getBoundingClientRect();
+      var leftGap = ch.left - pr.left;
+      var rightGap = pr.right - ch.right;
+      expect(Math.abs(leftGap - rightGap)).toBeLessThanOrEqual(2);
+      expect(Math.round(ch.width)).toBe(100);
+
+      var mm = document.getElementById("minmax-box").getBoundingClientRect();
+      expect(Math.round(mm.width)).toBe(90);
+      expect(Math.round(mm.height)).toBe(36);
+    });
+
+    it("resolves distinct per-side border widths, styles, and per-corner border-radius", function () {
+      var cs = getComputedStyle(document.getElementById("per-side-border"));
+      expect(parseFloat(cs.borderTopWidth)).toBe(2);
+      expect(parseFloat(cs.borderRightWidth)).toBe(4);
+      expect(parseFloat(cs.borderBottomWidth)).toBe(6);
+      expect(parseFloat(cs.borderLeftWidth)).toBe(8);
+      expect(cs.borderTopStyle).toBe("solid");
+      expect(cs.borderRightStyle).toBe("dashed");
+      expect(cs.borderBottomStyle).toBe("dotted");
+      expect(parseFloat(cs.borderTopLeftRadius)).toBe(6);
+      expect(parseFloat(cs.borderTopRightRadius)).toBe(14);
+      expect(parseFloat(cs.borderBottomRightRadius)).toBe(20);
+      expect(parseFloat(cs.borderBottomLeftRadius)).toBe(4);
+    });
+
+    it("resolves HSL colors, opacity, linear/radial gradients, box-shadow and text-shadow", function () {
+      var hslCs = getComputedStyle(document.getElementById("hsl-box"));
+      expect(hslCs.backgroundColor).toContain("0, 255, 0");
+      expect(parseFloat(hslCs.opacity)).toBeCloseTo(0.75, 2);
+
+      var gradCs = getComputedStyle(document.getElementById("gradient-card"));
+      expect(gradCs.backgroundImage).toContain("gradient");
+      expect(gradCs.boxShadow && gradCs.boxShadow !== "none").toBe(true);
+
+      var radCs = getComputedStyle(document.getElementById("radial-card"));
+      expect(radCs.backgroundImage).toContain("gradient");
+    });
+
+    it("distinguishes visibility: hidden (preserves layout box) from display: none (zero box)", function () {
+      var vh = document.getElementById("vis-hidden").getBoundingClientRect();
+      expect(Math.round(vh.width)).toBe(80);
+      expect(Math.round(vh.height)).toBe(25);
+      expect(getComputedStyle(document.getElementById("vis-hidden")).visibility).toBe("hidden");
+
+      var dn = document.getElementById("disp-none").getBoundingClientRect();
+      expect(Math.round(dn.width)).toBe(0);
+      expect(Math.round(dn.height)).toBe(0);
+    });
+
+    it("clips overflow: hidden child visually without expanding parent container rect", function () {
+      var clip = document.getElementById("overflow-clip").getBoundingClientRect();
+      var inner = document.getElementById("overflow-inner").getBoundingClientRect();
+      expect(Math.round(clip.width)).toBe(102);
+      expect(Math.round(clip.height)).toBe(34);
+      expect(Math.round(inner.width)).toBe(240);
+    });
+
+    it("applies 2D CSS transforms (scale + rotate) reflected in getBoundingClientRect", function () {
+      var scaled = document.getElementById("transform-scale").getBoundingClientRect();
+      expect(Math.round(scaled.width)).toBe(120);
+      expect(Math.round(scaled.height)).toBe(60);
+
+      var rot = document.getElementById("transform-rotate").getBoundingClientRect();
+      expect(Math.round(rot.width)).toBeCloseTo(20, 0);
+      expect(Math.round(rot.height)).toBeCloseTo(60, 0);
+    });
+  });
+  </script>
+</body>
+</html>

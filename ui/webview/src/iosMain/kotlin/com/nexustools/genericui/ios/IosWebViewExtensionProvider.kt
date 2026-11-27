@@ -12,7 +12,7 @@ object IosWebViewExtensionProvider {
     fun supportsTarget(target: BackendTarget): Boolean = target.isIosFamily
 
     fun install() {
-        WebViewExtension.registerProvider(WebViewEngineType.IOS_NATIVE_WKWEBVIEW) { config ->
+        WebViewExtension.registerProvider(WebViewEngineType.APPLE_WKWEBVIEW) { config ->
             IosNativeWebViewImpl(config)
         }
     }

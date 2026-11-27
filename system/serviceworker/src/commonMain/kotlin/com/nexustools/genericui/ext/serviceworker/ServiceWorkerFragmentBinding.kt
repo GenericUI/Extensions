@@ -245,7 +245,7 @@ class ServiceWorkerFragmentBinding(
             )
             channel.sendControlAsync(
                 typeId = ServiceWorkerEnvelope.CONTROL_FRAGMENT_UNMOUNTED,
-                payloadJson = payload,
+                payload = payload,
                 sourceFragmentId = fragmentId
             )
         }
@@ -267,7 +267,7 @@ class ServiceWorkerFragmentBinding(
             everSentMounted = true
             val sent = channel.sendControl(
                 typeId = ServiceWorkerEnvelope.CONTROL_FRAGMENT_MOUNTED,
-                payloadJson = payload,
+                payload = payload,
                 sourceFragmentId = fragmentId
             )
             if (sent) {
@@ -324,7 +324,7 @@ class ServiceWorkerFragmentBinding(
         }
     }
 
-    internal companion object {
+    companion object {
         private const val LIFECYCLE_POLL_INTERVAL_MS: Long = 40L
         private val nextInstanceSeq = AtomicLong(1L)
         private val registryLock = AtomicBoolean(false)
@@ -389,7 +389,7 @@ class ServiceWorkerFragmentBinding(
             }
         }
 
-        fun nextInstanceId(): String = "frag-inst-${nextInstanceSeq.fetchAndAdd(1L)}"
+        internal fun nextInstanceId(): String = "frag-inst-${nextInstanceSeq.fetchAndAdd(1L)}"
 
         fun getOrCreate(fragment: Fragment): ServiceWorkerFragmentBinding {
             val existing = withRegistryLock {
@@ -399,20 +399,20 @@ class ServiceWorkerFragmentBinding(
             return ServiceWorkerFragmentBinding(fragment)
         }
 
-        fun activeBindingFor(fragment: Fragment): ServiceWorkerFragmentBinding? = withRegistryLock {
+        internal fun activeBindingFor(fragment: Fragment): ServiceWorkerFragmentBinding? = withRegistryLock {
             activeBindingsByFragment[fragment]?.firstOrNull { !it.isDisposed }
         }
 
-        fun hasActiveBindingFor(fragment: Fragment): Boolean =
+        internal fun hasActiveBindingFor(fragment: Fragment): Boolean =
             activeBindingFor(fragment) != null
 
-        fun assignPendingInstanceId(fragment: Fragment, instanceId: String) {
+        internal fun assignPendingInstanceId(fragment: Fragment, instanceId: String) {
             withRegistryLock {
                 pendingInstanceIdsByFragment[fragment] = instanceId
             }
         }
 
-        fun disposeBindingsForFragment(fragment: Fragment) {
+        internal fun disposeBindingsForFragment(fragment: Fragment) {
             val snapshot = withRegistryLock {
                 pendingInstanceIdsByFragment.remove(fragment)
                 activeBindingsByFragment.remove(fragment)?.toList().orEmpty()
@@ -422,7 +422,7 @@ class ServiceWorkerFragmentBinding(
             }
         }
 
-        fun disposeAllBindings() {
+        internal fun disposeAllBindings() {
             val snapshot = withRegistryLock {
                 appStartupMountHold = false
                 deferredMountHoldDepth = 0
@@ -437,7 +437,7 @@ class ServiceWorkerFragmentBinding(
             }
         }
 
-        fun clearAllForTests() {
+        internal fun clearAllForTests() {
             disposeAllBindings()
         }
 

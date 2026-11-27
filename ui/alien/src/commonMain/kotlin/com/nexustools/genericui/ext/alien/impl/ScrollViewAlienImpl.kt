@@ -18,22 +18,23 @@ class ScrollViewAlienImpl(
 
     init {
         node.onWheel = { wheel ->
-            node.scrollOffsetX = (node.scrollOffsetX + wheel.deltaX.toInt()).coerceAtLeast(0)
-            node.scrollOffsetY = (node.scrollOffsetY + wheel.deltaY.toInt()).coerceAtLeast(0)
-            node.markLayoutDirty()
-            node.invalidateBounds()
+            val nextX = node.scrollOffsetX + wheel.deltaX.toInt()
+            val nextY = node.scrollOffsetY + wheel.deltaY.toInt()
+            scrollTo(nextX, nextY)
         }
     }
 
     override fun scrollTo(x: Int, y: Int) {
-        node.scrollOffsetX = x.coerceAtLeast(0)
-        node.scrollOffsetY = y.coerceAtLeast(0)
+        val maxX = if (node.scrollWidth > 0) (node.scrollWidth - node.bounds.width).coerceAtLeast(0) else Int.MAX_VALUE
+        val maxY = if (node.scrollHeight > 0) (node.scrollHeight - node.bounds.height).coerceAtLeast(0) else Int.MAX_VALUE
+        node.scrollOffsetX = x.coerceIn(0, maxX)
+        node.scrollOffsetY = y.coerceIn(0, maxY)
         node.markLayoutDirty()
         node.invalidateBounds()
     }
 
     override fun scrollToBottom() {
-        val totalContentH = node.children.sumOf { it.measuredSize.height }
+        val totalContentH = if (node.scrollHeight > 0) node.scrollHeight else node.children.sumOf { it.measuredSize.height }
         node.scrollOffsetY = (totalContentH - node.bounds.height).coerceAtLeast(0)
         node.markLayoutDirty()
         node.invalidateBounds()

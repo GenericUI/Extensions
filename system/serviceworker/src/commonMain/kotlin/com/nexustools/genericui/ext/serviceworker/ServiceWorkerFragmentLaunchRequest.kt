@@ -2,7 +2,6 @@ package com.nexustools.genericui.ext.serviceworker
 
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.system.PreferenceElement
-import com.nexustools.genericui.component.system.PreferenceObjectCodec
 
 /**
  * Cross-platform descriptor used by a [ServiceWorker] and platform hosts to start or focus
@@ -16,7 +15,7 @@ data class ServiceWorkerFragmentLaunchRequest(
     val clearTask: Boolean = false,
     val bringToFront: Boolean = true
 ) {
-    internal fun toControlPayloadJson(): String {
+    internal fun toControlPayloadElement(): PreferenceElement {
         val map = linkedMapOf<String, PreferenceElement>(
             "fragmentId" to PreferenceElement.ofString(fragmentId),
             "openAdditionalWindow" to PreferenceElement.ofBoolean(openAdditionalWindow),
@@ -29,21 +28,12 @@ data class ServiceWorkerFragmentLaunchRequest(
         if (arguments != null && arguments.keys().isNotEmpty()) {
             map["argumentsB64"] = PreferenceElement.ofString(arguments.toBase64Url())
         }
-        return PreferenceObjectCodec.elementToJson(PreferenceElement.ofObject(map))
+        return PreferenceElement.ofObject(map)
     }
 
     internal companion object {
-        private fun parseJsonOrThrow(json: String, context: String): PreferenceElement =
-            try {
-                PreferenceObjectCodec.fromJsonElement(json)
-            } catch (e: IllegalArgumentException) {
-                throw ServiceWorkerIpcException("Malformed $context payload: ${e.message}", e)
-            }
-
-        fun fromControlPayloadJson(json: String): ServiceWorkerFragmentLaunchRequest? {
-            if (json.isBlank() || json == "null") return null
-            val elem = parseJsonOrThrow(json, "fragment launch control")
-            if (!elem.isObject && !elem.isMap) return null
+        fun fromControlPayloadElement(elem: PreferenceElement): ServiceWorkerFragmentLaunchRequest? {
+            if (elem.isNull || (!elem.isObject && !elem.isMap)) return null
             val fragmentId = elem["fragmentId"]?.asString()?.trim().orEmpty()
             val route = elem["route"]?.asString()?.trim()?.takeIf { it.isNotEmpty() }
             if (fragmentId.isEmpty() && route == null) return null
@@ -68,19 +58,18 @@ data class ServiceWorkerFragmentLaunchRequest(
             )
         }
 
-        fun encodeCloseControlPayload(fragmentId: String, instanceId: String? = null): String {
+        fun encodeCloseControlPayload(fragmentId: String, instanceId: String? = null): PreferenceElement {
             val map = linkedMapOf<String, PreferenceElement>(
                 "fragmentId" to PreferenceElement.ofString(fragmentId)
             )
             if (!instanceId.isNullOrBlank()) {
                 map["instanceId"] = PreferenceElement.ofString(instanceId)
             }
-            return PreferenceObjectCodec.elementToJson(PreferenceElement.ofObject(map))
+            return PreferenceElement.ofObject(map)
         }
 
-        fun decodeCloseControlPayload(json: String): Pair<String, String?>? {
-            if (json.isBlank() || json == "null") return null
-            val elem = parseJsonOrThrow(json, "fragment close control")
+        fun decodeCloseControlPayload(elem: PreferenceElement): Pair<String, String?>? {
+            if (elem.isNull) return null
             if (elem.isString) {
                 val fid = elem.asString()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
                 return fid to null
@@ -95,7 +84,7 @@ data class ServiceWorkerFragmentLaunchRequest(
             fragmentId: String,
             instanceId: String,
             route: String? = null
-        ): String {
+        ): PreferenceElement {
             val map = linkedMapOf<String, PreferenceElement>(
                 "fragmentId" to PreferenceElement.ofString(fragmentId),
                 "instanceId" to PreferenceElement.ofString(instanceId)
@@ -103,13 +92,11 @@ data class ServiceWorkerFragmentLaunchRequest(
             if (!route.isNullOrBlank()) {
                 map["route"] = PreferenceElement.ofString(route)
             }
-            return PreferenceObjectCodec.elementToJson(PreferenceElement.ofObject(map))
+            return PreferenceElement.ofObject(map)
         }
 
-        fun decodeMountControlPayload(json: String): Triple<String, String, String?>? {
-            if (json.isBlank() || json == "null") return null
-            val elem = parseJsonOrThrow(json, "fragment mount control")
-            if (!elem.isObject && !elem.isMap) return null
+        fun decodeMountControlPayload(elem: PreferenceElement): Triple<String, String, String?>? {
+            if (elem.isNull || (!elem.isObject && !elem.isMap)) return null
             val fragmentId = elem["fragmentId"]?.asString()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
             val instanceId = elem["instanceId"]?.asString()?.trim().orEmpty()
             val route = elem["route"]?.asString()?.trim()?.takeIf { it.isNotEmpty() }

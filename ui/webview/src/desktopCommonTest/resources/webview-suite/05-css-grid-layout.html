@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>05 - CSS Grid Layout Geometry</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    h1 { margin: 0 0 8px 0; font-size: 20px; color: #38bdf8; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .cell { background: #0284c7; border-radius: 4px; font-size: 12px; color: #fff; text-align: center; }
+
+    #grid-tracks {
+      display: grid; width: 340px;
+      grid-template-columns: 80px 1fr 2fr;
+      grid-template-rows: 30px 50px;
+      column-gap: 10px; row-gap: 8px;
+    }
+    #grid-repeat {
+      display: grid; width: 320px;
+      grid-template-columns: repeat(3, minmax(80px, 1fr));
+      gap: 10px;
+    }
+    #grid-areas {
+      display: grid; width: 300px;
+      grid-template-columns: 90px 1fr;
+      grid-template-rows: 30px 60px 28px;
+      grid-template-areas:
+        "header header"
+        "sidebar main"
+        "footer footer";
+      gap: 6px;
+    }
+    #ga-header { grid-area: header; background: #7c3aed; }
+    #ga-sidebar { grid-area: sidebar; background: #db2777; }
+    #ga-main { grid-area: main; background: #2563eb; }
+    #ga-footer { grid-area: footer; background: #059669; }
+
+    #grid-span {
+      display: grid; width: 320px;
+      grid-template-columns: repeat(3, 100px);
+      grid-template-rows: 30px 30px;
+      gap: 10px;
+    }
+    #gs-wide { grid-column: 1 / 3; grid-row: 1; }
+    #gs-tall { grid-column: 3; grid-row: 1 / span 2; }
+
+    #grid-dense {
+      display: grid; width: 220px;
+      grid-template-columns: repeat(2, 100px);
+      grid-template-rows: 30px 30px;
+      grid-auto-flow: dense;
+      gap: 10px;
+    }
+    #gd-wide { grid-column: 1 / span 2; }
+
+    #grid-col-flow {
+      display: grid; width: 220px;
+      grid-template-rows: 30px 30px;
+      grid-auto-columns: 90px;
+      grid-auto-flow: column;
+      gap: 10px;
+    }
+
+    #grid-align {
+      display: grid; width: 240px; height: 100px;
+      grid-template-columns: 120px 120px;
+      grid-template-rows: 100px;
+      justify-items: center;
+      align-items: end;
+      background: #0b1220;
+    }
+    #grid-inline { display: inline-grid; grid-template-columns: 50px 50px; gap: 10px; }
+
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+  </style>
+</head>
+<body>
+  <h1>05 &mdash; CSS Grid Layout Geometry</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <div><span id="grid-inline"><span class="cell" style="height:24px;">I1</span><span class="cell" style="height:24px;">I2</span></span></div>
+
+    <div id="grid-tracks">
+      <div id="gt-1" class="cell">80px</div>
+      <div id="gt-2" class="cell">1fr</div>
+      <div id="gt-3" class="cell">2fr</div>
+      <div id="gt-4" class="cell">R2C1</div>
+      <div id="gt-5" class="cell">R2C2</div>
+      <div id="gt-6" class="cell">R2C3</div>
+    </div>
+
+    <div id="grid-repeat">
+      <div id="gr-1" class="cell" style="height:24px;">A</div>
+      <div id="gr-2" class="cell" style="height:24px;">B</div>
+      <div id="gr-3" class="cell" style="height:24px;">C</div>
+    </div>
+
+    <div id="grid-areas">
+      <div id="ga-header" class="cell">Header</div>
+      <div id="ga-sidebar" class="cell">Side</div>
+      <div id="ga-main" class="cell">Main</div>
+      <div id="ga-footer" class="cell">Foot</div>
+    </div>
+
+    <div id="grid-span">
+      <div id="gs-wide" class="cell">Wide 1/3</div>
+      <div id="gs-tall" class="cell">Tall</div>
+      <div id="gs-a" class="cell">A</div>
+      <div id="gs-b" class="cell">B</div>
+    </div>
+
+    <div id="grid-dense">
+      <div id="gd-empty-trigger" class="cell" style="grid-column:2;">Col2</div>
+      <div id="gd-wide" class="cell">Wide Row2</div>
+      <div id="gd-backfill" class="cell">Backfilled</div>
+    </div>
+
+    <div id="grid-col-flow">
+      <div id="gcf-1" class="cell">C1R1</div>
+      <div id="gcf-2" class="cell">C1R2</div>
+      <div id="gcf-3" class="cell">C2R1</div>
+    </div>
+
+    <div id="grid-align">
+      <div id="gal-1" class="cell" style="width:40px;height:20px;">CenterEnd</div>
+      <div id="gal-2" class="cell" style="width:40px;height:20px;justify-self:start;align-self:start;">SelfSS</div>
+    </div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) {
+          var tc = suites[i].tests[j]; sum.total++;
+          var row = document.createElement("div"); c.appendChild(row);
+          try { tc.fn(); sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }
+          catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+        }
+        root.__suiteSummary = sum;
+        var bar = document.getElementById("suite-summary-bar");
+        bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+        bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+      });
+    }
+  })(window);
+  </script>
+
+  <script>
+  describe("05 - CSS Grid Layout Geometry", function () {
+    it("shrink-wraps inline-grid and computes mixed px + fr tracks with row/column gaps", function () {
+      expect(Math.round(document.getElementById("grid-inline").getBoundingClientRect().width)).toBe(110);
+
+      // 340px width - 2*10px gaps - 80px = 240px split 1fr (80px) + 2fr (160px)
+      var c1 = document.getElementById("gt-1").getBoundingClientRect();
+      var c2 = document.getElementById("gt-2").getBoundingClientRect();
+      var c3 = document.getElementById("gt-3").getBoundingClientRect();
+      var r2c1 = document.getElementById("gt-4").getBoundingClientRect();
+      expect(Math.round(c1.width)).toBe(80);
+      expect(Math.round(c2.width)).toBe(80);
+      expect(Math.round(c3.width)).toBe(160);
+      expect(Math.round(c2.left - c1.right)).toBe(10);
+      expect(Math.round(c1.height)).toBe(30);
+      expect(Math.round(r2c1.height)).toBe(50);
+      expect(Math.round(r2c1.top - c1.bottom)).toBe(8);
+    });
+
+    it("evaluates repeat(3, minmax(80px, 1fr)) into equal 100px columns", function () {
+      var r1 = document.getElementById("gr-1").getBoundingClientRect();
+      var r2 = document.getElementById("gr-2").getBoundingClientRect();
+      var r3 = document.getElementById("gr-3").getBoundingClientRect();
+      expect(Math.round(r1.width)).toBe(100);
+      expect(Math.round(r2.width)).toBe(100);
+      expect(Math.round(r3.width)).toBe(100);
+    });
+
+    it("places named regions accurately via grid-template-areas and grid-area", function () {
+      var h = document.getElementById("ga-header").getBoundingClientRect();
+      var s = document.getElementById("ga-sidebar").getBoundingClientRect();
+      var m = document.getElementById("ga-main").getBoundingClientRect();
+      var f = document.getElementById("ga-footer").getBoundingClientRect();
+
+      expect(Math.round(h.width)).toBe(300);
+      expect(Math.round(s.width)).toBe(90);
+      expect(Math.round(m.width)).toBe(204);
+      expect(Math.round(m.left - s.right)).toBe(6);
+      expect(Math.round(f.width)).toBe(300);
+      expect(f.top).toBeGreaterThan(s.bottom);
+    });
+
+    it("places explicit grid-column and grid-row spans across multiple tracks", function () {
+      var wide = document.getElementById("gs-wide").getBoundingClientRect();
+      var tall = document.getElementById("gs-tall").getBoundingClientRect();
+      var a = document.getElementById("gs-a").getBoundingClientRect();
+      expect(Math.round(wide.width)).toBe(210);
+      expect(Math.round(tall.height)).toBe(70);
+      expect(Math.round(a.top - wide.bottom)).toBe(10);
+    });
+
+    it("handles grid-auto-flow: dense backfilling and grid-auto-flow: column placement", function () {
+      var parentR = document.getElementById("grid-dense").getBoundingClientRect();
+      var backfill = document.getElementById("gd-backfill").getBoundingClientRect();
+      expect(Math.round(backfill.left - parentR.left)).toBe(0);
+      expect(Math.round(backfill.top - parentR.top)).toBe(0);
+
+      var cf1 = document.getElementById("gcf-1").getBoundingClientRect();
+      var cf2 = document.getElementById("gcf-2").getBoundingClientRect();
+      var cf3 = document.getElementById("gcf-3").getBoundingClientRect();
+      expect(Math.round(cf1.left)).toBe(Math.round(cf2.left));
+      expect(cf2.top).toBeGreaterThan(cf1.bottom);
+      expect(cf3.left).toBeGreaterThan(cf1.right);
+      expect(Math.round(cf3.top)).toBe(Math.round(cf1.top));
+    });
+
+    it("applies justify-items, align-items, justify-self and align-self within grid cells", function () {
+      var p = document.getElementById("grid-align").getBoundingClientRect();
+      var g1 = document.getElementById("gal-1").getBoundingClientRect();
+      var g2 = document.getElementById("gal-2").getBoundingClientRect();
+      expect(Math.round(g1.left - p.left)).toBe(40);
+      expect(Math.round(p.bottom - g1.bottom)).toBe(0);
+      expect(Math.round(g2.left - (p.left + 120))).toBe(0);
+      expect(Math.round(g2.top - p.top)).toBe(0);
+    });
+  });
+  </script>
+</body>
+</html>

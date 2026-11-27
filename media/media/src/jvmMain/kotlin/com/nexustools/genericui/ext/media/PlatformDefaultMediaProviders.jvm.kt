@@ -5,7 +5,8 @@ import com.nexustools.genericui.ext.media.swing.SwingMediaExtensionProvider
 import com.nexustools.genericui.swing.SwingNativeFactory
 
 internal actual fun installPlatformDefaultMediaProvidersIfNeeded() {
-    if (GenericUI.activeFactory is SwingNativeFactory) {
+    val factory = GenericUI.activeFactory ?: return
+    if (factory is SwingNativeFactory || factory.backendName.startsWith("alien(swing", ignoreCase = true)) {
         SwingMediaExtensionProvider.install()
     }
 }

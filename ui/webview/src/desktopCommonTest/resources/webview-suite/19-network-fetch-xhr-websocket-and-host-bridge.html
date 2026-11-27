@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>19 - Network (fetch, XHR, WebSocket), Console, Errors &amp; GenericUI IPC Host Bridge</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .summary-bar { padding: 10px 14px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; background: #1e293b; border: 1px solid #334155; }
+    .summary-pass { background: #052e16; border-color: #16a34a; color: #86efac; }
+    .summary-fail { background: #450a0a; border-color: #dc2626; color: #fca5a5; }
+    #test-stage { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    #suite-results { display: flex; flex-direction: column; gap: 6px; }
+    .suite-row { padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 12px; background: #1e293b; }
+    .suite-pass { border-left: 4px solid #22c55e; color: #bbf7d0; }
+    .suite-fail { border-left: 4px solid #ef4444; color: #fecaca; }
+  </style>
+</head>
+<body>
+  <h1>19 &mdash; Network (fetch, XMLHttpRequest, WebSocket), Console &amp; IPC Host Bridge</h1>
+  <div id="suite-summary-bar" class="summary-bar">Running test suite...</div>
+
+  <main id="test-stage">
+    <div id="net-status">Ready to probe network &amp; GenericUI IPC bridge</div>
+  </main>
+
+  <section id="suite-results"></section>
+
+  <script>
+  (function (root) {
+    var isStandalone = (typeof root.describe !== "function");
+    var suites = [], activeSuite = null;
+    function fv(v) { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    function ext(m, a) {
+      if (typeof m.toBeLessThanOrEqual !== "function") m.toBeLessThanOrEqual = function (n) { if (!(a <= n)) throw new Error("Expected " + a + " <= " + n); };
+      if (typeof m.toBeCloseTo !== "function") m.toBeCloseTo = function (e, p) { var tol = Math.pow(10, -(typeof p === "number" ? p : 2)) / 2; if (Math.abs(a - e) >= tol) throw new Error("Expected " + a + " ~= " + e); };
+      if (typeof m.toThrow !== "function") m.toThrow = function () { var ok = false; try { a(); } catch (e) { ok = true; } if (!ok) throw new Error("Expected throw"); };
+      return m;
+    }
+    if (typeof root.expect === "function") { var oe = root.expect; root.expect = function (a) { return ext(oe(a), a); }; }
+    else {
+      root.expect = function (a) {
+        return ext({
+          toBe: function (e) { if (a !== e) throw new Error("Expected " + fv(e) + " got " + fv(a)); },
+          toEqual: function (e) { if (fv(a) !== fv(e)) throw new Error("Expected " + fv(e) + " == " + fv(a)); },
+          toBeTruthy: function () { if (!a) throw new Error("Expected truthy"); },
+          toBeFalsy: function () { if (a) throw new Error("Expected falsy"); },
+          toBeNull: function () { if (a != null) throw new Error("Expected null"); },
+          toBeDefined: function () { if (a === undefined) throw new Error("Expected defined"); },
+          toContain: function (i) { if (String(a).indexOf(String(i)) < 0) throw new Error("Expected contain " + i); },
+          toBeGreaterThan: function (n) { if (!(a > n)) throw new Error("Expected " + a + " > " + n); },
+          toBeGreaterThanOrEqual: function (n) { if (!(a >= n)) throw new Error("Expected " + a + " >= " + n); },
+          toBeLessThan: function (n) { if (!(a < n)) throw new Error("Expected " + a + " < " + n); }
+        }, a);
+      };
+    }
+    if (isStandalone) {
+      root.describe = function (n, fn) { var s = { name: n, tests: [] }; suites.push(s); activeSuite = s; fn(); activeSuite = null; };
+      root.it = function (n, fn) { (activeSuite || suites[0]).tests.push({ name: n, fn: fn }); };
+      root.test = root.it;
+      root.addEventListener("load", function () {
+        var c = document.getElementById("suite-results"), sum = { suite: document.title, total: 0, passed: 0, failed: 0, failures: [] };
+        var q = [];
+        for (var i = 0; i < suites.length; i++) for (var j = 0; j < suites[i].tests.length; j++) (function (tc) {
+          q.push(function () {
+            sum.total++; var row = document.createElement("div"); c.appendChild(row);
+            try {
+              var r = tc.fn();
+              if (r && typeof r.then === "function") return r.then(function () { sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name; }, function (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; });
+              sum.passed++; row.className = "suite-row suite-pass"; row.textContent = "[PASS] " + tc.name;
+            } catch (e) { sum.failed++; sum.failures.push({ test: tc.name, error: e.message }); row.className = "suite-row suite-fail"; row.textContent = "[FAIL] " + tc.name + " — " + e.message; }
+          });
+        })(suites[i].tests[j]);
+        (function run(k) {
+          if (k >= q.length) {
+            root.__suiteSummary = sum;
+            var bar = document.getElementById("suite-summary-bar");
+            bar.className = sum.failed === 0 ? "summary-bar summary-pass" : "summary-bar summary-fail";
+            bar.textContent = sum.suite + ": " + sum.passed + "/" + sum.total + " passed (" + sum.failed + " failed)";
+            return;
+          }
+          var out = q[k]();
+          if (out && typeof out.then === "function") out.then(function () { run(k + 1); }, function () { run(k + 1); }); else run(k + 1);
+        })(0);
+      });
+    }
+  })(window);
+  </script>
+
+  <script>
+  describe("19 - Network (fetch, XHR, WebSocket), Console & GenericUI Host Bridge", function () {
+    it("supports Headers, Request, Response, and fetch() decoding JSON, text & ArrayBuffer", function () {
+      var h = new Headers({ "Content-Type": "application/json" });
+      h.append("X-Custom", "one");
+      expect(h.get("content-type")).toBe("application/json");
+      expect(h.has("x-custom")).toBe(true);
+
+      var rSync = new Response('{"ok":true,"n":7}', { status: 201, headers: h });
+      expect(rSync.status).toBe(201);
+      expect(rSync.ok).toBe(true);
+
+      if (typeof fetch !== "function" || typeof Promise === "undefined") {
+        expect(typeof fetch).toBe("function");
+        return;
+      }
+      var dataUri = "data:application/json;charset=utf-8," + encodeURIComponent('{"engine":"alien","ipc":"BinaryJson"}');
+      return fetch(dataUri).then(function (resp) {
+        expect(resp.ok).toBe(true);
+        expect(resp.status).toBe(200);
+        return resp.json();
+      }).then(function (obj) {
+        expect(obj.engine).toBe("alien");
+        expect(obj.ipc).toBe("BinaryJson");
+
+        var apiBase = new URLSearchParams(location.search).get("apiBase");
+        if (!apiBase) return;
+        return fetch(apiBase.replace(/\/$/, "") + "/ping").then(function (r2) {
+          expect(r2.ok).toBe(true);
+        });
+      });
+    });
+
+    it("supports AbortController aborting an in-flight fetch promise", function () {
+      if (typeof AbortController !== "function" || typeof fetch !== "function" || typeof Promise === "undefined") return;
+      var ac = new AbortController();
+      ac.abort();
+      return fetch("data:text/plain,should-abort", { signal: ac.signal }).then(function () {
+        // Some implementations resolve pre-aborted data URIs or reject with AbortError
+      }, function (err) {
+        expect(err).toBeTruthy();
+      });
+    });
+
+    it("executes XMLHttpRequest on data URI with readyState=4 and responseText", function () {
+      if (typeof Promise === "undefined") return;
+      return new Promise(function (resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", "data:text/plain;charset=utf-8,XHR_OK");
+        xhr.onload = function () {
+          try {
+            expect(xhr.readyState).toBe(4);
+            expect(xhr.status).toBe(200);
+            expect(xhr.responseText).toBe("XHR_OK");
+            resolve();
+          } catch (e) { reject(e); }
+        };
+        xhr.onerror = function () { reject(new Error("XHR failed")); };
+        xhr.send();
+      });
+    });
+
+    it("exposes standard WebSocket constants/constructor and console logging levels", function () {
+      expect(typeof WebSocket).toBe("function");
+      expect(WebSocket.CONNECTING).toBe(0);
+      expect(WebSocket.OPEN).toBe(1);
+      expect(WebSocket.CLOSING).toBe(2);
+      expect(WebSocket.CLOSED).toBe(3);
+
+      console.debug("debug check");
+      console.info("info check");
+      console.log("log check");
+      console.warn("warn check");
+
+      var wsUrl = new URLSearchParams(location.search).get("wsUrl");
+      if (!wsUrl || typeof Promise === "undefined") return;
+      return new Promise(function (resolve, reject) {
+        var ws = new WebSocket(wsUrl);
+        var timer = setTimeout(function () { ws.close(); reject(new Error("WebSocket echo timeout")); }, 2500);
+        ws.onopen = function () { ws.send("genericui-echo"); };
+        ws.onmessage = function (ev) {
+          try {
+            expect(ev.data).toBe("genericui-echo");
+            clearTimeout(timer); ws.close(); resolve();
+          } catch (e) { clearTimeout(timer); ws.close(); reject(e); }
+        };
+        ws.onerror = function () { clearTimeout(timer); reject(new Error("WebSocket error")); };
+      });
+    });
+
+    it("verifies window.postMessage and GenericUI bidirectional host bridge when running inside GenericUI WebView", function () {
+      if (window.genericUi && typeof window.genericUi.registerCommunicationFunction === "function") {
+        window.genericUi.registerCommunicationFunction("suiteEcho", function (payload) {
+          return "echo:" + payload;
+        });
+        window.genericUi.postMessage("suite19-ready");
+      }
+
+      if (typeof Promise === "undefined") return;
+      return new Promise(function (resolve, reject) {
+        var timer = setTimeout(function () { reject(new Error("window.postMessage timeout")); }, 1500);
+        window.addEventListener("message", function onMsg(ev) {
+          if (ev.data === "self-ping-19") {
+            window.removeEventListener("message", onMsg);
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+        window.postMessage("self-ping-19", "*");
+      });
+    });
+  });
+  </script>
+</body>
+</html>

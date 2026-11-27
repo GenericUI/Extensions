@@ -8,7 +8,7 @@ import com.nexustools.genericui.ext.webview.WebViewExtension
  */
 object WebWebViewExtensionProvider {
     fun install() {
-        WebViewExtension.registerProvider(WebViewEngineType.WEB_NATIVE_IFRAME) { config ->
+        WebViewExtension.registerProvider(WebViewEngineType.WEB_IFRAME) { config ->
             WebNativeIframeWebViewImpl(config)
         }
     }

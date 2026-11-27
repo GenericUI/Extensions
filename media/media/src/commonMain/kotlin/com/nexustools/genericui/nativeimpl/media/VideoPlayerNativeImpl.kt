@@ -6,6 +6,7 @@ import com.nexustools.genericui.component.media.SubtitleTrackInfo
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.enums.media.MediaPreloadMode
 import com.nexustools.genericui.enums.media.VideoResizeMode
+import com.nexustools.genericui.image.ImageBuffer
 
 /**
  * Native implementation contract for [com.nexustools.genericui.component.media.VideoPlayer].
@@ -78,4 +79,16 @@ interface VideoPlayerNativeImpl<out W> : NativeImpl<W> {
     fun setKeepScreenOn(keepScreenOn: Boolean) {}
     fun isKeepScreenOn(): Boolean = true
     fun bindScreenWakeToken(token: Long) {}
+
+    fun setLoop(loop: Boolean) {}
+    fun isLoop(): Boolean = false
+
+    fun enableOffscreenFrameCapture(enabled: Boolean) {}
+    fun copyLatestVideoFrame(): ImageBuffer? = null
+    val videoFrameVersion: Long
+        get() = 0L
+
+    fun getNaturalVideoWidth(): Int = 0
+    fun getNaturalVideoHeight(): Int = 0
+    fun stepHeadlessPlaybackIfNeeded(deltaSeconds: Double) {}
 }

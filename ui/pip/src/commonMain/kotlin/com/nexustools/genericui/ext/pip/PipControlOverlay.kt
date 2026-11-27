@@ -1,14 +1,14 @@
 package com.nexustools.genericui.ext.pip
 
 import com.nexustools.genericui.component.action.Button
-import com.nexustools.genericui.component.action.StyledButton
+import com.nexustools.genericui.component.action.styled.StyledButton
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.HStack
 import com.nexustools.genericui.component.layout.LayerAlignment
 import com.nexustools.genericui.component.layout.LayerConstraint
 import com.nexustools.genericui.component.layout.LayeredContainer
 import com.nexustools.genericui.component.layout.Spacer
-import com.nexustools.genericui.component.layout.StyledContainer
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.typography.Text
 import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize

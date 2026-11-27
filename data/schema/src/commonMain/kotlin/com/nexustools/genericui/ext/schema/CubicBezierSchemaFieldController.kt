@@ -54,7 +54,7 @@ internal class CubicBezierSchemaFieldController(
             registerInvalidTarget(nf)
 
             val slotCol = VStack(SpacingScale.S1).apply {
-                addChild(Label(labels[i]))
+                addChild(Label(labels[i], target = nf))
                 addChild(nf)
             }
             row.addChild(slotCol, weight = 1f)
@@ -71,6 +71,7 @@ internal class CubicBezierSchemaFieldController(
             previewComponent = preview
             body.addChild(preview)
         }
+        bindLabelTarget(numberFields.firstOrNull())
         mountStandardBody(body, compactInline, *numberFields.toTypedArray())
     }
 

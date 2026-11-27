@@ -3,6 +3,7 @@ package com.nexustools.genericui.ext.serviceworker
 import com.nexustools.genericui.component.shell.ContextMenu
 import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.ext.ipc.IpcChannelAddress
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.threading.GenericUiThreading
 import kotlinx.coroutines.CompletableDeferred
@@ -151,11 +152,17 @@ class ServiceWorkerRuntimeAndIpcTest {
                 stopEventLoop = { loopStopped = true },
                 lockRelease = {}
             )
-            assertTrue(host.start(), "DesktopServiceWorkerHost should bind AF_UNIX socket")
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, host.boundTransport)
+            assertTrue(host.start(), "DesktopServiceWorkerHost should bind native IPC endpoint")
+            val expectedTransport = IpcChannelAddress.resolveDesktopEndpoint(options.appId, tempDir.absolutePath).transportKind
+            assertEquals(expectedTransport, host.boundTransport)
             assertTrue(host.boundAddress.isNotBlank())
             val socketAddress = host.boundAddress
-            assertTrue(File(socketAddress).exists(), "Bound Unix domain socket file must exist while running")
+            if (expectedTransport == IpcChannelAddress.TRANSPORT_UNIX_SOCKET) {
+                assertTrue(File(socketAddress).exists(), "Bound Unix domain socket file must exist while running")
+            } else {
+                assertEquals(IpcChannelAddress.TRANSPORT_WINDOWS_NAMED_PIPE, expectedTransport)
+                assertTrue(socketAddress.startsWith("\\\\.\\pipe\\genericui."))
+            }
             worker.attachAndStart(host, options)
             try {
                 withTimeout(5_000) { worker.started.await() }
@@ -265,7 +272,9 @@ class ServiceWorkerRuntimeAndIpcTest {
                 worker.performStop()
                 host.shutdown()
             }
-            assertFalse(File(socketAddress).exists(), "Unix domain socket file must be removed on host shutdown")
+            if (expectedTransport == IpcChannelAddress.TRANSPORT_UNIX_SOCKET) {
+                assertFalse(File(socketAddress).exists(), "Unix domain socket file must be removed on host shutdown")
+            }
             assertFalse(endpointFile.exists(), "Endpoint descriptor file must be removed on host shutdown")
         } finally {
             tempDir.deleteRecursively()
@@ -286,12 +295,17 @@ class ServiceWorkerRuntimeAndIpcTest {
                 "Test runtimeDir must exceed 120 UTF-8 bytes"
             )
             val appId = "com.nexustools.test.longpath.${System.nanoTime()}"
-            val resolvedSocketPath = JvmUnixDomainSocketBridge.resolveSocketPath(appId, longRuntimeDir.absolutePath)
+            val resolvedUnixAddress = IpcChannelAddress.resolveDesktopEndpoint(
+                channelName = appId,
+                runtimeDir = longRuntimeDir.absolutePath,
+                osHint = "linux"
+            )
+            assertEquals(IpcChannelAddress.TRANSPORT_UNIX_SOCKET, resolvedUnixAddress.transportKind)
             assertTrue(
-                resolvedSocketPath.toString().toByteArray(Charsets.UTF_8).size <= 96,
+                resolvedUnixAddress.endpointAddress.toByteArray(Charsets.UTF_8).size <= 96,
                 "Shortened AF_UNIX socket path must fit within 96 UTF-8 bytes"
             )
-            assertFalse(resolvedSocketPath.toString().startsWith(longRuntimeDir.absolutePath))
+            assertFalse(resolvedUnixAddress.endpointAddress.startsWith(longRuntimeDir.absolutePath))
 
             val endpointFile = File(longRuntimeDir, "serviceworker-endpoint.json")
             val worker = SampleWorker()
@@ -309,11 +323,17 @@ class ServiceWorkerRuntimeAndIpcTest {
                 stopEventLoop = {},
                 lockRelease = {}
             )
-            assertTrue(host.start(), "Host must start using shortened AF_UNIX socket path")
-            assertEquals(DesktopEndpointDescriptor.TRANSPORT_UNIX_SOCKET, host.boundTransport)
+            assertTrue(host.start(), "Host must start using native IPC endpoint for long runtimeDir")
+            val expectedTransport = IpcChannelAddress.resolveDesktopEndpoint(appId, longRuntimeDir.absolutePath).transportKind
+            assertEquals(expectedTransport, host.boundTransport)
             val socketAddress = host.boundAddress
-            assertTrue(socketAddress.toByteArray(Charsets.UTF_8).size <= 96)
-            assertTrue(File(socketAddress).exists())
+            if (expectedTransport == IpcChannelAddress.TRANSPORT_UNIX_SOCKET) {
+                assertTrue(socketAddress.toByteArray(Charsets.UTF_8).size <= 96)
+                assertTrue(File(socketAddress).exists())
+            } else {
+                assertEquals(IpcChannelAddress.TRANSPORT_WINDOWS_NAMED_PIPE, expectedTransport)
+                assertTrue(socketAddress.startsWith("\\\\.\\pipe\\genericui."))
+            }
             worker.attachAndStart(host, options)
             try {
                 withTimeout(5_000) { worker.started.await() }
@@ -358,7 +378,9 @@ class ServiceWorkerRuntimeAndIpcTest {
                 worker.performStop()
                 host.shutdown()
             }
-            assertFalse(File(socketAddress).exists(), "Shortened AF_UNIX socket file must be removed on host shutdown")
+            if (expectedTransport == IpcChannelAddress.TRANSPORT_UNIX_SOCKET) {
+                assertFalse(File(socketAddress).exists(), "Shortened AF_UNIX socket file must be removed on host shutdown")
+            }
             assertFalse(endpointFile.exists(), "Endpoint descriptor file must be removed on host shutdown")
         } finally {
             baseTempDir.deleteRecursively()
@@ -384,7 +406,7 @@ class ServiceWorkerRuntimeAndIpcTest {
     @Test
     fun windowsShortcutWriterProducesValidMsShllinkHeaderAndAtomicFilesRoundTrip() {
         val bytes = WindowsShortcutWriter.buildLnkBytes(
-            targetPath = "C:\\Program Files\\GenericUI\\serviceworker.exe",
+            targetPath = "C:\\Program Files\\GenericUI\\genericui-sw.exe",
             arguments = "--autostart",
             workingDirectory = "C:\\Program Files\\GenericUI",
             description = "GenericUI Background Worker"
@@ -549,7 +571,7 @@ class ServiceWorkerRuntimeAndIpcTest {
                             env.typeId == "__genericui.sw.control.openMainWindow" &&
                             !receivedOpenRoute.isCompleted
                         ) {
-                            receivedOpenRoute.complete(env.payloadJson)
+                            receivedOpenRoute.complete(env.payload.asString("") ?: "")
                         }
                     },
                     onConnectionStateChanged = {}
@@ -558,18 +580,18 @@ class ServiceWorkerRuntimeAndIpcTest {
             withTimeout(5_000) { worker.connectedClient.await() }
 
             assertFalse(
-                runtime.prepareDesktopMainLaunch(emptyArray(), options, "serviceworker"),
+                runtime.prepareDesktopMainLaunch(emptyArray(), options, options.resolvedWorkerBinaryBaseName()),
                 "openWindowOnLaunch=false without --open-window should exit before acquiring mainapp.lock"
             )
             assertTrue(
-                runtime.prepareDesktopMainLaunch(arrayOf("--open-window"), options, "serviceworker"),
+                runtime.prepareDesktopMainLaunch(arrayOf("--open-window"), options, options.resolvedWorkerBinaryBaseName()),
                 "First main window launch should acquire mainapp.lock and proceed"
             )
             assertFalse(
                 runtime.prepareDesktopMainLaunch(
                     arrayOf("--open-window", "--route=settings"),
                     options,
-                    "serviceworker"
+                    options.resolvedWorkerBinaryBaseName()
                 ),
                 "Duplicate main window launch while mainapp.lock is held must return false"
             )
@@ -639,9 +661,9 @@ class ServiceWorkerRuntimeAndIpcTest {
                                 env.typeId == "__genericui.sw.control.openMainWindow"
                             ) {
                                 if (!queuedOpenRoute.isCompleted) {
-                                    queuedOpenRoute.complete(env.payloadJson)
+                                    queuedOpenRoute.complete(env.payload.asString("") ?: "")
                                 } else if (!liveOpenRoute.isCompleted) {
-                                    liveOpenRoute.complete(env.payloadJson)
+                                    liveOpenRoute.complete(env.payload.asString("") ?: "")
                                 }
                             }
                         },
@@ -880,14 +902,14 @@ class ServiceWorkerRuntimeAndIpcTest {
             // 1. Running worker returns false -> prepareDesktopMainLaunch returns false without acquiring mainapp.lock
             allowOpen = false
             assertFalse(
-                runtime.prepareDesktopMainLaunch(emptyArray(), options, "serviceworker"),
+                runtime.prepareDesktopMainLaunch(emptyArray(), options, options.resolvedWorkerBinaryBaseName()),
                 "When running worker returns onMainAppLaunchedWhileRunning() == false, prepareDesktopMainLaunch must return false"
             )
 
             // 2. Running worker returns true -> first launch acquires mainapp.lock and returns true
             allowOpen = true
             assertTrue(
-                runtime.prepareDesktopMainLaunch(emptyArray(), options, "serviceworker"),
+                runtime.prepareDesktopMainLaunch(emptyArray(), options, options.resolvedWorkerBinaryBaseName()),
                 "When running worker returns onMainAppLaunchedWhileRunning() == true, first launch must return true"
             )
 
@@ -911,7 +933,7 @@ class ServiceWorkerRuntimeAndIpcTest {
 
             // 3. Second launch while running worker returns true & mainapp.lock held activates existing window and returns false
             assertFalse(
-                runtime.prepareDesktopMainLaunch(emptyArray(), options, "serviceworker"),
+                runtime.prepareDesktopMainLaunch(emptyArray(), options, options.resolvedWorkerBinaryBaseName()),
                 "Second launch while mainapp.lock is held must return false after activating existing window"
             )
             withTimeout(5_000) { activated.await() }
@@ -921,6 +943,71 @@ class ServiceWorkerRuntimeAndIpcTest {
             worker.performStop()
             host.shutdown()
             runtimeDataDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun serviceWorkerOptionsResolvesDefaultAndExplicitWorkerBinaryBaseNames() {
+        assertEquals("app-sw", ServiceWorkerOptions.defaultWorkerBinaryBaseName(""))
+        assertEquals("app-sw", ServiceWorkerOptions(baseName = "   ").resolvedWorkerBinaryBaseName())
+        assertEquals(
+            "episode-caster-receiver-sw",
+            ServiceWorkerOptions(baseName = "episode-caster-receiver").resolvedWorkerBinaryBaseName()
+        )
+        assertEquals(
+            "custom-sw",
+            ServiceWorkerOptions(
+                baseName = "episode-caster-receiver",
+                workerBinaryBaseName = " custom-sw "
+            ).resolvedWorkerBinaryBaseName()
+        )
+    }
+
+    @Test
+    fun prepareDesktopMainLaunchDefaultsWorkerBinaryBaseNameFromOptions() = runBlocking {
+        var recordedWorkerBinaryBaseName: String? = null
+        val recordingRuntime = object : ServiceWorkerPlatformRuntime {
+            override val isSupported: Boolean = true
+            override val supportsMultipleWindows: Boolean = true
+            override val supportsFragmentLaunch: Boolean = true
+            override val supportsDialogFragments: Boolean = true
+            override val supportsSystemTray: Boolean = true
+            override val supportsOngoingNotification: Boolean = false
+            override val supportsAutostart: Boolean = true
+            override fun configure(options: ServiceWorkerOptions) = Unit
+            override fun isClientConnected(): Boolean = false
+            override suspend fun connectClient(
+                options: ServiceWorkerOptions,
+                onIncomingEnvelope: (ServiceWorkerEnvelope) -> Unit,
+                onConnectionChanged: (Boolean) -> Unit
+            ): Boolean = false
+
+            override suspend fun disconnectClient() = Unit
+            override suspend fun sendClientEnvelope(envelope: ServiceWorkerEnvelope): Boolean = false
+            override fun prepareDesktopMainLaunch(
+                args: Array<String>,
+                options: ServiceWorkerOptions,
+                workerBinaryBaseName: String
+            ): Boolean {
+                recordedWorkerBinaryBaseName = workerBinaryBaseName
+                return true
+            }
+        }
+        try {
+            withTimeout(5_000) {
+                ServiceWorkerExtension.installRuntimeOverrideForTests(recordingRuntime)
+                ServiceWorkerExtension.configure(
+                    ServiceWorkerOptions(
+                        appId = "com.example.episodecaster",
+                        appName = "Episode Caster Receiver",
+                        baseName = "episode-caster-receiver"
+                    )
+                )
+                assertTrue(ServiceWorkerExtension.prepareDesktopMainLaunch(arrayOf("--open-window")))
+                assertEquals("episode-caster-receiver-sw", recordedWorkerBinaryBaseName)
+            }
+        } finally {
+            ServiceWorkerExtension.resetForTests()
         }
     }
 }

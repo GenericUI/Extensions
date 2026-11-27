@@ -659,6 +659,18 @@ object LibVlcBindings {
         }
     }
 
+    fun libvlc_video_set_format_callbacks(
+        player: COpaquePointer?,
+        setupCb: COpaquePointer?,
+        cleanupCb: COpaquePointer? = null
+    ) {
+        if (player == null) return
+        val fn = symbol("libvlc_video_set_format_callbacks")
+            ?.reinterpret<CFunction<(COpaquePointer, COpaquePointer?, COpaquePointer?) -> Unit>>()
+            ?: return
+        fn.invoke(player, setupCb, cleanupCb)
+    }
+
     fun libvlc_video_set_callbacks(
         player: COpaquePointer?,
         lockCb: COpaquePointer? = null,

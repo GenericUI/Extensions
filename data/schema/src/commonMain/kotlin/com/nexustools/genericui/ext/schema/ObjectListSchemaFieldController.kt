@@ -2,8 +2,8 @@ package com.nexustools.genericui.ext.schema
 
 import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.layout.HStack
-import com.nexustools.genericui.component.layout.StyledContainer
 import com.nexustools.genericui.component.layout.VStack
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
@@ -47,6 +47,7 @@ internal class ObjectListSchemaFieldController(
             addChild(addButton)
             addChild(listContainer)
         }
+        bindLabelTarget(addButton)
         mountStandardBody(bodyContainer, compactInline, listContainer)
         rebuildItems()
         syncAddButtonState()

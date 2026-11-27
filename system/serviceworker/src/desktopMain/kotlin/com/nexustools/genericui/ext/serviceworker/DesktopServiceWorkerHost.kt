@@ -3,9 +3,12 @@
 package com.nexustools.genericui.ext.serviceworker
 
 import com.nexustools.genericui.component.shell.ContextMenu
+import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.component.system.SystemTrayIcon
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.exception.SystemTrayUnsupportedException
+import com.nexustools.genericui.ext.ipc.IpcConnection
+import com.nexustools.genericui.ext.ipc.IpcServer
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.threading.GenericUiThreading
 import kotlinx.coroutines.CoroutineScope
@@ -24,7 +27,7 @@ internal const val DESKTOP_CONTROL_CLIENT_PREFIX: String = "__genericui.sw.contr
 private const val PENDING_MAIN_SPAWN_GRACE_MS: Long = 5_000L
 
 /**
- * Worker-side desktop host owning the native IPC [DesktopIpcServer],
+ * Worker-side desktop host owning the native IPC [IpcServer],
  * atomic `serviceworker-endpoint.json` discovery file, token authentication, [SystemTrayIcon],
  * and main-window / fragment-window / autostart / shutdown coordination.
  */
@@ -46,8 +49,8 @@ internal class DesktopServiceWorkerHost(
 ) : ServiceWorkerRuntimeHost {
 
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val server = DesktopIpcServer()
-    private val sessionsById = linkedMapOf<String, DesktopIpcConnection>()
+    private val server = IpcServer()
+    private val sessionsById = linkedMapOf<String, IpcConnection>()
     private val mainWindowStateLock = AtomicBoolean(false)
     private var pendingSpawnDeadline: TimeMark? = null
     private var pendingOpenRoute: String? = null
@@ -78,10 +81,10 @@ internal class DesktopServiceWorkerHost(
         get() = managedTray
 
     val boundTransport: String
-        get() = server.transportKind
+        get() = server.address?.transportKind.orEmpty()
 
     val boundAddress: String
-        get() = server.endpointAddress
+        get() = server.address?.endpointAddress.orEmpty()
 
     val token: String
         get() = authToken
@@ -95,16 +98,17 @@ internal class DesktopServiceWorkerHost(
         }
         val runtimeDir = parentDir.ifEmpty { DesktopOsHelpers.runtimeDataDirectory(options.appId) }
         val started = server.start(
-            appId = options.appId,
+            channelName = options.appId,
             runtimeDir = runtimeDir,
             onClientConnected = { handleAcceptedConnection(it) }
         )
-        if (!started || server.transportKind.isBlank() || server.endpointAddress.isBlank()) {
+        val address = server.address
+        if (!started || address == null || address.transportKind.isBlank() || address.endpointAddress.isBlank()) {
             return false
         }
         val descriptor = DesktopEndpointDescriptor(
-            transport = server.transportKind,
-            address = server.endpointAddress,
+            transport = address.transportKind,
+            address = address.endpointAddress,
             token = authToken,
             pid = DesktopOsHelpers.currentProcessId(),
             appId = options.appId
@@ -196,11 +200,11 @@ internal class DesktopServiceWorkerHost(
     }
 
     override fun openMainWindow(route: String?) {
-        val openEnvBody = ServiceWorkerFrameCodec.encodeBinaryBody(
+        val openPacket = DesktopIpcPacketMapper.toIpcPacket(
             ServiceWorkerEnvelope(
                 kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                 typeId = ServiceWorkerEnvelope.CONTROL_OPEN_MAIN_WINDOW,
-                payloadJson = route.orEmpty()
+                payload = route?.let { PreferenceElement.ofString(it) } ?: PreferenceElement.Null
             )
         )
 
@@ -208,7 +212,7 @@ internal class DesktopServiceWorkerHost(
         if (activeConnections.isNotEmpty()) {
             var delivered = false
             for (conn in activeConnections) {
-                if (conn.sendBody(openEnvBody)) {
+                if (conn.sendPacket(openPacket)) {
                     delivered = true
                 }
             }
@@ -261,23 +265,24 @@ internal class DesktopServiceWorkerHost(
     }
 
     override fun closeMainWindow() {
-        val env = ServiceWorkerEnvelope(
-            kind = ServiceWorkerEnvelope.KIND_MESSAGE,
-            typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_MAIN_WINDOW,
-            payloadJson = "null"
+        val closePacket = DesktopIpcPacketMapper.toIpcPacket(
+            ServiceWorkerEnvelope(
+                kind = ServiceWorkerEnvelope.KIND_MESSAGE,
+                typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_MAIN_WINDOW,
+                payload = PreferenceElement.Null
+            )
         )
-        val encoded = ServiceWorkerFrameCodec.encodeBinaryBody(env)
         for (conn in withMainWindowLock { sessionsById.values.toList() }) {
-            conn.sendBody(encoded)
+            conn.sendPacket(closePacket)
         }
     }
 
     override fun requestLaunchFragment(request: ServiceWorkerFragmentLaunchRequest) {
-        val launchBody = ServiceWorkerFrameCodec.encodeBinaryBody(
+        val launchPacket = DesktopIpcPacketMapper.toIpcPacket(
             ServiceWorkerEnvelope(
                 kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                 typeId = ServiceWorkerEnvelope.CONTROL_LAUNCH_FRAGMENT,
-                payloadJson = request.toControlPayloadJson(),
+                payload = request.toControlPayloadElement(),
                 targetFragmentId = request.fragmentId
             )
         )
@@ -286,7 +291,7 @@ internal class DesktopServiceWorkerHost(
         if (activeConnections.isNotEmpty()) {
             var delivered = false
             for (conn in activeConnections) {
-                if (conn.sendBody(launchBody)) {
+                if (conn.sendPacket(launchPacket)) {
                     delivered = true
                 }
             }
@@ -350,16 +355,16 @@ internal class DesktopServiceWorkerHost(
         withMainWindowLock {
             pendingFragmentLaunches.removeAll { it.fragmentId == fragmentId }
         }
-        val closeBody = ServiceWorkerFrameCodec.encodeBinaryBody(
+        val closePacket = DesktopIpcPacketMapper.toIpcPacket(
             ServiceWorkerEnvelope(
                 kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                 typeId = ServiceWorkerEnvelope.CONTROL_CLOSE_FRAGMENT,
-                payloadJson = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
+                payload = ServiceWorkerFragmentLaunchRequest.encodeCloseControlPayload(fragmentId, instanceId),
                 targetFragmentId = fragmentId
             )
         )
         for (conn in collectActiveConnections()) {
-            conn.sendBody(closeBody)
+            conn.sendPacket(closePacket)
         }
     }
 
@@ -369,14 +374,15 @@ internal class DesktopServiceWorkerHost(
     }
 
     override fun exitApplication(exitCode: Int) {
-        val exitEnv = ServiceWorkerEnvelope(
-            kind = ServiceWorkerEnvelope.KIND_MESSAGE,
-            typeId = ServiceWorkerEnvelope.CONTROL_EXIT_APP,
-            payloadJson = exitCode.toString()
+        val exitPacket = DesktopIpcPacketMapper.toIpcPacket(
+            ServiceWorkerEnvelope(
+                kind = ServiceWorkerEnvelope.KIND_MESSAGE,
+                typeId = ServiceWorkerEnvelope.CONTROL_EXIT_APP,
+                payload = PreferenceElement.ofInt(exitCode)
+            )
         )
-        val body = ServiceWorkerFrameCodec.encodeBinaryBody(exitEnv)
         for (conn in withMainWindowLock { sessionsById.values.toList() }) {
-            conn.sendBody(body)
+            conn.sendPacket(exitPacket)
         }
         stopSelf()
     }
@@ -401,15 +407,14 @@ internal class DesktopServiceWorkerHost(
             withMainWindowLock { sessionsById.remove(clientId) }
             return false
         }
-        val body = ServiceWorkerFrameCodec.encodeBinaryBody(envelope)
-        return conn.sendBody(body)
+        return conn.sendPacket(DesktopIpcPacketMapper.toIpcPacket(envelope))
     }
 
     override suspend fun broadcastEnvelope(envelope: ServiceWorkerEnvelope): Int {
-        val body = ServiceWorkerFrameCodec.encodeBinaryBody(envelope)
+        val packet = DesktopIpcPacketMapper.toIpcPacket(envelope)
         var delivered = 0
         for ((cid, conn) in withMainWindowLock { sessionsById.entries.toList() }) {
-            if (!conn.isClosed && conn.sendBody(body)) {
+            if (!conn.isClosed && conn.sendPacket(packet)) {
                 delivered++
             } else {
                 withMainWindowLock { sessionsById.remove(cid) }
@@ -426,7 +431,7 @@ internal class DesktopServiceWorkerHost(
     fun shutdown() {
         if (stopped) return
         stopped = true
-        val byeBody = ServiceWorkerFrameCodec.encodeBinaryBody(
+        val byePacket = DesktopIpcPacketMapper.toIpcPacket(
             ServiceWorkerEnvelope(kind = ServiceWorkerEnvelope.KIND_BYE)
         )
         val conns = withMainWindowLock {
@@ -437,7 +442,7 @@ internal class DesktopServiceWorkerHost(
         }
         for (conn in conns) {
             if (!conn.isClosed) {
-                conn.sendBody(byeBody)
+                conn.sendPacket(byePacket)
                 conn.close()
             }
         }
@@ -449,8 +454,8 @@ internal class DesktopServiceWorkerHost(
         ioScope.cancel()
     }
 
-    private fun collectActiveConnections(): List<DesktopIpcConnection> = withMainWindowLock {
-        val list = mutableListOf<DesktopIpcConnection>()
+    private fun collectActiveConnections(): List<IpcConnection> = withMainWindowLock {
+        val list = mutableListOf<IpcConnection>()
         for ((cid, conn) in sessionsById.entries.toList()) {
             if (conn.isClosed) {
                 sessionsById.remove(cid)
@@ -461,23 +466,25 @@ internal class DesktopServiceWorkerHost(
         list
     }
 
-    private fun handleAcceptedConnection(conn: DesktopIpcConnection) {
+    private fun handleAcceptedConnection(conn: IpcConnection) {
         ioScope.launch {
             var assignedClientId: String? = null
             try {
-                val authBytes = conn.receiveBody(timeoutMs = 3_000)
-                val authEnv = authBytes?.let { ServiceWorkerFrameCodec.decodeBinaryBody(it) }
+                val authPacket = conn.receivePacket(timeoutMs = 3_000)
+                val authEnv = authPacket?.let { DesktopIpcPacketMapper.fromIpcPacket(it) }
+                val presentedToken = authEnv?.payload?.asString()
                 if (authEnv == null ||
                     authEnv.kind != ServiceWorkerEnvelope.KIND_AUTH ||
-                    !constantTimeEquals(authEnv.payloadJson, authToken)
+                    presentedToken == null ||
+                    !constantTimeEquals(presentedToken, authToken)
                 ) {
-                    val errBody = ServiceWorkerFrameCodec.encodeBinaryBody(
+                    val errPacket = DesktopIpcPacketMapper.toIpcPacket(
                         ServiceWorkerEnvelope(
                             kind = ServiceWorkerEnvelope.KIND_AUTH_ERR,
                             error = "Invalid or missing ServiceWorker IPC authentication token."
                         )
                     )
-                    conn.sendBody(errBody)
+                    conn.sendPacket(errPacket)
                     conn.close()
                     return@launch
                 }
@@ -490,13 +497,13 @@ internal class DesktopServiceWorkerHost(
                         sessionsById[cid] = conn
                     }
                 }
-                val okBody = ServiceWorkerFrameCodec.encodeBinaryBody(
+                val okPacket = DesktopIpcPacketMapper.toIpcPacket(
                     ServiceWorkerEnvelope(
                         kind = ServiceWorkerEnvelope.KIND_AUTH_OK,
                         clientId = cid
                     )
                 )
-                if (!conn.sendBody(okBody)) {
+                if (!conn.sendPacket(okPacket)) {
                     if (!isControlClient) {
                         withMainWindowLock {
                             sessionsById.remove(cid)
@@ -524,23 +531,23 @@ internal class DesktopServiceWorkerHost(
                         }
                     }
                     if (deliverQueuedOpen) {
-                        conn.sendBody(
-                            ServiceWorkerFrameCodec.encodeBinaryBody(
+                        conn.sendPacket(
+                            DesktopIpcPacketMapper.toIpcPacket(
                                 ServiceWorkerEnvelope(
                                     kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                                     typeId = ServiceWorkerEnvelope.CONTROL_OPEN_MAIN_WINDOW,
-                                    payloadJson = routeToDeliver.orEmpty()
+                                    payload = routeToDeliver?.let { PreferenceElement.ofString(it) } ?: PreferenceElement.Null
                                 )
                             )
                         )
                     }
                     for (launchReq in queuedFragmentLaunches) {
-                        conn.sendBody(
-                            ServiceWorkerFrameCodec.encodeBinaryBody(
+                        conn.sendPacket(
+                            DesktopIpcPacketMapper.toIpcPacket(
                                 ServiceWorkerEnvelope(
                                     kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                                     typeId = ServiceWorkerEnvelope.CONTROL_LAUNCH_FRAGMENT,
-                                    payloadJson = launchReq.toControlPayloadJson(),
+                                    payload = launchReq.toControlPayloadElement(),
                                     targetFragmentId = launchReq.fragmentId
                                 )
                             )
@@ -549,11 +556,11 @@ internal class DesktopServiceWorkerHost(
                 }
 
                 while (!stopped && !conn.isClosed) {
-                    val frameBytes = conn.receiveBody(timeoutMs = 250) ?: continue
-                    val env = ServiceWorkerFrameCodec.decodeBinaryBody(frameBytes) ?: continue
+                    val framePacket = conn.receivePacket(timeoutMs = 250) ?: continue
+                    val env = DesktopIpcPacketMapper.fromIpcPacket(framePacket) ?: continue
                     if (env.kind == ServiceWorkerEnvelope.KIND_PING) {
-                        conn.sendBody(
-                            ServiceWorkerFrameCodec.encodeBinaryBody(
+                        conn.sendPacket(
+                            DesktopIpcPacketMapper.toIpcPacket(
                                 ServiceWorkerEnvelope(kind = ServiceWorkerEnvelope.KIND_PING, correlationId = env.correlationId)
                             )
                         )
@@ -562,9 +569,7 @@ internal class DesktopServiceWorkerHost(
                     if (env.kind == ServiceWorkerEnvelope.KIND_MESSAGE &&
                         env.typeId == ServiceWorkerEnvelope.CONTROL_REQUEST_ACTIVATE_MAIN_WINDOW
                     ) {
-                        val route = env.payloadJson.trim()
-                            .removeSurrounding("\"")
-                            .takeIf { it.isNotEmpty() && it != "null" }
+                        val route = env.payload.asString()?.takeIf { it.isNotEmpty() }
                         openMainWindow(route)
                         continue
                     }
@@ -572,14 +577,14 @@ internal class DesktopServiceWorkerHost(
                         env.typeId == ServiceWorkerEnvelope.CONTROL_QUERY_SHOULD_OPEN_MAIN_WINDOW
                     ) {
                         val shouldOpen = worker.onMainAppLaunchedWhileRunning()
-                        conn.sendBody(
-                            ServiceWorkerFrameCodec.encodeBinaryBody(
+                        conn.sendPacket(
+                            DesktopIpcPacketMapper.toIpcPacket(
                                 ServiceWorkerEnvelope(
                                     kind = ServiceWorkerEnvelope.KIND_MESSAGE,
                                     correlationId = env.correlationId,
                                     clientId = cid,
                                     typeId = ServiceWorkerEnvelope.CONTROL_QUERY_SHOULD_OPEN_MAIN_WINDOW,
-                                    payloadJson = if (shouldOpen) "true" else "false"
+                                    payload = PreferenceElement.ofBoolean(shouldOpen)
                                 )
                             )
                         )
@@ -588,7 +593,7 @@ internal class DesktopServiceWorkerHost(
                     if (env.kind == ServiceWorkerEnvelope.KIND_MESSAGE &&
                         env.typeId == ServiceWorkerEnvelope.CONTROL_REQUEST_LAUNCH_FRAGMENT
                     ) {
-                        val launchReq = ServiceWorkerFragmentLaunchRequest.fromControlPayloadJson(env.payloadJson)
+                        val launchReq = ServiceWorkerFragmentLaunchRequest.fromControlPayloadElement(env.payload)
                         if (launchReq != null) {
                             requestLaunchFragment(launchReq)
                         }
@@ -626,11 +631,10 @@ internal class DesktopServiceWorkerHost(
     }
 
     private fun constantTimeEquals(a: String, b: String): Boolean {
-        val cleanA = a.removeSurrounding("\"")
-        if (cleanA.length != b.length) return false
+        if (a.length != b.length) return false
         var diff = 0
-        for (i in cleanA.indices) {
-            diff = diff or (cleanA[i].code xor b[i].code)
+        for (i in a.indices) {
+            diff = diff or (a[i].code xor b[i].code)
         }
         return diff == 0
     }
